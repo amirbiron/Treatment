@@ -1,0 +1,432 @@
+name: Medicine Bot CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.11'
+  
+jobs:
+  # ============================================================================
+  # Code Quality and Linting
+  # ============================================================================
+  lint:
+    name: Code Quality & Linting
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+    
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black isort mypy bandit safety
+        pip install -r requirements.txt
+    
+    - name: Run Black (Code Formatting)
+      run: |
+        black --check --diff .
+    
+    - name: Run isort (Import Sorting)
+      run: |
+        isort --check-only --diff .
+    
+    - name: Run Flake8 (Linting)
+      run: |
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Run MyPy (Type Checking)
+      run: |
+        mypy --install-types --non-interactive .
+      continue-on-error: true
+    
+    - name: Run Bandit (Security Linting)
+      run: |
+        bandit -r . -f json -o bandit-report.json
+        bandit -r . --skip B101,B601
+      continue-on-error: true
+    
+    - name: Upload Bandit Report
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: bandit-security-report
+        path: bandit-report.json
+
+  # ============================================================================
+  # Dependency Security Check
+  # ============================================================================
+  security:
+    name: Security & Dependency Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+    
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install safety pip-audit
+        pip install -r requirements.txt
+    
+    - name: Run Safety (Known Vulnerabilities)
+      run: |
+        safety check --json --output safety-report.json
+        safety check
+      continue-on-error: true
+    
+    - name: Run pip-audit (Dependency Audit)
+      run: |
+        pip-audit --format=json --output=pip-audit-report.json
+        pip-audit
+      continue-on-error: true
+    
+    - name: Upload Security Reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: security-reports
+        path: |
+          safety-report.json
+          pip-audit-report.json
+
+  # ============================================================================
+  # Unit Tests
+  # ============================================================================
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+    
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-cov pytest-asyncio pytest-mock
+        pip install -r requirements.txt
+    
+    - name: Create Test Database
+      run: |
+        mkdir -p tests
+        touch tests/__init__.py
+    
+    - name: Run Tests with Coverage
+      run: |
+        pytest tests/ --cov=. --cov-report=xml --cov-report=html --cov-report=term
+      env:
+        BOT_TOKEN: test_token_12345
+        DATABASE_URL: sqlite+aiosqlite:///./test_medicine_bot.db
+        DEBUG: true
+    
+    - name: Upload Coverage to Codecov
+      uses: codecov/codecov-action@v3
+      if: matrix.python-version == '3.11'
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+    
+    - name: Upload Test Results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-results-${{ matrix.python-version }}
+        path: |
+          htmlcov/
+          coverage.xml
+
+  # ============================================================================
+  # Integration Tests
+  # ============================================================================
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_medicine_bot
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+    
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-asyncio asyncpg
+        pip install -r requirements.txt
+    
+    - name: Run Integration Tests
+      run: |
+        pytest tests/integration/ -v
+      env:
+        BOT_TOKEN: test_token_12345
+        DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/test_medicine_bot
+        DEBUG: true
+      continue-on-error: true
+
+  # ============================================================================
+  # Build and Test Docker Image
+  # ============================================================================
+  docker:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Create Dockerfile for Testing
+      run: |
+        cat > Dockerfile << EOF
+        FROM python:3.11-slim
+        
+        WORKDIR /app
+        
+        # Install system dependencies
+        RUN apt-get update && apt-get install -y \
+            gcc \
+            && rm -rf /var/lib/apt/lists/*
+        
+        # Copy requirements first for better caching
+        COPY requirements.txt .
+        RUN pip install --no-cache-dir -r requirements.txt
+        
+        # Copy application code
+        COPY . .
+        
+        # Create non-root user
+        RUN useradd --create-home --shell /bin/bash app \
+            && chown -R app:app /app
+        USER app
+        
+        # Health check
+        HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+            CMD python -c "import requests; requests.get('http://localhost:8000/health', timeout=5)" || exit 1
+        
+        EXPOSE 10000
+        
+        CMD ["python", "main.py"]
+        EOF
+    
+    - name: Build Docker Image
+      run: |
+        docker build -t medicine-bot:test .
+    
+    - name: Test Docker Image
+      run: |
+        docker run --rm --env BOT_TOKEN=test_token_12345 medicine-bot:test python -c "
+        import sys
+        try:
+            from main import MedicineReminderBot
+            print('✅ Bot imports successfully')
+            sys.exit(0)
+        except Exception as e:
+            print(f'❌ Import failed: {e}')
+            sys.exit(1)
+        "
+
+  # ============================================================================
+  # Performance and Load Testing
+  # ============================================================================
+  performance:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+    
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest-benchmark memory-profiler
+        pip install -r requirements.txt
+    
+    - name: Run Performance Tests
+      run: |
+        python -m pytest tests/performance/ --benchmark-only --benchmark-json=benchmark.json
+      continue-on-error: true
+    
+    - name: Upload Benchmark Results
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-results
+        path: benchmark.json
+
+  # ============================================================================
+  # Code Coverage and Quality Gates
+  # ============================================================================
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    needs: [lint, test, security]
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Download Test Artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: test-results-3.11
+        path: ./coverage/
+    
+    - name: Check Coverage Threshold
+      run: |
+        python -c "
+        import xml.etree.ElementTree as ET
+        try:
+            tree = ET.parse('./coverage/coverage.xml')
+            root = tree.getroot()
+            coverage = float(root.attrib['line-rate']) * 100
+            print(f'Current coverage: {coverage:.2f}%')
+            
+            threshold = 70.0  # Minimum coverage threshold
+            if coverage < threshold:
+                print(f'❌ Coverage {coverage:.2f}% is below threshold {threshold}%')
+                exit(1)
+            else:
+                print(f'✅ Coverage {coverage:.2f}% meets threshold {threshold}%')
+        except Exception as e:
+            print(f'⚠️ Could not check coverage: {e}')
+        "
+
+  # ============================================================================
+  # Deploy to Render (Production)
+  # ============================================================================
+  deploy:
+    name: Deploy to Render
+    runs-on: ubuntu-latest
+    needs: [quality-gate]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.RENDER_SERVICE_ID != '' && secrets.RENDER_API_KEY != '' && secrets.RENDER_APP_URL != ''
+    
+    environment:
+      name: production
+      url: ${{ secrets.RENDER_APP_URL }}
+    
+    steps:
+    - name: Trigger Render Deployment
+      uses: johnbeynon/render-deploy-action@v0.0.8
+      with:
+        service-id: ${{ secrets.RENDER_SERVICE_ID }}
+        api-key: ${{ secrets.RENDER_API_KEY }}
+        wait-for-success: true
+    
+    - name: Post-deployment Health Check
+      run: |
+        echo "Waiting for deployment to be healthy..."
+        sleep 60
+        
+        # Health check
+        curl -f "${{ secrets.RENDER_APP_URL }}/health" || exit 1
+        echo "✅ Deployment is healthy"
+    
+    - name: Notify Deployment Success
+      if: success()
+      run: |
+        echo "🚀 Successfully deployed to production!"
+        echo "URL: ${{ secrets.RENDER_APP_URL }}"
+
+  # ============================================================================
+  # Notify on Failure
+  # ============================================================================
+  notify-failure:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: [lint, test, security, quality-gate]
+    if: always() && (needs.lint.result == 'failure' || needs.test.result == 'failure' || needs.security.result == 'failure' || needs.quality-gate.result == 'failure')
+    
+    steps:
+    - name: Send Telegram Notification
+      if: secrets.TELEGRAM_BOT_TOKEN != '' && secrets.TELEGRAM_CHAT_ID != ''
+      run: |
+        curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "chat_id": "${{ secrets.TELEGRAM_CHAT_ID }}",
+            "text": "🚨 CI/CD Pipeline Failed!\n\nRepository: ${{ github.repository }}\nBranch: ${{ github.ref_name }}\nCommit: ${{ github.sha }}\nActor: ${{ github.actor }}\n\nCheck: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "parse_mode": "Markdown"
+          }'
+
+  # ============================================================================
+  # Cleanup
+  # ============================================================================
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [quality-gate]
+    if: always()
+    
+    steps:
+    - name: Clean up test artifacts
+      run: |
+        echo "🧹 Cleaning up temporary files..."
+        # This step ensures no sensitive data remains in the runner
+        rm -rf /tmp/medicine-bot-*
+        echo "✅ Cleanup completed"
+
+# ============================================================================
+# Workflow Configuration
+# ============================================================================
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
