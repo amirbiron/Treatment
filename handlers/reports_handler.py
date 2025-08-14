@@ -330,6 +330,229 @@ class ReportsHandler:
             logger.error(f"Error showing reports menu: {e}")
             await self._send_error_message(update, "שגיאה בהצגת תפריט הדוחות")
     
+    async def start_custom_report(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Entry point for handling custom report selections from callbacks or command."""
+        try:
+            if update.callback_query:
+                data = update.callback_query.data or ""
+                await update.callback_query.answer()
+            else:
+                data = ""
+            
+            # If triggered via command, show the reports menu
+            if not data or data == "generate_report":
+                await self.show_reports_menu(update, context)
+                return ConversationHandler.END
+            
+            # Route based on selection
+            if data == "report_weekly":
+                await self.generate_weekly_report(update, context)
+                return ConversationHandler.END
+            if data == "report_monthly":
+                await self.generate_monthly_report(update, context)
+                return ConversationHandler.END
+            if data == "report_send_doctor":
+                await self.send_to_doctor_flow(update, context)
+                return ConversationHandler.END
+            if data == "report_detailed":
+                # Placeholder detailed report
+                message = f"{config.EMOJIS['info']} דוח מפורט יהיה זמין בקרוב"
+                await update.callback_query.edit_message_text(
+                    message,
+                    reply_markup=get_main_menu_keyboard()
+                )
+                return ConversationHandler.END
+            
+            # Default date range for custom single reports: last 30 days
+            end_date = date.today()
+            start_date = end_date - timedelta(days=30)
+            
+            user_id = update.effective_user.id
+            user = await DatabaseManager.get_user_by_telegram_id(user_id)
+            if not user:
+                await self._send_error_message(update, "משתמש לא נמצא")
+                return ConversationHandler.END
+            
+            report_title = ""
+            report_content = ""
+            
+            if data == "report_adherence":
+                report_title = "דוח נטילת תרופות (30 ימים)"
+                report_content = await self._generate_adherence_report(user.id, start_date, end_date)
+            elif data == "report_symptoms":
+                report_title = "דוח תופעות לוואי (30 ימים)"
+                report_content = await self._generate_symptoms_report(user.id, start_date, end_date)
+            elif data == "report_full":
+                report_title = "דוח מקיף (30 ימים)"
+                adherence = await self._generate_adherence_report(user.id, start_date, end_date)
+                symptoms = await self._generate_symptoms_report(user.id, start_date, end_date)
+                trends = await self._generate_trends_report(user.id, start_date, end_date)
+                report_content = self._combine_reports([adherence, symptoms, trends])
+            else:
+                # Unknown selection -> show menu
+                await self.show_reports_menu(update, context)
+                return ConversationHandler.END
+            
+            message = f"""
+{config.EMOJIS['report']} <b>{report_title}</b>
+📅 {format_date_hebrew(start_date)} - {format_date_hebrew(end_date)}
+
+{report_content}
+            """
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        f"📧 שלח לרופא",
+                        callback_data="report_action_send_doctor"
+                    ),
+                    InlineKeyboardButton(
+                        f"💾 שמור כקובץ",
+                        callback_data="export_report_custom"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        f"{config.EMOJIS['home']} תפריט ראשי",
+                        callback_data="main_menu"
+                    )
+                ]
+            ]
+            await update.callback_query.edit_message_text(
+                message,
+                parse_mode='HTML',
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Error in start_custom_report: {e}")
+            await self._send_error_message(update, "שגיאה ביצירת הדוח")
+            return ConversationHandler.END
+
+    async def handle_report_type_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Placeholder for report type selection during conversations (not used currently)."""
+        try:
+            if update.callback_query:
+                await update.callback_query.answer()
+            # For now, end conversation and show menu
+            await self.show_reports_menu(update, context)
+            return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Error in handle_report_type_selection: {e}")
+            return ConversationHandler.END
+
+    async def handle_date_range_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Placeholder for handling date range selection (not used currently)."""
+        try:
+            if update.callback_query:
+                await update.callback_query.answer()
+            await self.show_reports_menu(update, context)
+            return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Error in handle_date_range_selection: {e}")
+            return ConversationHandler.END
+
+    async def confirm_send_report(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Placeholder confirmation handler for sending reports."""
+        try:
+            if update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.edit_message_text(
+                    f"{config.EMOJIS['success']} הדוח נשלח בהצלחה",
+                    reply_markup=get_main_menu_keyboard()
+                )
+            return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Error in confirm_send_report: {e}")
+            return ConversationHandler.END
+
+    async def cancel_send_report(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Placeholder cancellation handler for sending reports."""
+        return await self.cancel_report(update, context)
+
+    async def send_to_doctor_flow(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Start a minimal flow to send the latest monthly report to a doctor (placeholder)."""
+        try:
+            user_id = update.effective_user.id
+            user = await DatabaseManager.get_user_by_telegram_id(user_id)
+            if not user:
+                await self._send_error_message(update, "משתמש לא נמצא")
+                return ConversationHandler.END
+            
+            end_date = date.today()
+            start_date = end_date - timedelta(days=30)
+            adherence = await self._generate_adherence_report(user.id, start_date, end_date)
+            symptoms = await self._generate_symptoms_report(user.id, start_date, end_date)
+            trends = await self._generate_trends_report(user.id, start_date, end_date)
+            full_report = self._combine_reports([adherence, symptoms, trends])
+            
+            message = f"""
+{config.EMOJIS['report']} <b>שליחת דוח לרופא</b>
+הדוח החודשי האחרון מוכן לשליחה. פונקציית השליחה תתווסף בקרוב.
+
+תוכן הדוח:
+
+{full_report}
+            """
+            if update.callback_query:
+                await update.callback_query.edit_message_text(
+                    message,
+                    parse_mode='HTML',
+                    reply_markup=get_main_menu_keyboard()
+                )
+            else:
+                await update.message.reply_text(
+                    message,
+                    parse_mode='HTML',
+                    reply_markup=get_main_menu_keyboard()
+                )
+            return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Error in send_to_doctor_flow: {e}")
+            await self._send_error_message(update, "שגיאה בשליחת הדוח")
+            return ConversationHandler.END
+
+    async def handle_report_actions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle generic report action buttons like send/share."""
+        try:
+            if not update.callback_query:
+                return ConversationHandler.END
+            data = update.callback_query.data or ""
+            await update.callback_query.answer()
+            if data == "report_action_send_doctor":
+                await self.send_to_doctor_flow(update, context)
+            elif data == "report_action_share":
+                await update.callback_query.edit_message_text(
+                    f"{config.EMOJIS['info']} אפשרויות שיתוף יתמכו בקרוב",
+                    reply_markup=get_main_menu_keyboard()
+                )
+            else:
+                await self.show_reports_menu(update, context)
+            return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Error in handle_report_actions: {e}")
+            await self._send_error_message(update, "שגיאה בפעולת הדוח")
+            return ConversationHandler.END
+
+    async def export_report(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Export report placeholder. Will eventually generate and send a file."""
+        try:
+            if update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.edit_message_text(
+                    f"{config.EMOJIS['info']} יצוא דוחות לקובץ יהיה זמין בקרוב",
+                    reply_markup=get_main_menu_keyboard()
+                )
+            else:
+                await update.message.reply_text(
+                    f"{config.EMOJIS['info']} יצוא דוחות לקובץ יהיה זמין בקרוב",
+                    reply_markup=get_main_menu_keyboard()
+                )
+            return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Error in export_report: {e}")
+            await self._send_error_message(update, "שגיאה ביצוא הדוח")
+            return ConversationHandler.END
+    
     async def _generate_adherence_report(self, user_id: int, start_date: date, end_date: date) -> str:
         """Generate medication adherence report"""
         try:
