@@ -477,6 +477,9 @@ class MedicineReminderBot:
             async def health_handler(request):
                 return web.Response(text="OK", content_type="text/plain")
             
+            async def root_handler(request):
+                return web.Response(text="OK", content_type="text/plain")
+            
             async def telegram_webhook_handler(request):
                 # Optional secret token validation
                 if secret_token:
@@ -497,6 +500,8 @@ class MedicineReminderBot:
             
             # Routes
             app.router.add_get("/health", health_handler)
+            app.router.add_get("/", root_handler)
+            app.router.add_route("HEAD", "/", root_handler)
             app.router.add_post(config.WEBHOOK_PATH, telegram_webhook_handler)
             
             runner = web.AppRunner(app)
