@@ -53,10 +53,7 @@ class MedicineReminderBot:
             builder = Application.builder()
             builder.token(config.BOT_TOKEN)
             
-            # Configure for webhook if in production
-            if config.is_production():
-                builder.updater(None)  # Disable polling for webhook mode
-            
+            # Note: Keep Updater enabled to support run_webhook
             self.application = builder.build()
             
             # Set up bot reference for scheduler
