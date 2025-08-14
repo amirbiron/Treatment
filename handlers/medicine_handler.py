@@ -677,6 +677,54 @@ class MedicineHandler:
             )
             return ConversationHandler.END
 
+    async def edit_medicine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle request to edit medicine details (placeholder)."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            
+            # Expect callback data like: medicine_edit_<id>
+            parts = query.data.split("_")
+            medicine_id = int(parts[2]) if len(parts) > 2 else None
+            if not medicine_id:
+                await query.edit_message_text(
+                    f"{config.EMOJIS['error']} שגיאה: לא נמצא מזהה התרופה"
+                )
+                return ConversationHandler.END
+            
+            medicine = await DatabaseManager.get_medicine_by_id(medicine_id)
+            if not medicine:
+                await query.edit_message_text(
+                    f"{config.EMOJIS['error']} התרופה לא נמצאה"
+                )
+                return ConversationHandler.END
+            
+            message = f"""
+{config.EMOJIS['settings']} <b>עריכת תרופה</b>
+
+פיצ׳ר עריכת פרטי התרופה יתווסף בקרוב.
+בינתיים ניתן:
+- לעדכן מלאי
+- לצפות בפרטי התרופה
+            """
+            
+            await query.edit_message_text(
+                message,
+                parse_mode='HTML',
+                reply_markup=get_medicine_detail_keyboard(medicine_id)
+            )
+            
+            return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Error handling edit medicine: {e}")
+            try:
+                await update.callback_query.edit_message_text(
+                    f"{config.EMOJIS['error']} שגיאה בעריכת התרופה"
+                )
+            except Exception:
+                pass
+            return ConversationHandler.END
+
 
 # Global instance
 medicine_handler = MedicineHandler()
