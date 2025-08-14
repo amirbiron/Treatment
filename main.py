@@ -21,8 +21,7 @@ from telegram.ext import (
 )
 from telegram.error import TelegramError
 from aiohttp import web
-from telegram.inline.inlinekeyboardbutton import InlineKeyboardButton
-from telegram.inline.inlinekeyboardmarkup import InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import config
 from database import init_database, DatabaseManager
