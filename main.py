@@ -132,7 +132,6 @@ class MedicineReminderBot:
             
             await update.message.reply_text(
                 config.WELCOME_MESSAGE,
-                parse_mode='Markdown',
                 reply_markup=get_main_menu_keyboard()
             )
             
@@ -144,8 +143,7 @@ class MedicineReminderBot:
         """Handle /help command"""
         try:
             await update.message.reply_text(
-                config.HELP_MESSAGE,
-                parse_mode='Markdown'
+                config.HELP_MESSAGE
             )
         except Exception as e:
             logger.error(f"Error in help command: {e}")
@@ -164,7 +162,6 @@ class MedicineReminderBot:
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
                 reply_markup=get_settings_keyboard()
             )
             
@@ -185,7 +182,6 @@ class MedicineReminderBot:
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
                 reply_markup=get_cancel_keyboard()
             )
             
@@ -231,7 +227,6 @@ class MedicineReminderBot:
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
                 reply_markup=get_medicines_keyboard(medicines if medicines else [])
             )
             
@@ -354,8 +349,7 @@ class MedicineReminderBot:
                         message += f"⏰ {time_str} - {job['name']}\n"
             
             await update.message.reply_text(
-                message,
-                parse_mode='Markdown'
+                message
             )
             
         except Exception as e:
@@ -380,7 +374,6 @@ class MedicineReminderBot:
                 from utils.keyboards import get_main_menu_keyboard
                 await query.edit_message_text(
                     config.WELCOME_MESSAGE,
-                    parse_mode='Markdown',
                     reply_markup=get_main_menu_keyboard()
                 )
             elif data.startswith("medicine_") or data.startswith("medicines_"):
@@ -501,7 +494,6 @@ class MedicineReminderBot:
                         message += f"   📦 מלאי: {medicine.inventory_count}{inventory_warning}\n\n"
                 await query.edit_message_text(
                     message,
-                    parse_mode='Markdown',
                     reply_markup=get_medicines_keyboard(medicines if medicines else [])
                 )
                 return
@@ -517,8 +509,7 @@ class MedicineReminderBot:
                 # Switch to conversation-like state
                 context.user_data['adding_medicine'] = {'step': 'name'}
                 await query.edit_message_text(
-                    message,
-                    parse_mode='Markdown'
+                    message
                 )
                 return
             
@@ -537,7 +528,6 @@ class MedicineReminderBot:
                 ]
                 await query.edit_message_text(
                     "\n".join(details),
-                    parse_mode='Markdown',
                     reply_markup=get_medicine_detail_keyboard(medicine.id)
                 )
                 return

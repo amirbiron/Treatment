@@ -116,7 +116,6 @@ class ReminderHandler:
             
             await query.edit_message_text(
                 message,
-                parse_mode='Markdown',
                 reply_markup=self._get_post_dose_keyboard(medicine_id)
             )
             
@@ -168,7 +167,6 @@ class ReminderHandler:
             
             await query.edit_message_text(
                 message,
-                parse_mode='Markdown',
                 reply_markup=self._get_snooze_keyboard(medicine_id)
             )
             
@@ -208,7 +206,6 @@ class ReminderHandler:
             
             await query.edit_message_text(
                 message,
-                parse_mode='Markdown',
                 reply_markup=get_confirmation_keyboard("skip", medicine_id)
             )
             
@@ -275,7 +272,6 @@ class ReminderHandler:
             
             await query.edit_message_text(
                 message,
-                parse_mode='Markdown',
                 reply_markup=get_main_menu_keyboard()
             )
             
@@ -318,7 +314,6 @@ class ReminderHandler:
             
             await query.edit_message_text(
                 message,
-                parse_mode='Markdown',
                 reply_markup=get_reminder_keyboard(medicine_id)
             )
             
@@ -361,7 +356,6 @@ class ReminderHandler:
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
                 reply_markup=get_main_menu_keyboard()
             )
             
@@ -412,7 +406,6 @@ class ReminderHandler:
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
                 reply_markup=get_main_menu_keyboard()
             )
             
@@ -464,7 +457,6 @@ class ReminderHandler:
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
                 reply_markup=get_main_menu_keyboard()
             )
             
