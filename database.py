@@ -454,62 +454,62 @@ class DatabaseManager:
             )
             return list(result.scalars().all())
 
-	@staticmethod
-	async def create_symptom_log(
-		user_id: int,
-		log_date: datetime,
-		symptoms: str = None,
-		side_effects: str = None,
-		mood_score: int = None,
-		notes: str = None
-	) -> "SymptomLog":
-		"""Create a new symptom/side-effects log entry."""
-		async with async_session() as session:
-			log = SymptomLog(
-				user_id=user_id,
-				log_date=log_date,
-				symptoms=symptoms,
-				side_effects=side_effects,
-				mood_score=mood_score,
-				notes=notes
-			)
-			session.add(log)
-			await session.commit()
-			await session.refresh(log)
-			return log
+    @staticmethod
+    async def create_symptom_log(
+        user_id: int,
+        log_date: datetime,
+        symptoms: str = None,
+        side_effects: str = None,
+        mood_score: int = None,
+        notes: str = None
+    ) -> "SymptomLog":
+        """Create a new symptom/side-effects log entry."""
+        async with async_session() as session:
+            log = SymptomLog(
+                user_id=user_id,
+                log_date=log_date,
+                symptoms=symptoms,
+                side_effects=side_effects,
+                mood_score=mood_score,
+                notes=notes
+            )
+            session.add(log)
+            await session.commit()
+            await session.refresh(log)
+            return log
 
-	@staticmethod
-	async def update_medicine(
-		medicine_id: int,
-		name: Optional[str] = None,
-		dosage: Optional[str] = None,
-		notes: Optional[str] = None
-	) -> Optional["Medicine"]:
-		"""Update medicine fields (name/dosage/notes)."""
-		async with async_session() as session:
-			medicine = await session.get(Medicine, medicine_id)
-			if not medicine:
-				return None
-			if name is not None:
-				medicine.name = name
-			if dosage is not None:
-				medicine.dosage = dosage
-			if notes is not None:
-				medicine.notes = notes
-			await session.commit()
-			await session.refresh(medicine)
-			return medicine
+    @staticmethod
+    async def update_medicine(
+        medicine_id: int,
+        name: Optional[str] = None,
+        dosage: Optional[str] = None,
+        notes: Optional[str] = None
+    ) -> Optional["Medicine"]:
+        """Update medicine fields (name/dosage/notes)."""
+        async with async_session() as session:
+            medicine = await session.get(Medicine, medicine_id)
+            if not medicine:
+                return None
+            if name is not None:
+                medicine.name = name
+            if dosage is not None:
+                medicine.dosage = dosage
+            if notes is not None:
+                medicine.notes = notes
+            await session.commit()
+            await session.refresh(medicine)
+            return medicine
 
-	@staticmethod
-	async def set_medicine_active(medicine_id: int, is_active: bool) -> bool:
-		"""Enable/disable a medicine."""
-		async with async_session() as session:
-			medicine = await session.get(Medicine, medicine_id)
-			if not medicine:
-				return False
-			medicine.is_active = is_active
-			await session.commit()
-			return True
+    @staticmethod
+    async def set_medicine_active(medicine_id: int, is_active: bool) -> bool:
+        """Enable/disable a medicine."""
+        async with async_session() as session:
+            medicine = await session.get(Medicine, medicine_id)
+            if not medicine:
+                return False
+            medicine.is_active = is_active
+            await session.commit()
+            return True
 
 	@staticmethod
 	async def update_user_timezone(user_id: int, timezone: str) -> bool:
