@@ -329,7 +329,7 @@ class CaregiverHandler:
             relationship = self.relationship_types[rel_index]
             
             # Store relationship
-            self.user_caregiver_data[user_id]['relationship'] = relationship
+            self.user_caregiver_data[user_id]['relationship_type'] = relationship
             
             # Create permissions keyboard
             keyboard = []
@@ -392,7 +392,7 @@ class CaregiverHandler:
                 return CAREGIVER_RELATIONSHIP
             
             # Store relationship
-            self.user_caregiver_data[user_id]['relationship'] = relationship
+            self.user_caregiver_data[user_id]['relationship_type'] = relationship
             
             # Create permissions keyboard
             keyboard = []
@@ -453,7 +453,7 @@ class CaregiverHandler:
 
 {config.EMOJIS['caregiver']} **פרטי המטפל:**
 • שם: {data['caregiver_name']}
-• קשר: {data['relationship']}
+• קשר: {data['relationship_type']}
 • הרשאות: {perm_desc}
 • מזהה טלגרם: {data['caregiver_telegram_id']}
 
@@ -541,7 +541,7 @@ class CaregiverHandler:
                     perm_desc = self.permission_levels.get(caregiver.permissions, caregiver.permissions)
                     
                     message += f"{status_emoji} **{caregiver.caregiver_name}**\n"
-                    message += f"   👤 {caregiver.relationship}\n"
+                    message += f"   👤 {caregiver.relationship_type}\n"
                     message += f"   🔐 {perm_desc}\n"
                     message += f"   📅 נוסף: {caregiver.created_at.strftime('%d/%m/%Y')}\n\n"
                 
@@ -606,7 +606,7 @@ class CaregiverHandler:
                 user_id=data['user_id'],
                 caregiver_telegram_id=data['caregiver_telegram_id'],
                 caregiver_name=data['caregiver_name'],
-                relationship=data['relationship'],
+                relationship=data['relationship_type'],
                 permissions=data['permissions']
             )
             
@@ -627,7 +627,7 @@ class CaregiverHandler:
 {config.EMOJIS['caregiver']} **הוזמנתם כמטפל**
 
 👤 **מטופל:** {user.first_name} {user.last_name or ''}
-🏥 **קשר:** {caregiver_data['relationship']}
+🏥 **קשר:** {caregiver_data['relationship_type']}
 🔐 **הרשאות:** {self.permission_levels.get(caregiver_data['permissions'], caregiver_data['permissions'])}
 
 אתם יכולים עכשיו לקבל דוחות על נטילת התרופות ולעזור במעקב.

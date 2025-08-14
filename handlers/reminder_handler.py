@@ -77,8 +77,7 @@ class ReminderHandler:
             dose_log = await DatabaseManager.log_dose_taken(
                 medicine_id=medicine_id,
                 scheduled_time=now,
-                taken_at=now,
-                status="taken"
+                taken_at=now
             )
             
             # Update inventory (reduce by 1)
@@ -251,8 +250,7 @@ class ReminderHandler:
             now = datetime.now()
             await DatabaseManager.log_dose_skipped(
                 medicine_id=medicine_id,
-                scheduled_time=now,
-                status="skipped"
+                scheduled_time=now
             )
             
             # Reset reminder attempts
