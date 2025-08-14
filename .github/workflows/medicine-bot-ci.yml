@@ -147,15 +147,7 @@ jobs:
         DATABASE_URL: sqlite+aiosqlite:///./test_medicine_bot.db
         DEBUG: true
     
-    - name: Upload Coverage to Codecov
-      uses: codecov/codecov-action@v4
-      if: matrix.python-version == '3.11'
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        files: ./coverage.xml
-        flags: unittests
-        name: codecov-umbrella
-        fail_ci_if_error: false
+    # Skipping Codecov upload (no secrets)
     
     - name: Upload Test Results
       uses: actions/upload-artifact@v3
