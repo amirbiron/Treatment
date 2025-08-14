@@ -469,6 +469,9 @@ class MedicineReminderBot:
             )
             
             # Start webhook server
+            # NOTE: Application.run_webhook is a blocking/synchronous helper that manages the loop internally.
+            # Calling it with await inside an already running event loop (asyncio.run) will crash on Python 3.13.
+            # Therefore we keep this async variant for non-production use, but prefer the sync variant below in production.
             await self.application.run_webhook(
                 listen="0.0.0.0",
                 port=config.WEBHOOK_PORT,
@@ -479,6 +482,34 @@ class MedicineReminderBot:
         except Exception as e:
             logger.error(f"Failed to run webhook: {e}")
             raise
+
+    def run_webhook_sync(self):
+        """Run bot in webhook mode using the synchronous helper to avoid loop-closing errors on Render."""
+        webhook_url = config.get_webhook_url()
+        if not webhook_url:
+            raise ValueError("Webhook URL not configured")
+        
+        logger.info(f"Starting webhook server on port {config.WEBHOOK_PORT}")
+        logger.info(f"Webhook URL: {webhook_url}")
+        
+        # Initialize app components in a short-lived loop
+        async def _init_and_set_webhook():
+            await self.application.initialize()
+            await self.application.start()
+            await self.application.bot.set_webhook(
+                url=webhook_url,
+                allowed_updates=["message", "callback_query"]
+            )
+        
+        asyncio.run(_init_and_set_webhook())
+        
+        # Use the synchronous helper which manages the event loop internally.
+        self.application.run_webhook(
+            listen="0.0.0.0",
+            port=config.WEBHOOK_PORT,
+            webhook_url=webhook_url,
+            secret_token=config.BOT_TOKEN[-32:] if len(config.BOT_TOKEN) >= 32 else None
+        )
     
     async def run_polling(self):
         """Run bot in polling mode (for development)"""
@@ -554,4 +585,17 @@ async def main():
 
 if __name__ == "__main__":
     # Entry point for the application
-    asyncio.run(main())
+    if config.is_production():
+        # In production (Render), use the synchronous webhook runner to avoid
+        # "Cannot close a running event loop" errors on Python 3.13.
+        bot = MedicineReminderBot()
+        try:
+            asyncio.run(bot.initialize())
+            bot.run_webhook_sync()
+        except KeyboardInterrupt:
+            logger.info("Bot stopped by user")
+        finally:
+            asyncio.run(bot.shutdown())
+    else:
+        # Development: use the async polling runner
+        asyncio.run(main())

@@ -21,7 +21,7 @@ def validate_medicine_name(name: Optional[str]) -> Tuple[bool, str]:
 	if len(name) > 200:
 		return False, "שם ארוך מדי"
 	# Allow Hebrew, English letters, digits, spaces, dash, quotes, mg symbols like מ"ג
-	if not re.match(r"^[\w\s\-""'א-ת]+$", name, re.UNICODE):
+	if not re.match(r"^[\w\s\-\"'א-ת]+$", name, re.UNICODE):
 		return False, "שם מכיל תווים לא חוקיים"
 	return True, ""
 
@@ -51,6 +51,7 @@ def _hebrew_number_to_float(text: str) -> Optional[float]:
 		"שמונה": 8,
 		"תשע": 9,
 		"עשר": 10,
+		"עשרה": 10,
 	}
 	return float(mapping[text]) if text in mapping else None
 
@@ -209,7 +210,12 @@ def format_list_hebrew(items: Sequence[str], conjunction: str = "ו") -> str:
 	if len(items) == 1:
 		return items[0]
 	if len(items) == 2:
-		return f"{items[0]} {conjunction}{items[1]}"
+		# For the Hebrew conjunction 'ו' (which attaches to the next word), do not add a space.
+		# For other conjunctions like 'או', add spaces around the conjunction.
+		if conjunction.strip() == "ו":
+			return f"{items[0]} {conjunction}{items[1]}"
+		else:
+			return f"{items[0]} {conjunction} {items[1]}"
 	return ", ".join(items[:-1]) + f" {conjunction}{items[-1]}"
 
 

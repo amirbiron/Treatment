@@ -1,0 +1,6 @@
+[flake8]
+max-line-length = 127
+extend-ignore = E203, W503
+exclude = .git, __pycache__, build, dist, .venv, venv, .mypy_cache, .pytest_cache, htmlcov, .github
+show-source = true
+statistics = true
