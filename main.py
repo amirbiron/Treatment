@@ -279,7 +279,7 @@ class MedicineReminderBot:
             
             await DatabaseManager.update_inventory(selected.id, new_count)
             await update.message.reply_text(
-                f"{config.EMOJES['success']} עודכן מלאי לתרופה {selected.name}: {new_count}"
+                f"{config.EMOJIS['success']} עודכן מלאי לתרופה {selected.name}: {new_count}"
             )
         
         except Exception as e:
@@ -345,9 +345,9 @@ class MedicineReminderBot:
             jobs = medicine_scheduler.get_scheduled_jobs(user.id)
             
             if not jobs:
-                message = f"{config.EMOJES['info']} אין תזכורות מתוזמנות"
+                message = f"{config.EMOJIS['info']} אין תזכורות מתוזמנות"
             else:
-                message = f"{config.EMOJES['clock']} *התזכורות הבאות:*\n\n"
+                message = f"{config.EMOJIS['clock']} *התזכורות הבאות:*\n\n"
                 for job in sorted(jobs, key=lambda x: x['next_run']):
                     if job['next_run']:
                         time_str = job['next_run'].strftime('%H:%M')
@@ -376,7 +376,14 @@ class MedicineReminderBot:
                 await self._handle_dose_taken(query, context)
             elif data.startswith("dose_snooze_"):
                 await self._handle_dose_snooze(query, context)
-            elif data.startswith("medicine_"):
+            elif data == "main_menu":
+                from utils.keyboards import get_main_menu_keyboard
+                await query.edit_message_text(
+                    config.WELCOME_MESSAGE,
+                    parse_mode='Markdown',
+                    reply_markup=get_main_menu_keyboard()
+                )
+            elif data.startswith("medicine_") or data.startswith("medicines_"):
                 await self._handle_medicine_action(query, context)
             elif data.startswith("settings_"):
                 await self._handle_settings_action(query, context)
@@ -406,7 +413,7 @@ class MedicineReminderBot:
         medicine_scheduler.reminder_attempts[reminder_key] = 0
         
         await query.edit_message_text(
-            f"{config.EMOJES['success']} נטילת התרופה אושרה!\n"
+            f"{config.EMOJIS['success']} נטילת התרופה אושרה!\n"
             f"מלאי נותר: {new_count if medicine else 'לא ידוע'} כדורים"
         )
     
@@ -419,15 +426,244 @@ class MedicineReminderBot:
         job_id = await medicine_scheduler.schedule_snooze_reminder(user_id, medicine_id)
         
         await query.edit_message_text(
-            f"{config.EMOJES['clock']} תזכורת נדחתה ל-{config.REMINDER_SNOOZE_MINUTES} דקות"
+            f"{config.EMOJIS['clock']} תזכורת נדחתה ל-{config.REMINDER_SNOOZE_MINUTES} דקות"
         )
     
+    async def _handle_add_medicine_flow(self, update: Update, context):
+        """Very simple add-medicine text flow: name -> dosage -> create"""
+        try:
+            user = update.effective_user
+            db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
+            if not db_user:
+                await update.message.reply_text("אנא התחילו עם /start")
+                context.user_data.pop('adding_medicine', None)
+                return
+            state = context.user_data.get('adding_medicine', {})
+            step = state.get('step')
+            text = (update.message.text or "").strip()
+            
+            if step == 'name':
+                state['name'] = text
+                state['step'] = 'dosage'
+                context.user_data['adding_medicine'] = state
+                await update.message.reply_text("מה המינון? למשל: 10mg פעמיים ביום")
+                return
+            
+            if step == 'dosage':
+                name = state.get('name')
+                dosage = text
+                # Create medicine with defaults
+                await DatabaseManager.create_medicine(
+                    user_id=db_user.id,
+                    name=name,
+                    dosage=dosage,
+                )
+                context.user_data.pop('adding_medicine', None)
+                await update.message.reply_text(
+                    f"{config.EMOJIS['success']} התרופה נוספה בהצלחה!",
+                )
+                await self.my_medicines_command(update, context)
+                return
+            
+            # Unknown step -> reset
+            context.user_data.pop('adding_medicine', None)
+            await update.message.reply_text(config.ERROR_MESSAGES['invalid_input'])
+        except Exception as exc:
+            logger.error(f"Error in _handle_add_medicine_flow: {exc}")
+            context.user_data.pop('adding_medicine', None)
+            await update.message.reply_text(config.ERROR_MESSAGES['general'])
+    
+    async def _handle_medicine_action(self, query, context):
+        """Handle medicine-related inline actions"""
+        from utils.keyboards import (
+            get_medicines_keyboard,
+            get_medicine_detail_keyboard,
+        )
+        try:
+            data = query.data
+            user = query.from_user
+            
+            # Back to medicines list
+            if data == "medicines_list":
+                db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
+                medicines = await DatabaseManager.get_user_medicines(db_user.id) if db_user else []
+                if not medicines:
+                    message = f"{config.EMOJIS['info']} *אין תרופות רשומות*\n\nלחצו על /add_medicine כדי להוסיף תרופה ראשונה."
+                else:
+                    message = f"{config.EMOJIS['medicine']} *התרופות שלכם:*\n\n"
+                    for medicine in medicines:
+                        status_emoji = config.EMOJIS['success'] if medicine.is_active else config.EMOJIS['error']
+                        inventory_warning = ""
+                        if medicine.inventory_count <= medicine.low_stock_threshold:
+                            inventory_warning = f" {config.EMOJIS['warning']}"
+                        message += f"{status_emoji} *{medicine.name}*\n"
+                        message += f"   💊 {medicine.dosage}\n"
+                        message += f"   📦 מלאי: {medicine.inventory_count}{inventory_warning}\n\n"
+                await query.edit_message_text(
+                    message,
+                    parse_mode='Markdown',
+                    reply_markup=get_medicines_keyboard(medicines if medicines else [])
+                )
+                return
+            
+            # Add medicine flow entry point (prompt via inline)
+            if data == "medicine_add":
+                from utils.keyboards import get_cancel_keyboard
+                message = f"""
+{config.EMOJIS['medicine']} *הוספת תרופה חדשה*
+
+אנא שלחו את שם התרופה:
+                """
+                # Switch to conversation-like state
+                context.user_data['adding_medicine'] = {'step': 'name'}
+                await query.edit_message_text(
+                    message,
+                    parse_mode='Markdown'
+                )
+                return
+            
+            # View one medicine details
+            if data.startswith("medicine_view_"):
+                medicine_id = int(data.split("_")[2])
+                medicine = await DatabaseManager.get_medicine_by_id(medicine_id)
+                if not medicine:
+                    await query.edit_message_text(config.ERROR_MESSAGES["medicine_not_found"]) 
+                    return
+                details = [
+                    f"{config.EMOJIS['medicine']} *{medicine.name}*",
+                    f"💊 מינון: {medicine.dosage}",
+                    f"📦 מלאי: {medicine.inventory_count}",
+                    f"⚙️ סטטוס: {'פעילה' if medicine.is_active else 'מושבתת'}",
+                ]
+                await query.edit_message_text(
+                    "\n".join(details),
+                    parse_mode='Markdown',
+                    reply_markup=get_medicine_detail_keyboard(medicine.id)
+                )
+                return
+            
+            # Inventory/schedule/edit/history/toggle actions - stubs for now
+            if data.startswith("medicine_inventory_"):
+                medicine_id = int(data.split("_")[2])
+                await query.edit_message_text(
+                    f"שלחו את הכמות החדשה למלאי עבור תרופה {medicine_id}")
+                context.user_data['updating_inventory_for'] = medicine_id
+                return
+            
+            if data.startswith("medicine_schedule_"):
+                await query.edit_message_text("עדכון שעות יתווסף בקרוב")
+                return
+            
+            if data.startswith("medicine_edit_"):
+                await query.edit_message_text("עריכת פרטי תרופה תתווסף בקרוב")
+                return
+            
+            if data.startswith("medicine_history_"):
+                await query.edit_message_text("היסטוריית נטילה תתווסף בקרוב")
+                return
+            
+            if data.startswith("medicine_toggle_"):
+                await query.edit_message_text("הפעלת/השבתת תרופה תתווסף בקרוב")
+                return
+            
+            # Fallback
+            await query.edit_message_text("פעולת תרופות לא נתמכת")
+        except Exception as exc:
+            logger.error(f"Error in _handle_medicine_action: {exc}")
+            await query.edit_message_text(config.ERROR_MESSAGES["general"])
+    
+    async def _handle_settings_action(self, query, context):
+        """Handle settings-related inline actions"""
+        try:
+            data = query.data
+            if data == "settings_timezone":
+                await query.edit_message_text("בחירת אזור זמן תתווסף בקרוב")
+            elif data == "settings_reminders":
+                await query.edit_message_text("הגדרות תזכורות יתווספו בקרוב")
+            elif data == "settings_inventory":
+                await query.edit_message_text("הגדרות מלאי יתווספו בקרוב")
+            elif data == "settings_caregivers":
+                await query.edit_message_text("הגדרות מטפלים יתווספו בקרוב")
+            elif data == "settings_reports":
+                await query.edit_message_text("הגדרות דוחות יתווספו בקרוב")
+            else:
+                await query.edit_message_text("הגדרות לא נתמכות")
+        except Exception as exc:
+            logger.error(f"Error in _handle_settings_action: {exc}")
+            await query.edit_message_text(config.ERROR_MESSAGES["general"])
+        
     async def handle_text_message(self, update: Update, context):
         """Handle regular text messages (for conversation flows)"""
         try:
             # This would handle conversation states for adding medicines, etc.
             # For now, just acknowledge
             user_data = context.user_data
+            
+            text = (update.message.text or "").strip()
+            
+            # Route main menu buttons by text
+            from utils.keyboards import (
+                get_main_menu_keyboard,
+                get_settings_keyboard,
+                get_caregiver_keyboard,
+                get_symptoms_keyboard,
+            )
+            
+            buttons = {
+                f"{config.EMOJIS['medicine']} התרופות שלי": "my_medicines",
+                f"{config.EMOJIS['reminder']} תזכורות": "reminders",
+                f"{config.EMOJIS['inventory']} מלאי": "inventory",
+                f"{config.EMOJIS['symptoms']} תופעות לוואי": "symptoms",
+                f"{config.EMOJIS['report']} דוחות": "reports",
+                f"{config.EMOJIS['caregiver']} מטפלים": "caregivers",
+                f"{config.EMOJIS['settings']} הגדרות": "settings",
+                f"{config.EMOJIS['info']} עזרה": "help",
+            }
+            
+            # Inventory update inline flow via text
+            if 'updating_inventory_for' in user_data:
+                medicine_id = user_data.get('updating_inventory_for')
+                try:
+                    new_count = float(text)
+                except ValueError:
+                    await update.message.reply_text("אנא הזינו מספר תקין לכמות המלאי")
+                    return
+                await DatabaseManager.update_inventory(int(medicine_id), new_count)
+                user_data.pop('updating_inventory_for', None)
+                await update.message.reply_text(f"{config.EMOJIS['success']} המלאי עודכן")
+                await self.my_medicines_command(update, context)
+                return
+            
+            if text in buttons:
+                action = buttons[text]
+                if action == "my_medicines" or action == "inventory":
+                    await self.my_medicines_command(update, context)
+                    return
+                if action == "reminders":
+                    await self.next_reminders_command(update, context)
+                    return
+                if action == "settings":
+                    await self.settings_command(update, context)
+                    return
+                if action == "caregivers":
+                    from utils.keyboards import get_caregiver_keyboard
+                    await update.message.reply_text(
+                        "ניהול מטפלים:",
+                        reply_markup=get_caregiver_keyboard()
+                    )
+                    return
+                if action == "symptoms":
+                    await update.message.reply_text(
+                        "מעקב סימפטומים:",
+                        reply_markup=get_symptoms_keyboard()
+                    )
+                    return
+                if action == "reports":
+                    await update.message.reply_text("תפריט דוחות יתווסף בקרוב")
+                    return
+                if action == "help":
+                    await self.help_command(update, context)
+                    return
             
             if 'adding_medicine' in user_data:
                 await self._handle_add_medicine_flow(update, context)
