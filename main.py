@@ -450,7 +450,7 @@ class MedicineReminderBot:
             )
     
     async def run_webhook(self):
-        """Run bot in webhook mode (for production)"""
+        """Run bot in webhook mode (for production) with health endpoint."""
         try:
             webhook_url = config.get_webhook_url()
             if not webhook_url:
@@ -463,16 +463,51 @@ class MedicineReminderBot:
             await self.application.initialize()
             await self.application.start()
             
-            # Run telegram webhook server (blocks until stopped)
-            await self.application.run_webhook(
-                listen="0.0.0.0",
-                port=config.WEBHOOK_PORT,
-                url_path=config.WEBHOOK_PATH.lstrip('/'),
-                webhook_url=webhook_url,
+            # Configure webhook at Telegram side with secret token
+            secret_token = (config.BOT_TOKEN[-32:] if len(config.BOT_TOKEN) >= 32 else None)
+            await self.application.bot.set_webhook(
+                url=webhook_url,
                 allowed_updates=["message", "callback_query"],
-                secret_token=(config.BOT_TOKEN[-32:] if len(config.BOT_TOKEN) >= 32 else None),
-                close_loop=False
+                secret_token=secret_token
             )
+            
+            # Build aiohttp app with /health and webhook handlers
+            app = web.Application()
+            
+            async def health_handler(request):
+                return web.Response(text="OK", content_type="text/plain")
+            
+            async def telegram_webhook_handler(request):
+                # Optional secret token validation
+                if secret_token:
+                    received = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+                    if received != secret_token:
+                        return web.Response(status=401, text="Invalid secret token")
+                try:
+                    data = await request.json()
+                except Exception:
+                    return web.Response(status=400, text="Invalid JSON")
+                try:
+                    update = Update.de_json(data, self.application.bot)
+                    await self.application.process_update(update)
+                except Exception as exc:
+                    logger.error(f"Failed to process update: {exc}")
+                    return web.Response(status=500, text="Failed to process update")
+                return web.Response(text="OK")
+            
+            # Routes
+            app.router.add_get("/health", health_handler)
+            app.router.add_post(config.WEBHOOK_PATH, telegram_webhook_handler)
+            
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, host="0.0.0.0", port=config.WEBHOOK_PORT)
+            await site.start()
+            
+            logger.info("Webhook server is up")
+            
+            # Block forever
+            await asyncio.Event().wait()
             
         except Exception as e:
             logger.error(f"Failed to run webhook: {e}")
