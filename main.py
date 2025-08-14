@@ -501,7 +501,6 @@ class MedicineReminderBot:
             # Routes
             app.router.add_get("/health", health_handler)
             app.router.add_get("/", root_handler)
-            app.router.add_route("HEAD", "/", root_handler)
             app.router.add_post(config.WEBHOOK_PATH, telegram_webhook_handler)
             
             runner = web.AppRunner(app)

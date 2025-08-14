@@ -97,13 +97,17 @@ def validate_telegram_id(value: Any) -> Tuple[bool, str]:
 def validate_phone_number(phone: Optional[str]) -> Tuple[bool, str]:
 	if not phone:
 		return False, "מספר טלפון נדרש"
-	p = phone.strip()
-	pattern = re.compile(r"^(?:\+972|0)(?:[2-9]|5\d)\-?\s?\d{7,8}$")
-	# Accept formats like 050-123-4567, 050 123 4567, +972501234567, 021234567
-	p_norm = p.replace(" ", "").replace("-", "")
-	if re.match(r"^(\+972|0)\d{8,10}$", p_norm):
+	p_norm = re.sub(r"[\s-]", "", phone.strip())
+	# Accept mobile numbers starting with 05X (total 10 digits)
+	if re.match(r"^05\d{8}$", p_norm):
 		return True, ""
-	if pattern.match(p):
+	# Accept landline numbers for area code 02 (total 9 digits)
+	if re.match(r"^02\d{7}$", p_norm):
+		return True, ""
+	# International formats
+	if re.match(r"^\+9725\d{8}$", p_norm):
+		return True, ""
+	if re.match(r"^\+9722\d{7}$", p_norm):
 		return True, ""
 	return False, "מספר טלפון לא תקין"
 
@@ -198,9 +202,13 @@ def clean_text(text: Optional[str], max_length: Optional[int] = None) -> str:
 def truncate_text(text: Optional[str], max_length: int) -> str:
 	if not text:
 		return ""
+	if max_length <= 0:
+		return ""
 	if len(text) <= max_length:
 		return text
-	return text[:max_length] + "..."
+	if max_length <= 3:
+		return "." * max_length
+	return text[: max_length - 3] + "..."
 
 
 def format_list_hebrew(items: Sequence[str], conjunction: str = "ו") -> str:
