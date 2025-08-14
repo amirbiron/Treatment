@@ -692,5 +692,130 @@ class CaregiverHandler:
             logger.error(f"Error sending error message: {e}")
 
 
+    # ===== Missing handlers (minimal implementations) =====
+    async def caregiver_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show caregiver settings menu (minimal)."""
+        try:
+            from utils.keyboards import get_caregiver_keyboard
+            message = f"{config.EMOJIS['caregiver']} ניהול מטפלים"
+            if update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.edit_message_text(
+                    message,
+                    reply_markup=get_caregiver_keyboard()
+                )
+            else:
+                await update.message.reply_text(
+                    message,
+                    reply_markup=get_caregiver_keyboard()
+                )
+        except Exception as e:
+            logger.error(f"Error in caregiver_settings: {e}")
+            if update.callback_query:
+                await update.callback_query.edit_message_text(config.ERROR_MESSAGES['general'])
+            else:
+                await update.message.reply_text(config.ERROR_MESSAGES['general'])
+
+    async def send_manual_report(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Entry for manual report sending to caregivers (minimal)."""
+        try:
+            from handlers import reports_handler
+            if reports_handler:
+                # Reuse reports menu flow
+                if update.callback_query:
+                    await reports_handler.show_reports_menu(update, context)
+                else:
+                    await reports_handler.show_reports_menu(update, context)
+            else:
+                msg = f"{config.EMOJIS['info']} מודול הדוחות אינו זמין כעת"
+                if update.callback_query:
+                    await update.callback_query.edit_message_text(msg)
+                else:
+                    await update.message.reply_text(msg)
+        except Exception as e:
+            logger.error(f"Error in send_manual_report: {e}")
+            if update.callback_query:
+                await update.callback_query.edit_message_text(config.ERROR_MESSAGES['general'])
+            else:
+                await update.message.reply_text(config.ERROR_MESSAGES['general'])
+
+    async def handle_caregiver_actions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle generic caregiver-related callback actions (routing only)."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            data = query.data
+            
+            if data == 'caregiver_manage':
+                await self.view_caregivers(update, context)
+                return
+            if data == 'caregiver_add':
+                await self.start_add_caregiver(update, context)
+                return
+            if data == 'caregiver_send_report':
+                await self.send_manual_report(update, context)
+                return
+            if data.startswith('caregiver_edit_'):
+                await self.edit_caregiver(update, context)
+                return
+            if data.startswith('remove_caregiver_'):
+                await self.confirm_remove_caregiver(update, context)
+                return
+            if data.startswith('toggle_caregiver_'):
+                await self.toggle_caregiver_status(update, context)
+                return
+            
+            # Fallback
+            await query.edit_message_text(f"{config.EMOJIS['info']} פעולה לא זמינה כעת")
+        except Exception as e:
+            logger.error(f"Error in handle_caregiver_actions: {e}")
+            await update.callback_query.edit_message_text(config.ERROR_MESSAGES['general'])
+
+    async def edit_caregiver(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Start caregiver edit flow (minimal placeholder)."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            data = query.data
+            caregiver_id = None
+            try:
+                caregiver_id = int(data.split('_')[-1])
+            except Exception:
+                pass
+            
+            message = f"{config.EMOJIS['info']} עריכת מטפל תתווסף בקרוב"
+            if caregiver_id is not None:
+                message += f"\n(ID: {caregiver_id})"
+                
+            from utils.keyboards import get_caregiver_keyboard
+            await query.edit_message_text(
+                message,
+                reply_markup=get_caregiver_keyboard()
+            )
+        except Exception as e:
+            logger.error(f"Error in edit_caregiver: {e}")
+            await update.callback_query.edit_message_text(config.ERROR_MESSAGES['general'])
+
+    async def confirm_remove_caregiver(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Confirm caregiver removal (placeholder)."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            await query.edit_message_text(f"{config.EMOJIS['warning']} הסרת מטפל תיתמך בהמשך")
+        except Exception as e:
+            logger.error(f"Error in confirm_remove_caregiver: {e}")
+            await update.callback_query.edit_message_text(config.ERROR_MESSAGES['general'])
+
+    async def toggle_caregiver_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Toggle caregiver active/inactive (placeholder)."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            await query.edit_message_text(f"{config.EMOJIS['info']} שינוי סטטוס מטפל ייתמך בקרוב")
+        except Exception as e:
+            logger.error(f"Error in toggle_caregiver_status: {e}")
+            await update.callback_query.edit_message_text(config.ERROR_MESSAGES['general'])
+
+
 # Global instance
 caregiver_handler = CaregiverHandler()
