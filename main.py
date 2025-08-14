@@ -20,6 +20,7 @@ from telegram.ext import (
     filters
 )
 from telegram.error import TelegramError
+from aiohttp import web
 
 from config import config
 from database import init_database, DatabaseManager
@@ -462,23 +463,16 @@ class MedicineReminderBot:
             await self.application.initialize()
             await self.application.start()
             
-            # Set webhook
-            await self.application.bot.set_webhook(
-                url=webhook_url,
-                allowed_updates=["message", "callback_query"],
-                secret_token=(config.BOT_TOKEN[-32:] if len(config.BOT_TOKEN) >= 32 else None)
-            )
-            
-            # Start webhook server (non-blocking); keep process alive
-            await self.application.updater.start_webhook(
+            # Run telegram webhook server (blocks until stopped)
+            await self.application.run_webhook(
                 listen="0.0.0.0",
                 port=config.WEBHOOK_PORT,
+                url_path=config.WEBHOOK_PATH,
                 webhook_url=webhook_url,
-                secret_token=(config.BOT_TOKEN[-32:] if len(config.BOT_TOKEN) >= 32 else None)
+                allowed_updates=["message", "callback_query"],
+                secret_token=(config.BOT_TOKEN[-32:] if len(config.BOT_TOKEN) >= 32 else None),
+                close_loop=False
             )
-            
-            # Block forever until externally stopped
-            await asyncio.Event().wait()
             
         except Exception as e:
             logger.error(f"Failed to run webhook: {e}")
