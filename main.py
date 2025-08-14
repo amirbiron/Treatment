@@ -25,6 +25,7 @@ from aiohttp import web
 from config import config
 from database import init_database, DatabaseManager
 from scheduler import medicine_scheduler
+from handlers.reports_handler import reports_handler
 
 # Configure logging
 logging.basicConfig(
@@ -98,6 +99,11 @@ class MedicineReminderBot:
         # Caregiver Commands
         app.add_handler(CommandHandler("add_caregiver", self.add_caregiver_command))
         app.add_handler(CommandHandler("caregiver_settings", self.caregiver_settings_command))
+        
+        # Reports: conversation + extra handlers
+        app.add_handler(reports_handler.get_conversation_handler())
+        for h in reports_handler.get_handlers():
+            app.add_handler(h)
         
         # Callback Query Handler for inline keyboards
         app.add_handler(CallbackQueryHandler(self.button_callback))
