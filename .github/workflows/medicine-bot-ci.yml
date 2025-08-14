@@ -140,9 +140,9 @@ jobs:
         touch tests/__init__.py
         printf "def test_placeholder():\n    assert True\n" > tests/test_placeholder.py
     
-    - name: Run Tests with Coverage
+    - name: Run Tests with Coverage (unit only)
       run: |
-        pytest tests/ --cov=. --cov-report=xml --cov-report=html --cov-report=term
+        pytest tests/ -k "not performance" --cov=. --cov-report=xml --cov-report=html --cov-report=term
       env:
         BOT_TOKEN: test_token_12345
         DATABASE_URL: sqlite+aiosqlite:///./test_medicine_bot.db

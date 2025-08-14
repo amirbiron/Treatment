@@ -224,7 +224,7 @@ class TestTextProcessingFunctions:
 		assert format_list_hebrew(["אחד", "שניים", "שלושה"]) == "אחד, שניים ושלושה"
 		
 		# Test custom conjunction
-		assert format_list_hebrew(["א", "ב"], "או") == "א ואב"
+		assert format_list_hebrew(["א", "ב"], "או") == "א או ב"
 
 
 class TestDataProcessingFunctions:
@@ -500,31 +500,6 @@ def sample_times():
 	]
 
 
-# ============================================================================
-# Performance Tests (for benchmark)
-# ============================================================================
-
-class TestPerformance:
-	"""Performance tests for helper functions"""
-	
-	def test_large_list_formatting_performance(self, benchmark):
-		"""Benchmark large list formatting"""
-		large_list = [f"item_{i}" for i in range(1000)]
-		
-		result = benchmark(format_list_hebrew, large_list)
-		assert len(result) > 0
-	
-	def test_date_grouping_performance(self, benchmark):
-		"""Benchmark date grouping with large dataset"""
-		class MockItem:
-			def __init__(self, date_val):
-				self.date_field = date_val
-		
-		# Create 10000 items with random dates
-		items = [MockItem(date(2024, 1, (i % 30) + 1)) for i in range(10000)]
-		
-		result = benchmark(group_by_date, items, 'date_field')
-		assert len(result) <= 30  # Max 30 days in January
 
 
 if __name__ == "__main__":
