@@ -9,6 +9,7 @@ import logging
 import signal
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime
 from telegram import Update
 from telegram.ext import (
     Application, 
@@ -238,6 +239,105 @@ class MedicineReminderBot:
             
         except Exception as e:
             logger.error(f"Error in my_medicines command: {e}")
+            await update.message.reply_text(config.ERROR_MESSAGES["general"])
+    
+    async def update_inventory_command(self, update: Update, context):
+        """Handle /update_inventory <medicine_name> <new_count>"""
+        try:
+            user = update.effective_user
+            db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
+            if not db_user:
+                await update.message.reply_text("אנא התחילו עם /start")
+                return
+            
+            args = context.args if hasattr(context, 'args') else []
+            if len(args) < 2:
+                await update.message.reply_text(
+                    "שימוש: /update_inventory <שם_תרופה> <כמות_חדשה>"
+                )
+                return
+            
+            medicine_name = args[0]
+            try:
+                new_count = int(args[1])
+            except ValueError:
+                await update.message.reply_text("כמות חייבת להיות מספר שלם")
+                return
+            
+            medicines = await DatabaseManager.get_user_medicines(db_user.id)
+            if not medicines:
+                await update.message.reply_text("לא נמצאו תרופות בעבורכם")
+                return
+            
+            selected = None
+            for m in medicines:
+                if m.name.lower() == medicine_name.lower():
+                    selected = m
+                    break
+            
+            if not selected:
+                await update.message.reply_text("לא נמצאה תרופה בשם הזה")
+                return
+            
+            await DatabaseManager.update_inventory(selected.id, new_count)
+            await update.message.reply_text(
+                f"{config.EMOJIS['success']} עודכן מלאי לתרופה {selected.name}: {new_count}"
+            )
+        
+        except Exception as e:
+            logger.error(f"Error in update_inventory command: {e}")
+            await update.message.reply_text(config.ERROR_MESSAGES["general"])
+    
+    async def snooze_command(self, update: Update, context):
+        """Handle /snooze command (generic)"""
+        try:
+            await update.message.reply_text(
+                "להשהיית תזכורת, השתמשו בכפתור דחייה שמופיע בהתראה."
+            )
+        except Exception as e:
+            logger.error(f"Error in snooze command: {e}")
+            await update.message.reply_text(config.ERROR_MESSAGES["general"])
+    
+    async def log_symptoms_command(self, update: Update, context):
+        """Handle /log_symptoms command (stub)"""
+        try:
+            await update.message.reply_text(
+                "תארו את הסימפטומים בהודעה חוזרת, ואשמור זאת בהמשך הגרסה."
+            )
+        except Exception as e:
+            logger.error(f"Error in log_symptoms command: {e}")
+            await update.message.reply_text(config.ERROR_MESSAGES["general"])
+    
+    async def weekly_report_command(self, update: Update, context):
+        """Handle /weekly_report command (stub)"""
+        try:
+            await update.message.reply_text("דוח שבועי יתווסף בקרוב.")
+        except Exception as e:
+            logger.error(f"Error in weekly_report command: {e}")
+            await update.message.reply_text(config.ERROR_MESSAGES["general"])
+    
+    async def medicine_history_command(self, update: Update, context):
+        """Handle /medicine_history command (stub)"""
+        try:
+            await update.message.reply_text("היסטוריית תרופות תתווסף בקרוב.")
+        except Exception as e:
+            logger.error(f"Error in medicine_history command: {e}")
+            await update.message.reply_text(config.ERROR_MESSAGES["general"])
+    
+    async def add_caregiver_command(self, update: Update, context):
+        """Handle /add_caregiver command (stub)"""
+        try:
+            await update.message.reply_text("ניהול מטפל יתווסף בקרוב.")
+        except Exception as e:
+            logger.error(f"Error in add_caregiver command: {e}")
+            await update.message.reply_text(config.ERROR_MESSAGES["general"])
+    
+    async def caregiver_settings_command(self, update: Update, context):
+        """Handle /caregiver_settings command (stub)"""
+        try:
+            await update.message.reply_text("הגדרות מטפל יתווסף בקרוב.")
+        except Exception as e:
+            logger.error(f"Error in caregiver_settings command: {e}")
             await update.message.reply_text(config.ERROR_MESSAGES["general"])
     
     async def next_reminders_command(self, update: Update, context):
