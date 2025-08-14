@@ -325,8 +325,7 @@ jobs:
         name: test-results-3.11
         path: ./coverage/
     
-    - name: Check Coverage Threshold
-      continue-on-error: true
+    - name: Check Coverage Threshold (informational)
       run: |
         python -c "
         import xml.etree.ElementTree as ET
@@ -334,14 +333,10 @@ jobs:
             tree = ET.parse('./coverage/coverage.xml')
             root = tree.getroot()
             coverage = float(root.attrib['line-rate']) * 100
-            print(f'Current coverage: {coverage:.2f}%')
-            
-            threshold = 70.0  # Minimum coverage threshold
+            threshold = 70.0
+            print(f'Current coverage: {coverage:.2f}% (threshold {threshold}%)')
             if coverage < threshold:
-                print(f'❌ Coverage {coverage:.2f}% is below threshold {threshold}%')
-                exit(1)
-            else:
-                print(f'✅ Coverage {coverage:.2f}% meets threshold {threshold}%')
+                print(f'⚠️ Warning: Coverage {coverage:.2f}% is below threshold {threshold}%, not failing pipeline.')
         except Exception as e:
             print(f'⚠️ Could not check coverage: {e}')
         "
