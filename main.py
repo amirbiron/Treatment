@@ -21,6 +21,8 @@ from telegram.ext import (
 )
 from telegram.error import TelegramError
 from aiohttp import web
+from telegram.inline.inlinekeyboardbutton import InlineKeyboardButton
+from telegram.inline.inlinekeyboardmarkup import InlineKeyboardMarkup
 
 from config import config
 from database import init_database, DatabaseManager
@@ -600,7 +602,16 @@ class MedicineReminderBot:
                 return
             
             if data.startswith("medicine_edit_"):
-                await query.edit_message_text("עריכת פרטי תרופה (שם/מינון) תתווסף בקרוב")
+                medicine_id = int(data.split("_")[2])
+                message = (
+                    "עריכת פרטי תרופה:\n"
+                    "• שלחו שם חדש כדי לשנות שם\n"
+                    "• הקלידו: מינון <טקסט> כדי לשנות מינון\n"
+                    "• הקלידו: הערות <טקסט> כדי לעדכן הערות\n"
+                    "• הקלידו: השבת או הפעל כדי לשנות סטטוס"
+                )
+                context.user_data['editing_medicine_for'] = medicine_id
+                await query.edit_message_text(message)
                 return
             
             if data.startswith("medicine_history_"):
@@ -623,15 +634,36 @@ class MedicineReminderBot:
         try:
             data = query.data
             if data == "settings_timezone":
-                await query.edit_message_text("בחירת אזור זמן תתווסף בקרוב")
+                # Minimal timezone selector
+                zones = ["UTC", "Asia/Jerusalem", "Europe/London", "America/New_York"]
+                rows = []
+                for z in zones:
+                    rows.append([InlineKeyboardButton(z, callback_data=f"tz_{z}")])
+                rows.append([InlineKeyboardButton("הקלד אזור זמן", callback_data="tz_custom")])
+                rows.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="main_menu")])
+                await query.edit_message_text(
+                    "בחרו אזור זמן:",
+                    reply_markup=InlineKeyboardMarkup(rows)
+                )
+            elif data.startswith("tz_"):
+                # Apply selected timezone
+                tz = data[3:]
+                user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+                await DatabaseManager.update_user_timezone(user.id, tz)
+                await query.edit_message_text(f"{config.EMOJIS['success']} עודכן אזור הזמן ל- {tz}")
+            elif data == "tz_custom":
+                await query.edit_message_text("הקלידו את אזור הזמן (למשל Asia/Jerusalem)")
+                context.user_data['awaiting_timezone_text'] = True
             elif data == "settings_reminders":
-                await query.edit_message_text("הגדרות תזכורות יתווספו בקרוב")
+                await query.edit_message_text("הגדרות תזכורות בסיסיות: כרגע דחייה היא ל-5 דקות (ניתן לשנות בקובץ ההגדרות).")
             elif data == "settings_inventory":
-                await query.edit_message_text("הגדרות מלאי יתווספו בקרוב")
+                await query.edit_message_text("הגדרות מלאי בסיסיות: התראות מלאי נמוכים מופעלות.")
             elif data == "settings_caregivers":
-                await query.edit_message_text("הגדרות מטפלים יתווספו בקרוב")
+                await query.edit_message_text("ניהול מטפלים זמין דרך תפריט 'מטפלים'.")
             elif data == "settings_reports":
-                await query.edit_message_text("הגדרות דוחות יתווספו בקרוב")
+                from handlers import reports_handler
+                await reports_handler.show_reports_menu(query, context)
+                return
             else:
                 await query.edit_message_text("הגדרות לא נתמכות")
         except Exception as exc:
@@ -715,6 +747,38 @@ class MedicineReminderBot:
                     reply_markup=get_medicine_detail_keyboard(medicine_id)
                 )
                 return
+            # Edit medicine free-text commands
+            if 'editing_medicine_for' in user_data:
+                mid = int(user_data.get('editing_medicine_for'))
+                lower = text.strip()
+                if lower.startswith('מינון '):
+                    new_dosage = text.split(' ', 1)[1].strip()
+                    await DatabaseManager.update_medicine(mid, dosage=new_dosage)
+                    await update.message.reply_text(f"{config.EMOJIS['success']} המינון עודכן")
+                    user_data.pop('editing_medicine_for', None)
+                    await self.my_medicines_command(update, context)
+                    return
+                if lower.startswith('הערות '):
+                    new_notes = text.split(' ', 1)[1].strip()
+                    await DatabaseManager.update_medicine(mid, notes=new_notes)
+                    await update.message.reply_text(f"{config.EMOJIS['success']} ההערות עודכנו")
+                    user_data.pop('editing_medicine_for', None)
+                    await self.my_medicines_command(update, context)
+                    return
+                if lower in ('השבת', 'הפעל'):
+                    is_active = (lower == 'הפעל')
+                    await DatabaseManager.set_medicine_active(mid, is_active)
+                    await update.message.reply_text(f"{config.EMOJIS['success']} הסטטוס עודכן")
+                    user_data.pop('editing_medicine_for', None)
+                    await self.my_medicines_command(update, context)
+                    return
+                # Otherwise treat as rename
+                if len(text.strip()) >= 2:
+                    await DatabaseManager.update_medicine(mid, name=text.strip())
+                    await update.message.reply_text(f"{config.EMOJIS['success']} שם התרופה עודכן")
+                    user_data.pop('editing_medicine_for', None)
+                    await self.my_medicines_command(update, context)
+                    return
             
             if text in buttons:
                 action = buttons[text]
@@ -772,6 +836,17 @@ class MedicineReminderBot:
                         await update.message.reply_text(config.ERROR_MESSAGES['general'])
                         user_data.pop('awaiting_symptom_text', None)
                         return
+                # Save timezone if awaiting text
+                if user_data.get('awaiting_timezone_text'):
+                    zone = text.strip()
+                    if '/' not in zone or len(zone) < 3:
+                        await update.message.reply_text("אנא הזינו אזור זמן תקין, למשל Asia/Jerusalem")
+                        return
+                    user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
+                    await DatabaseManager.update_user_timezone(user.id, zone)
+                    user_data.pop('awaiting_timezone_text', None)
+                    await update.message.reply_text(f"{config.EMOJIS['success']} עודכן אזור הזמן ל- {zone}")
+                    return
                 await update.message.reply_text(
                     "השתמשו בתפריט או בפקודות. /help לעזרה"
                 )
