@@ -1,7 +1,7 @@
 [tool.black]
 line-length = 127
 target-version = ["py39", "py310", "py311", "py312"]
-exclude = "(\.git|\.venv|venv|build|dist|htmlcov|.mypy_cache|.pytest_cache|__pycache__|.github)"
+exclude = '(\.git|\.venv|venv|build|dist|htmlcov|.mypy_cache|.pytest_cache|__pycache__|.github)'
 
 [tool.isort]
 profile = "black"
