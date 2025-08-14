@@ -453,3 +453,119 @@ class DatabaseManager:
                 .order_by(DoseLog.scheduled_time.asc())
             )
             return list(result.scalars().all())
+
+    @staticmethod
+    async def create_symptom_log(
+        user_id: int,
+        log_date: datetime,
+        symptoms: str = None,
+        side_effects: str = None,
+        mood_score: int = None,
+        notes: str = None
+    ) -> "SymptomLog":
+        """Create a new symptom/side-effects log entry."""
+        async with async_session() as session:
+            log = SymptomLog(
+                user_id=user_id,
+                log_date=log_date,
+                symptoms=symptoms,
+                side_effects=side_effects,
+                mood_score=mood_score,
+                notes=notes
+            )
+            session.add(log)
+            await session.commit()
+            await session.refresh(log)
+            return log
+
+    @staticmethod
+    async def update_medicine(
+        medicine_id: int,
+        name: Optional[str] = None,
+        dosage: Optional[str] = None,
+        notes: Optional[str] = None
+    ) -> Optional["Medicine"]:
+        """Update medicine fields (name/dosage/notes)."""
+        async with async_session() as session:
+            medicine = await session.get(Medicine, medicine_id)
+            if not medicine:
+                return None
+            if name is not None:
+                medicine.name = name
+            if dosage is not None:
+                medicine.dosage = dosage
+            if notes is not None:
+                medicine.notes = notes
+            await session.commit()
+            await session.refresh(medicine)
+            return medicine
+
+    @staticmethod
+    async def set_medicine_active(medicine_id: int, is_active: bool) -> bool:
+        """Enable/disable a medicine."""
+        async with async_session() as session:
+            medicine = await session.get(Medicine, medicine_id)
+            if not medicine:
+                return False
+            medicine.is_active = is_active
+            await session.commit()
+            return True
+
+    @staticmethod
+    async def update_user_timezone(user_id: int, timezone: str) -> bool:
+        """Update user's timezone string."""
+        async with async_session() as session:
+            user = await session.get(User, user_id)
+            if not user:
+                return False
+            user.timezone = timezone
+            await session.commit()
+            return True
+
+    @staticmethod
+    async def delete_medicine_schedule(schedule_id: int) -> bool:
+        """Delete a specific schedule row by ID."""
+        async with async_session() as session:
+            schedule = await session.get(MedicineSchedule, schedule_id)
+            if not schedule:
+                return False
+            await session.delete(schedule)
+            await session.commit()
+            return True
+
+    @staticmethod
+    async def get_medicine_schedule_rows(medicine_id: int) -> List["MedicineSchedule"]:
+        """Return all schedule rows (active and inactive) for a medicine."""
+        async with async_session() as session:
+            result = await session.execute(select(MedicineSchedule).where(MedicineSchedule.medicine_id == medicine_id))
+            return list(result.scalars().all())
+
+    @staticmethod
+    async def replace_medicine_schedules(medicine_id: int, times: List[time]) -> None:
+        """Replace all schedules for a medicine with provided times."""
+        async with async_session() as session:
+            await session.execute(
+                select(MedicineSchedule).where(MedicineSchedule.medicine_id == medicine_id)
+            )
+            # Delete existing schedules
+            existing = await session.execute(
+                select(MedicineSchedule).where(MedicineSchedule.medicine_id == medicine_id)
+            )
+            for row in existing.scalars().all():
+                await session.delete(row)
+            # Create new schedules
+            for t in times:
+                new_row = MedicineSchedule(medicine_id=medicine_id, time_to_take=t, is_active=True)
+                session.add(new_row)
+            await session.commit()
+
+    @staticmethod
+    async def delete_medicine(medicine_id: int) -> bool:
+        """Delete a medicine and all its related data."""
+        async with async_session() as session:
+            medicine = await session.get(Medicine, medicine_id)
+            if not medicine:
+                return False
+            await session.delete(medicine)
+            await session.commit()
+            return True
