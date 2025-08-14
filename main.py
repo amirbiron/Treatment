@@ -618,7 +618,11 @@ class MedicineReminderBot:
                 from handlers.reports_handler import reports_handler
                 await reports_handler.generate_weekly_report(update, context)
                 return
-            
+            # Add manage schedules and delete actions (via simple keywords)
+            if data.startswith("medicine_toggle_"):
+                await query.edit_message_text("כיבוי/הפעלה מתקדמים יתווספו בהמשך. השתמשו ב'ערוך פרטים' > 'הפעל/השבת'.")
+                return
+ 
             if data.startswith("medicine_toggle_"):
                 await query.edit_message_text("הפעלת/השבתת תרופה תתווסף בקרוב")
                 return
@@ -751,6 +755,43 @@ class MedicineReminderBot:
             if 'editing_medicine_for' in user_data:
                 mid = int(user_data.get('editing_medicine_for'))
                 lower = text.strip()
+                # Replace all schedule times: הקלד: שעות HH:MM,HH:MM
+                if lower.startswith('שעות '):
+                    parts = lower.split(' ', 1)[1].split(',')
+                    from datetime import time as dtime
+                    new_times = []
+                    for p in parts:
+                        p = p.strip()
+                        if not p:
+                            continue
+                        if ':' not in p:
+                            await update.message.reply_text("פורמט שעה לא תקין. דוגמה: שעות 08:00,14:30")
+                            return
+                        hh, mm = p.split(':', 1)
+                        new_times.append(dtime(hour=int(hh), minute=int(mm)))
+                    # Replace in DB
+                    await DatabaseManager.replace_medicine_schedules(mid, new_times)
+                    # Unschedule then reschedule
+                    user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
+                    await medicine_scheduler.cancel_medicine_reminders(user.id, mid)
+                    for t in new_times:
+                        await medicine_scheduler.schedule_medicine_reminder(user.id, mid, t, user.timezone or config.DEFAULT_TIMEZONE)
+                    await update.message.reply_text(f"{config.EMOJIS['success']} שעות הוחלפו")
+                    user_data.pop('editing_medicine_for', None)
+                    await self.my_medicines_command(update, context)
+                    return
+                # Delete medicine: הקלד: מחק
+                if lower == 'מחק':
+                    user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
+                    await medicine_scheduler.cancel_medicine_reminders(user.id, mid)
+                    ok = await DatabaseManager.delete_medicine(mid)
+                    if ok:
+                        await update.message.reply_text(f"{config.EMOJIS['success']} התרופה נמחקה")
+                    else:
+                        await update.message.reply_text(f"{config.EMOJIS['error']} שגיאה במחיקה")
+                    user_data.pop('editing_medicine_for', None)
+                    await self.my_medicines_command(update, context)
+                    return
                 if lower.startswith('מינון '):
                     new_dosage = text.split(' ', 1)[1].strip()
                     await DatabaseManager.update_medicine(mid, dosage=new_dosage)
