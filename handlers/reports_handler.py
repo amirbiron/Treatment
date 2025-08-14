@@ -126,7 +126,7 @@ class ReportsHandler:
             full_report = self._combine_reports([report, symptoms_report])
             
             message = f"""
-{config.EMOJIS['report']} **דוח שבועי**
+{config.EMOJIS['report']} <b>דוח שבועי</b>
 📅 {format_date_hebrew(start_date)} - {format_date_hebrew(end_date)}
 
 {full_report}
@@ -158,13 +158,13 @@ class ReportsHandler:
                 await update.callback_query.answer()
                 await update.callback_query.edit_message_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             else:
                 await update.message.reply_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             
@@ -204,7 +204,7 @@ class ReportsHandler:
             ])
             
             message = f"""
-{config.EMOJIS['report']} **דוח חודשי מקיף**
+{config.EMOJIS['report']} <b>דוח חודשי מקיף</b>
 📅 {format_date_hebrew(start_date)} - {format_date_hebrew(end_date)}
 
 {full_report}
@@ -241,13 +241,13 @@ class ReportsHandler:
                 await update.callback_query.answer()
                 await update.callback_query.edit_message_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             else:
                 await update.message.reply_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             
@@ -259,11 +259,11 @@ class ReportsHandler:
         """Show reports menu"""
         try:
             message = f"""
-{config.EMOJIS['report']} **מרכז הדוחות**
+{config.EMOJIS['report']} <b>מרכז הדוחות</b>
 
 בחרו את סוג הדוח שתרצו ליצור:
 
-📊 **דוחות זמינים:**
+📊 <b>דוחות זמינים:</b>
 • דוח שבועי - סיכום 7 ימים אחרונים
 • דוח חודשי - סיכום מקיף של החודש
 • דוח נטילת תרופות - מיקוד בציות לטיפול
@@ -316,13 +316,13 @@ class ReportsHandler:
                 await update.callback_query.answer()
                 await update.callback_query.edit_message_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             else:
                 await update.message.reply_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             
@@ -379,30 +379,30 @@ class ReportsHandler:
             
             # Create report
             report = f"""
-💊 **דוח נטילת תרופות**
+💊 <b>דוח נטילת תרופות</b>
 
-📊 **סיכום כללי:**
+📊 <b>סיכום כללי:</b>
 • סה"כ מנות מתוכננות: {total_doses}
 • מנות שנלקחו: {taken_doses} ({taken_doses/total_doses*100:.1f}%)
 • מנות שדולגו: {skipped_doses} ({skipped_doses/total_doses*100:.1f}%)
 • מנות שהוחמצו: {missed_doses} ({missed_doses/total_doses*100:.1f}%)
 
-🎯 **שיעור ציות כללי:** {create_progress_bar(taken_doses, total_doses)} {overall_adherence:.1f}%
+🎯 <b>שיעור ציות כללי:</b> {create_progress_bar(taken_doses, total_doses)} {overall_adherence:.1f}%
 
-📋 **פירוט לפי תרופה:**
+📋 <b>פירוט לפי תרופה:</b>
 """
             
             for stat in medicine_stats:
                 progress_bar = create_progress_bar(stat['taken'], stat['total'], 8)
-                report += f"• **{stat['name']}:** {progress_bar} {stat['adherence']:.1f}%\n"
+                report += f"• <b>{stat['name']}:</b> {progress_bar} {stat['adherence']:.1f}%\n"
             
             # Add recommendations
             if overall_adherence >= 90:
-                report += f"\n{config.EMOJIS['success']} **מצוין!** שיעור ציות גבוה מאוד."
+                report += f"\n{config.EMOJIS['success']} <b>מצוין!</b> שיעור ציות גבוה מאוד."
             elif overall_adherence >= 80:
-                report += f"\n{config.EMOJIS['warning']} **טוב.** יש מקום לשיפור קל."
+                report += f"\n{config.EMOJIS['warning']} <b>טוב.</b> יש מקום לשיפור קל."
             else:
-                report += f"\n{config.EMOJIS['error']} **דורש תשומת לב.** מומלץ להתייעץ עם הרופא."
+                report += f"\n{config.EMOJIS['error']} <b>דורש תשומת לב.</b> מומלץ להתייעץ עם הרופא."
             
             return report
             
@@ -444,9 +444,9 @@ class ReportsHandler:
             common_side_effects = Counter(all_side_effects).most_common(5)
             
             report = f"""
-🩺 **דוח תופעות לוואי ותסמינים**
+🩺 <b>דוח תופעות לוואי ותסמינים</b>
 
-📊 **סיכום כללי:**
+📊 <b>סיכום כללי:</b>
 • ימים עם רישומים: {len(symptom_logs)}
 • ממוצע מצב רוח: {avg_mood:.1f}/10 {self._get_mood_emoji(avg_mood)}
 • ימים עם תסמינים: {symptoms_days}
@@ -454,12 +454,12 @@ class ReportsHandler:
 """
             
             if common_symptoms:
-                report += f"\n🤒 **תסמינים נפוצים:**\n"
+                report += f"\n🤒 <b>תסמינים נפוצים:</b>\n"
                 for symptom, count in common_symptoms:
                     report += f"• {symptom}: {count} פעמים\n"
             
             if common_side_effects:
-                report += f"\n💊 **תופעות לוואי נפוצות:**\n"
+                report += f"\n💊 <b>תופעות לוואי נפוצות:</b>\n"
                 for side_effect, count in common_side_effects:
                     report += f"• {side_effect}: {count} פעמים\n"
             
@@ -497,9 +497,9 @@ class ReportsHandler:
                     good_stock.append(medicine)
             
             report = f"""
-📦 **דוח מצב מלאי**
+📦 <b>דוח מצב מלאי</b>
 
-📊 **סיכום:**
+📊 <b>סיכום:</b>
 • סה"כ תרופות: {len(medicines)}
 • מלאי טוב: {len(good_stock)}
 • מלאי נמוך: {len(low_stock)}
@@ -557,13 +557,13 @@ class ReportsHandler:
             worst_rate = min(rates)
             
             report = f"""
-📈 **ניתוח מגמות**
+📈 <b>ניתוח מגמות</b>
 
-🎯 **מגמת ציות:** {trend_direction}
+🎯 <b>מגמת ציות:</b> {trend_direction}
 • ממוצע בתחילת התקופה: {early_avg:.1f}%
 • ממוצע בסוף התקופה: {recent_avg:.1f}%
 
-📊 **נתונים נוספים:**
+📊 <b>נתונים נוספים:</b>
 • שיעור ציות הכי גבוה: {best_rate:.1f}%
 • שיעור ציות הכי נמוך: {worst_rate:.1f}%
 • יציבות: {"גבוהה" if max(rates) - min(rates) < 20 else "בינונית" if max(rates) - min(rates) < 40 else "נמוכה"}
@@ -571,9 +571,9 @@ class ReportsHandler:
             
             # Recommendations based on trends
             if trend_direction == "מתדרדרת":
-                report += f"\n💡 **המלצות:**\n• כדאי לבדוק סיבות לירידה בציות\n• ייתכן שצריך התאמת זמני התזכורות\n• מומלץ התייעצות עם הרופא"
+                report += f"\n💡 <b>המלצות:</b>\n• כדאי לבדוק סיבות לירידה בציות\n• ייתכן שצריך התאמת זמני התזכורות\n• מומלץ התייעצות עם הרופא"
             elif trend_direction == "משתפרת":
-                report += f"\n🎉 **כל הכבוד!** המגמה חיובית, המשיכו כך!"
+                report += f"\n🎉 <b>כל הכבוד!</b> המגמה חיובית, המשיכו כך!"
             
             return report
             
@@ -591,9 +591,9 @@ class ReportsHandler:
                 return
             
             message = f"""
-{config.EMOJIS['report']} **{report_title}**
-👤 **מטופל:** {user.first_name} {user.last_name or ''}
-📅 **תאריך:** {format_datetime_hebrew(datetime.now())}
+{config.EMOJIS['report']} <b>{report_title}</b>
+👤 <b>מטופל:</b> {user.first_name} {user.last_name or ''}
+📅 <b>תאריך:</b> {format_datetime_hebrew(datetime.now())}
 
 {report_content}
 
@@ -608,7 +608,7 @@ class ReportsHandler:
                             await bot.send_message(
                                 chat_id=caregiver.caregiver_telegram_id,
                                 text=message,
-                                parse_mode='Markdown'
+                                parse_mode='HTML'
                             )
                     except Exception as e:
                         logger.error(f"Failed to send report to caregiver {caregiver.id}: {e}")

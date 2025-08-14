@@ -25,6 +25,7 @@ from aiohttp import web
 from config import config
 from database import init_database, DatabaseManager
 from scheduler import medicine_scheduler
+from handlers.reports_handler import reports_handler
 
 # Configure logging
 logging.basicConfig(
@@ -99,6 +100,11 @@ class MedicineReminderBot:
         app.add_handler(CommandHandler("add_caregiver", self.add_caregiver_command))
         app.add_handler(CommandHandler("caregiver_settings", self.caregiver_settings_command))
         
+        # Reports: conversation + extra handlers
+        app.add_handler(reports_handler.get_conversation_handler())
+        for h in reports_handler.get_handlers():
+            app.add_handler(h)
+        
         # Callback Query Handler for inline keyboards
         app.add_handler(CallbackQueryHandler(self.button_callback))
         
@@ -132,7 +138,6 @@ class MedicineReminderBot:
             
             await update.message.reply_text(
                 config.WELCOME_MESSAGE,
-                parse_mode='Markdown',
                 reply_markup=get_main_menu_keyboard()
             )
             
@@ -164,7 +169,6 @@ class MedicineReminderBot:
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
                 reply_markup=get_settings_keyboard()
             )
             
@@ -185,7 +189,6 @@ class MedicineReminderBot:
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
                 reply_markup=get_cancel_keyboard()
             )
             
@@ -210,12 +213,12 @@ class MedicineReminderBot:
             
             if not medicines:
                 message = f"""
-{config.EMOJIS['info']} *אין תרופות רשומות*
+{config.EMOJIS['info']} <b>אין תרופות רשומות</b>
 
 לחצו על /add_medicine כדי להוסיף תרופה ראשונה.
                 """
             else:
-                message = f"{config.EMOJIS['medicine']} *התרופות שלכם:*\n\n"
+                message = f"{config.EMOJIS['medicine']} <b>התרופות שלכם:</b>\n\n"
                 for medicine in medicines:
                     status_emoji = config.EMOJIS['success'] if medicine.is_active else config.EMOJIS['error']
                     inventory_warning = ""
@@ -223,7 +226,7 @@ class MedicineReminderBot:
                     if medicine.inventory_count <= medicine.low_stock_threshold:
                         inventory_warning = f" {config.EMOJIS['warning']}"
                     
-                    message += f"{status_emoji} *{medicine.name}*\n"
+                    message += f"{status_emoji} <b>{medicine.name}</b>\n"
                     message += f"   💊 {medicine.dosage}\n"
                     message += f"   📦 מלאי: {medicine.inventory_count}{inventory_warning}\n\n"
             
@@ -231,7 +234,7 @@ class MedicineReminderBot:
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=get_medicines_keyboard(medicines if medicines else [])
             )
             
@@ -354,8 +357,7 @@ class MedicineReminderBot:
                         message += f"⏰ {time_str} - {job['name']}\n"
             
             await update.message.reply_text(
-                message,
-                parse_mode='Markdown'
+                message
             )
             
         except Exception as e:
@@ -380,7 +382,6 @@ class MedicineReminderBot:
                 from utils.keyboards import get_main_menu_keyboard
                 await query.edit_message_text(
                     config.WELCOME_MESSAGE,
-                    parse_mode='Markdown',
                     reply_markup=get_main_menu_keyboard()
                 )
             elif data.startswith("medicine_") or data.startswith("medicines_"):
@@ -488,20 +489,20 @@ class MedicineReminderBot:
                 db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
                 medicines = await DatabaseManager.get_user_medicines(db_user.id) if db_user else []
                 if not medicines:
-                    message = f"{config.EMOJIS['info']} *אין תרופות רשומות*\n\nלחצו על /add_medicine כדי להוסיף תרופה ראשונה."
+                    message = f"{config.EMOJIS['info']} <b>אין תרופות רשומות</b>\n\nלחצו על /add_medicine כדי להוסיף תרופה ראשונה."
                 else:
-                    message = f"{config.EMOJIS['medicine']} *התרופות שלכם:*\n\n"
+                    message = f"{config.EMOJIS['medicine']} <b>התרופות שלכם:</b>\n\n"
                     for medicine in medicines:
                         status_emoji = config.EMOJIS['success'] if medicine.is_active else config.EMOJIS['error']
                         inventory_warning = ""
                         if medicine.inventory_count <= medicine.low_stock_threshold:
                             inventory_warning = f" {config.EMOJIS['warning']}"
-                        message += f"{status_emoji} *{medicine.name}*\n"
+                        message += f"{status_emoji} <b>{medicine.name}</b>\n"
                         message += f"   💊 {medicine.dosage}\n"
                         message += f"   📦 מלאי: {medicine.inventory_count}{inventory_warning}\n\n"
                 await query.edit_message_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=get_medicines_keyboard(medicines if medicines else [])
                 )
                 return
@@ -510,7 +511,7 @@ class MedicineReminderBot:
             if data == "medicine_add":
                 from utils.keyboards import get_cancel_keyboard
                 message = f"""
-{config.EMOJIS['medicine']} *הוספת תרופה חדשה*
+{config.EMOJIS['medicine']} <b>הוספת תרופה חדשה</b>
 
 אנא שלחו את שם התרופה:
                 """
@@ -518,7 +519,7 @@ class MedicineReminderBot:
                 context.user_data['adding_medicine'] = {'step': 'name'}
                 await query.edit_message_text(
                     message,
-                    parse_mode='Markdown'
+                    parse_mode='HTML'
                 )
                 return
             
@@ -530,14 +531,14 @@ class MedicineReminderBot:
                     await query.edit_message_text(config.ERROR_MESSAGES["medicine_not_found"]) 
                     return
                 details = [
-                    f"{config.EMOJIS['medicine']} *{medicine.name}*",
+                    f"{config.EMOJIS['medicine']} <b>{medicine.name}</b>",
                     f"💊 מינון: {medicine.dosage}",
                     f"📦 מלאי: {medicine.inventory_count}",
                     f"⚙️ סטטוס: {'פעילה' if medicine.is_active else 'מושבתת'}",
                 ]
                 await query.edit_message_text(
                     "\n".join(details),
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=get_medicine_detail_keyboard(medicine.id)
                 )
                 return

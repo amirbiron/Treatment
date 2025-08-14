@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime, date, time, timedelta
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Callable, Awaitable, Set
 
 import pytz
 
@@ -387,3 +387,123 @@ class SimpleCache:
 
 	def clear(self) -> None:
 		self._store.clear()
+
+
+# ===============================
+# Report and export utilities
+# ===============================
+
+def generate_summary_stats(values: Sequence[float]) -> Dict[str, float]:
+	"""Generate basic summary statistics for a numeric sequence.
+
+	Returns min, max, average, and median. Empty input returns zeros.
+	"""
+	nums = [float(v) for v in values if isinstance(v, (int, float))]
+	if not nums:
+		return {"min": 0.0, "max": 0.0, "avg": 0.0, "median": 0.0}
+	nums_sorted = sorted(nums)
+	n = len(nums_sorted)
+	avg = sum(nums_sorted) / n
+	if n % 2 == 1:
+		median = nums_sorted[n // 2]
+	else:
+		median = (nums_sorted[n // 2 - 1] + nums_sorted[n // 2]) / 2
+	return {
+		"min": float(nums_sorted[0]),
+		"max": float(nums_sorted[-1]),
+		"avg": float(avg),
+		"median": float(median),
+	}
+
+
+def create_report_filename(prefix: str, when: Optional[datetime] = None, ext: str = "txt") -> str:
+	"""Create a filesystem-safe filename for reports.
+
+	Example: report_2025-08-14_21-30-00.txt
+	"""
+	when = when or datetime.now()
+	timestamp = when.strftime("%Y-%m-%d_%H-%M-%S")
+	# Sanitize prefix: allow Hebrew/English letters, digits, dash and underscore
+	clean_prefix = re.sub(r"[^\w\-א-ת]", "_", prefix).strip("_") or "report"
+	clean_ext = re.sub(r"[^A-Za-z0-9]", "", ext) or "txt"
+	return f"{clean_prefix}_{timestamp}.{clean_ext}"
+
+
+def create_csv_content(headers: Sequence[str], rows: Sequence[Sequence[Any]]) -> str:
+	"""Create CSV content (UTF-8) from headers and rows.
+
+	Values are converted to strings; commas inside values are quoted.
+	"""
+	def csv_escape(value: Any) -> str:
+		s = "" if value is None else str(value)
+		if any(ch in s for ch in [",", "\n", '"']):
+			return '"' + s.replace('"', '""') + '"'
+		return s
+	lines = []
+	lines.append(",".join(csv_escape(h) for h in headers))
+	for row in rows:
+		lines.append(",".join(csv_escape(v) for v in row))
+	return "\n".join(lines)
+
+
+# ===============================
+# Async utilities
+# ===============================
+
+async def async_retry(func: Callable[[], Awaitable[Any]], retries: int = 3, delay_seconds: float = 0.5) -> Any:
+	"""Retry an async function a few times with a fixed delay.
+
+	Returns the function result or raises the last exception after retries.
+	"""
+	last_exc: Optional[Exception] = None
+	for attempt in range(1, max(1, retries) + 1):
+		try:
+			return await func()
+		except Exception as exc:  # noqa: BLE001
+			last_exc = exc
+			if attempt < retries:
+				# Local import to avoid adding asyncio globally up top
+				from asyncio import sleep
+				await sleep(max(0.0, delay_seconds))
+				continue
+			raise last_exc
+
+
+async def async_batch_process(items: Sequence[Any], worker: Callable[[Any], Awaitable[Any]], batch_size: int = 20) -> List[Any]:
+	"""Process items in simple sequential batches using an async worker.
+
+	This avoids creating too many concurrent tasks in constrained environments.
+	"""
+	results: List[Any] = []
+	if batch_size <= 0:
+		batch_size = 20
+	for i in range(0, len(items), batch_size):
+		batch = items[i : i + batch_size]
+		for item in batch:
+			results.append(await worker(item))
+	return results
+
+
+# ===============================
+# Cache decorator (simple)
+# ===============================
+
+def cache(ttl_seconds: Optional[int] = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+	"""Simple cache decorator using SimpleCache for pure functions.
+
+	Works for hashable args only; ignores kwargs for compactness.
+	"""
+	memory = SimpleCache(default_ttl=ttl_seconds)
+
+	def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+		def wrapper(*args: Any, **kwargs: Any) -> Any:  # type: ignore[override]
+			key = f"{fn.__name__}:{hash(args)}:{hash(tuple(sorted(kwargs.items())))}"
+			cached = memory.get(key)
+			if cached is not None:
+				return cached
+			value = fn(*args, **kwargs)
+			memory.set(key, value)
+			return value
+		return wrapper
+
+	return decorator
