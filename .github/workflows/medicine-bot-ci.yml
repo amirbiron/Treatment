@@ -145,7 +145,7 @@ jobs:
       run: |
         pytest tests/ --cov=. --cov-report=xml --cov-report=html --cov-report=term
       env:
-        BOT_TOKEN: ${{ secrets.TEST_BOT_TOKEN || 'test_token_12345' }}
+        BOT_TOKEN: test_token_12345
         DATABASE_URL: sqlite+aiosqlite:///./test_medicine_bot.db
         DEBUG: true
     
@@ -209,7 +209,7 @@ jobs:
       run: |
         pytest tests/integration/ -v
       env:
-        BOT_TOKEN: ${{ secrets.TEST_BOT_TOKEN || 'test_token_12345' }}
+        BOT_TOKEN: test_token_12345
         DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/test_medicine_bot
         DEBUG: true
       continue-on-error: true
@@ -357,7 +357,7 @@ jobs:
     name: Deploy to Render
     runs-on: ubuntu-latest
     needs: [quality-gate]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.RENDER_SERVICE_ID != '' && secrets.RENDER_API_KEY != '' && secrets.RENDER_APP_URL != ''
     
     environment:
       name: production
@@ -392,12 +392,12 @@ jobs:
   notify-failure:
     name: Notify on Failure
     runs-on: ubuntu-latest
-    needs: [lint, test, security, quality-gate, deploy]
-    if: always() && (needs.lint.result == 'failure' || needs.test.result == 'failure' || needs.security.result == 'failure' || needs.quality-gate.result == 'failure' || needs.deploy.result == 'failure')
+    needs: [lint, test, security, quality-gate]
+    if: always() && (needs.lint.result == 'failure' || needs.test.result == 'failure' || needs.security.result == 'failure' || needs.quality-gate.result == 'failure')
     
     steps:
     - name: Send Telegram Notification
-      if: secrets.TELEGRAM_BOT_TOKEN && secrets.TELEGRAM_CHAT_ID
+      if: secrets.TELEGRAM_BOT_TOKEN != '' && secrets.TELEGRAM_CHAT_ID != ''
       run: |
         curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
           -H "Content-Type: application/json" \
@@ -413,7 +413,7 @@ jobs:
   cleanup:
     name: Cleanup
     runs-on: ubuntu-latest
-    needs: [deploy]
+    needs: [quality-gate]
     if: always()
     
     steps:
