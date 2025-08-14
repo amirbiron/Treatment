@@ -349,45 +349,9 @@ jobs:
             print(f'⚠️ Could not check coverage: {e}')
         "
 
-  # ============================================================================
-  # Deploy to Render (Production)
-  # ============================================================================
-  deploy:
-    name: Deploy to Render
-    runs-on: ubuntu-latest
-    needs: [quality-gate]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.RENDER_SERVICE_ID != '' && secrets.RENDER_API_KEY != '' && secrets.RENDER_APP_URL != ''
-    
-    environment:
-      name: production
-      url: ${{ secrets.RENDER_APP_URL }}
-    
-    steps:
-    - name: Trigger Render Deployment
-      uses: johnbeynon/render-deploy-action@v0.0.8
-      with:
-        service-id: ${{ secrets.RENDER_SERVICE_ID }}
-        api-key: ${{ secrets.RENDER_API_KEY }}
-        wait-for-success: true
-    
-    - name: Post-deployment Health Check
-      run: |
-        echo "Waiting for deployment to be healthy..."
-        sleep 60
-        
-        # Health check
-        curl -f "${{ secrets.RENDER_APP_URL }}/health" || exit 1
-        echo "✅ Deployment is healthy"
-    
-    - name: Notify Deployment Success
-      if: success()
-      run: |
-        echo "🚀 Successfully deployed to production!"
-        echo "URL: ${{ secrets.RENDER_APP_URL }}"
-
-  # ============================================================================
+    # ============================================================================
   # Notify on Failure
-  # ============================================================================
+# ============================================================================
   notify-failure:
     name: Notify on Failure
     runs-on: ubuntu-latest

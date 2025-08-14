@@ -20,6 +20,7 @@ from telegram.ext import (
     filters
 )
 from telegram.error import TelegramError
+from aiohttp import web
 
 from config import config
 from database import init_database, DatabaseManager
@@ -278,7 +279,7 @@ class MedicineReminderBot:
             
             await DatabaseManager.update_inventory(selected.id, new_count)
             await update.message.reply_text(
-                f"{config.EMOJIS['success']} עודכן מלאי לתרופה {selected.name}: {new_count}"
+                f"{config.EMOJES['success']} עודכן מלאי לתרופה {selected.name}: {new_count}"
             )
         
         except Exception as e:
@@ -344,9 +345,9 @@ class MedicineReminderBot:
             jobs = medicine_scheduler.get_scheduled_jobs(user.id)
             
             if not jobs:
-                message = f"{config.EMOJIS['info']} אין תזכורות מתוזמנות"
+                message = f"{config.EMOJES['info']} אין תזכורות מתוזמנות"
             else:
-                message = f"{config.EMOJIS['clock']} *התזכורות הבאות:*\n\n"
+                message = f"{config.EMOJES['clock']} *התזכורות הבאות:*\n\n"
                 for job in sorted(jobs, key=lambda x: x['next_run']):
                     if job['next_run']:
                         time_str = job['next_run'].strftime('%H:%M')
@@ -405,7 +406,7 @@ class MedicineReminderBot:
         medicine_scheduler.reminder_attempts[reminder_key] = 0
         
         await query.edit_message_text(
-            f"{config.EMOJIS['success']} נטילת התרופה אושרה!\n"
+            f"{config.EMOJES['success']} נטילת התרופה אושרה!\n"
             f"מלאי נותר: {new_count if medicine else 'לא ידוע'} כדורים"
         )
     
@@ -418,7 +419,7 @@ class MedicineReminderBot:
         job_id = await medicine_scheduler.schedule_snooze_reminder(user_id, medicine_id)
         
         await query.edit_message_text(
-            f"{config.EMOJIS['clock']} תזכורת נדחתה ל-{config.REMINDER_SNOOZE_MINUTES} דקות"
+            f"{config.EMOJES['clock']} תזכורת נדחתה ל-{config.REMINDER_SNOOZE_MINUTES} דקות"
         )
     
     async def handle_text_message(self, update: Update, context):
@@ -449,7 +450,7 @@ class MedicineReminderBot:
             )
     
     async def run_webhook(self):
-        """Run bot in webhook mode (for production)"""
+        """Run bot in webhook mode (for production) with health endpoint."""
         try:
             webhook_url = config.get_webhook_url()
             if not webhook_url:
@@ -458,58 +459,61 @@ class MedicineReminderBot:
             logger.info(f"Starting webhook server on port {config.WEBHOOK_PORT}")
             logger.info(f"Webhook URL: {webhook_url}")
             
-            # Start webhook
+            # Initialize and start application
             await self.application.initialize()
             await self.application.start()
             
-            # Set webhook
+            # Configure webhook at Telegram side with secret token
+            secret_token = (config.BOT_TOKEN[-32:] if len(config.BOT_TOKEN) >= 32 else None)
             await self.application.bot.set_webhook(
                 url=webhook_url,
-                allowed_updates=["message", "callback_query"]
+                allowed_updates=["message", "callback_query"],
+                secret_token=secret_token
             )
             
-            # Start webhook server
-            # NOTE: Application.run_webhook is a blocking/synchronous helper that manages the loop internally.
-            # Calling it with await inside an already running event loop (asyncio.run) will crash on Python 3.13.
-            # Therefore we keep this async variant for non-production use, but prefer the sync variant below in production.
-            await self.application.run_webhook(
-                listen="0.0.0.0",
-                port=config.WEBHOOK_PORT,
-                webhook_url=webhook_url,
-                secret_token=config.BOT_TOKEN[-32:] if len(config.BOT_TOKEN) >= 32 else None
-            )
+            # Build aiohttp app with /health and webhook handlers
+            app = web.Application()
+            
+            async def health_handler(request):
+                return web.Response(text="OK", content_type="text/plain")
+            
+            async def telegram_webhook_handler(request):
+                # Optional secret token validation
+                if secret_token:
+                    received = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+                    if received != secret_token:
+                        return web.Response(status=401, text="Invalid secret token")
+                try:
+                    data = await request.json()
+                except Exception:
+                    return web.Response(status=400, text="Invalid JSON")
+                try:
+                    update = Update.de_json(data, self.application.bot)
+                    await self.application.process_update(update)
+                except Exception as exc:
+                    logger.error(f"Failed to process update: {exc}")
+                    return web.Response(status=500, text="Failed to process update")
+                return web.Response(text="OK")
+            
+            # Routes
+            app.router.add_get("/health", health_handler)
+            app.router.add_post(config.WEBHOOK_PATH, telegram_webhook_handler)
+            
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, host="0.0.0.0", port=config.WEBHOOK_PORT)
+            await site.start()
+            
+            logger.info("Webhook server is up")
+            
+            # Block forever
+            await asyncio.Event().wait()
             
         except Exception as e:
             logger.error(f"Failed to run webhook: {e}")
             raise
 
-    def run_webhook_sync(self):
-        """Run bot in webhook mode using the synchronous helper to avoid loop-closing errors on Render."""
-        webhook_url = config.get_webhook_url()
-        if not webhook_url:
-            raise ValueError("Webhook URL not configured")
-        
-        logger.info(f"Starting webhook server on port {config.WEBHOOK_PORT}")
-        logger.info(f"Webhook URL: {webhook_url}")
-        
-        # Initialize app components in a short-lived loop
-        async def _init_and_set_webhook():
-            await self.application.initialize()
-            await self.application.start()
-            await self.application.bot.set_webhook(
-                url=webhook_url,
-                allowed_updates=["message", "callback_query"]
-            )
-        
-        asyncio.run(_init_and_set_webhook())
-        
-        # Use the synchronous helper which manages the event loop internally.
-        self.application.run_webhook(
-            listen="0.0.0.0",
-            port=config.WEBHOOK_PORT,
-            webhook_url=webhook_url,
-            secret_token=config.BOT_TOKEN[-32:] if len(config.BOT_TOKEN) >= 32 else None
-        )
+    # Removed sync webhook runner to avoid Python 3.13 event loop issues
     
     async def run_polling(self):
         """Run bot in polling mode (for development)"""
@@ -585,17 +589,4 @@ async def main():
 
 if __name__ == "__main__":
     # Entry point for the application
-    if config.is_production():
-        # In production (Render), use the synchronous webhook runner to avoid
-        # "Cannot close a running event loop" errors on Python 3.13.
-        bot = MedicineReminderBot()
-        try:
-            asyncio.run(bot.initialize())
-            bot.run_webhook_sync()
-        except KeyboardInterrupt:
-            logger.info("Bot stopped by user")
-        finally:
-            asyncio.run(bot.shutdown())
-    else:
-        # Development: use the async polling runner
-        asyncio.run(main())
+    asyncio.run(main())
