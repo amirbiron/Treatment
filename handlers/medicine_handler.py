@@ -94,9 +94,9 @@ class MedicineHandler:
             }
             
             message = f"""
-{config.EMOJIS['medicine']} *הוספת תרופה חדשה*
+{config.EMOJIS['medicine']} <b>הוספת תרופה חדשה</b>
 
-🔹 **שלב 1/4:** שם התרופה
+🔹 <b>שלב 1/4:</b> שם התרופה
 
 אנא שלחו את שם התרופה:
 (לדוגמה: אקמול, ויטמין D, לבופה וכו')
@@ -107,13 +107,13 @@ class MedicineHandler:
                 await update.callback_query.answer()
                 await update.callback_query.edit_message_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=get_cancel_keyboard()
                 )
             else:
                 await update.message.reply_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=get_cancel_keyboard()
                 )
             
@@ -158,9 +158,9 @@ class MedicineHandler:
             self.user_medicine_data[user_id]['medicine_data']['name'] = medicine_name
             
             message = f"""
-{config.EMOJIS['medicine']} *הוספת תרופה: {medicine_name}*
+{config.EMOJIS['medicine']} <b>הוספת תרופה: {medicine_name}</b>
 
-🔹 **שלב 2/4:** מינון
+🔹 <b>שלב 2/4:</b> מינון
 
 אנא הזינו את המינון:
 (לדוגמה: 500 מ"ג, 1 כדור, כפית, 2 טיפות וכו')
@@ -168,7 +168,7 @@ class MedicineHandler:
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=get_cancel_keyboard()
             )
             
@@ -203,10 +203,10 @@ class MedicineHandler:
             medicine_name = self.user_medicine_data[user_id]['medicine_data']['name']
             
             message = f"""
-{config.EMOJIS['medicine']} *הוספת תרופה: {medicine_name}*
-💊 *מינון:* {dosage}
+{config.EMOJIS['medicine']} <b>הוספת תרופה: {medicine_name}</b>
+💊 <b>מינון:</b> {dosage}
 
-🔹 **שלב 3/4:** שעות נטילה
+🔹 <b>שלב 3/4:</b> שעות נטילה
 
 בחרו את השעה הראשונה לנטילת התרופה:
 (תוכלו להוסיף שעות נוספות אחר כך)
@@ -214,7 +214,7 @@ class MedicineHandler:
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=get_time_selection_keyboard()
             )
             
@@ -236,7 +236,7 @@ class MedicineHandler:
             
             if data == "time_custom":
                 message = f"""
-{config.EMOJIS['clock']} *הזנת שעה מותאמת אישית*
+{config.EMOJIS['clock']} <b>הזנת שעה מותאמת אישית</b>
 
 אנא הזינו שעה בפורמט HH:MM
 (לדוגמה: 08:30, 14:15, 21:00)
@@ -244,7 +244,7 @@ class MedicineHandler:
                 
                 await query.edit_message_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=get_cancel_keyboard()
                 )
                 
@@ -268,11 +268,11 @@ class MedicineHandler:
                 dosage = self.user_medicine_data[user_id]['medicine_data']['dosage']
                 
                 message = f"""
-{config.EMOJIS['medicine']} *הוספת תרופה: {medicine_name}*
-💊 *מינון:* {dosage}
-⏰ *שעה:* {selected_time.strftime('%H:%M')}
+{config.EMOJIS['medicine']} <b>הוספת תרופה: {medicine_name}</b>
+💊 <b>מינון:</b> {dosage}
+⏰ <b>שעה:</b> {selected_time.strftime('%H:%M')}
 
-🔹 **שלב 4/4:** כמות במלאי
+🔹 <b>שלב 4/4:</b> כמות במלאי
 
 כמה כדורים/יחידות יש לכם כרגע במלאי?
 (הזינו מספר, לדוגמה: 30)
@@ -280,7 +280,7 @@ class MedicineHandler:
                 
                 await query.edit_message_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=get_cancel_keyboard()
                 )
                 
@@ -321,11 +321,11 @@ class MedicineHandler:
             dosage = self.user_medicine_data[user_id]['medicine_data']['dosage']
             
             message = f"""
-{config.EMOJIS['medicine']} *הוספת תרופה: {medicine_name}*
-💊 *מינון:* {dosage}
-⏰ *שעה:* {selected_time.strftime('%H:%M')}
+{config.EMOJIS['medicine']} <b>הוספת תרופה: {medicine_name}</b>
+💊 <b>מינון:</b> {dosage}
+⏰ <b>שעה:</b> {selected_time.strftime('%H:%M')}
 
-🔹 **שלב 4/4:** כמות במלאי
+🔹 <b>שלב 4/4:</b> כמות במלאי
 
 כמה כדורים/יחידות יש לכם כרגע במלאי?
 (הזינו מספר, לדוגמה: 30)
@@ -333,7 +333,7 @@ class MedicineHandler:
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=get_cancel_keyboard()
             )
             
@@ -373,9 +373,9 @@ class MedicineHandler:
                 medicine_data = self.user_medicine_data[user_id]['medicine_data']
                 
                 message = f"""
-{config.EMOJIS['success']} *התרופה נוספה בהצלחה!*
+{config.EMOJIS['success']} <b>התרופה נוספה בהצלחה!</b>
 
-{config.EMOJIS['medicine']} **{medicine_data['name']}**
+{config.EMOJIS['medicine']} <b>{medicine_data['name']}</b>
 💊 מינון: {medicine_data['dosage']}
 ⏰ שעות נטילה: {', '.join([t.strftime('%H:%M') for t in medicine_data['schedules']])}
 📦 מלאי: {inventory_count} יחידות
@@ -385,7 +385,7 @@ class MedicineHandler:
                 
                 await update.message.reply_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=get_main_menu_keyboard()
                 )
             else:
@@ -470,24 +470,24 @@ class MedicineHandler:
             # Inventory warning
             inventory_status = ""
             if medicine.inventory_count <= medicine.low_stock_threshold:
-                inventory_status = f"\n{config.EMOJIS['warning']} **מלאי נמוך! כדאי להזמין עוד**"
+                inventory_status = f"\n{config.EMOJIS['warning']} <b>מלאי נמוך! כדאי להזמין עוד</b>"
             
             message = f"""
-{config.EMOJIS['medicine']} **{medicine.name}**
+{config.EMOJIS['medicine']} <b>{medicine.name}</b>
 
-💊 **מינון:** {medicine.dosage}
-⏰ **שעות נטילה:** {', '.join(schedule_times) if schedule_times else 'לא מוגדר'}
-📦 **מלאי:** {medicine.inventory_count} יחידות
-📊 **השבוע:** נלקח {taken_count}/{total_count} פעמים
-📅 **נוצר:** {medicine.created_at.strftime('%d/%m/%Y')}
-🟢 **פעיל:** {'כן' if medicine.is_active else 'לא'}
+💊 <b>מינון:</b> {medicine.dosage}
+⏰ <b>שעות נטילה:</b> {', '.join(schedule_times) if schedule_times else 'לא מוגדר'}
+📦 <b>מלאי:</b> {medicine.inventory_count} יחידות
+📊 <b>השבוע:</b> נלקח {taken_count}/{total_count} פעמים
+📅 <b>נוצר:</b> {medicine.created_at.strftime('%d/%m/%Y')}
+🟢 <b>פעיל:</b> {'כן' if medicine.is_active else 'לא'}
 
 {medicine.notes or ''}{inventory_status}
             """
             
             await query.edit_message_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=get_medicine_detail_keyboard(medicine_id)
             )
             
@@ -563,7 +563,7 @@ class MedicineHandler:
             if operation == "custom":
                 # Handle custom inventory input
                 message = f"""
-{config.EMOJIS['inventory']} **עדכון מלאי: {medicine.name}**
+{config.EMOJIS['inventory']} <b>עדכון מלאי: {medicine.name}</b>
 
 מלאי נוכחי: {medicine.inventory_count} יחידות
 
@@ -572,7 +572,7 @@ class MedicineHandler:
                 
                 await query.edit_message_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=get_cancel_keyboard()
                 )
                 
@@ -602,7 +602,7 @@ class MedicineHandler:
                     status_msg = f"\n{config.EMOJIS['warning']} מלאי נמוך!"
                 
                 message = f"""
-{config.EMOJIS['success']} **מלאי עודכן!**
+{config.EMOJIS['success']} <b>מלאי עודכן!</b>
 
 {config.EMOJIS['medicine']} {medicine.name}
 📦 מלאי חדש: {new_count} יחידות{status_msg}
@@ -610,7 +610,7 @@ class MedicineHandler:
                 
                 await query.edit_message_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=get_medicine_detail_keyboard(medicine_id)
                 )
             
@@ -653,7 +653,7 @@ class MedicineHandler:
                 status_msg = f"\n{config.EMOJIS['warning']} מלאי נמוך!"
             
             message = f"""
-{config.EMOJIS['success']} **מלאי עודכן בהצלחה!**
+{config.EMOJIS['success']} <b>מלאי עודכן בהצלחה!</b>
 
 {config.EMOJIS['medicine']} {medicine.name}
 📦 מלאי חדש: {new_count} יחידות{status_msg}
@@ -661,7 +661,7 @@ class MedicineHandler:
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=get_medicine_detail_keyboard(medicine_id)
             )
             

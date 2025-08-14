@@ -101,9 +101,9 @@ class ReminderHandler:
             
             # Create success message
             message = f"""
-{config.EMOJIS['success']} **מעולה! נטילת התרופה אושרה**
+{config.EMOJIS['success']} <b>מעולה! נטילת התרופה אושרה</b>
 
-{config.EMOJIS['medicine']} **{medicine.name}**
+{config.EMOJIS['medicine']} <b>{medicine.name}</b>
 💊 מינון: {medicine.dosage}
 ⏰ זמן נטילה: {now.strftime('%H:%M')}
 📦 מלאי נותר: {new_count} יחידות{low_stock_warning}
@@ -116,6 +116,7 @@ class ReminderHandler:
             
             await query.edit_message_text(
                 message,
+                parse_mode='HTML',
                 reply_markup=self._get_post_dose_keyboard(medicine_id)
             )
             
@@ -154,9 +155,9 @@ class ReminderHandler:
             snooze_time = datetime.now() + timedelta(minutes=config.REMINDER_SNOOZE_MINUTES)
             
             message = f"""
-{config.EMOJIS['clock']} **תזכורת נדחתה**
+{config.EMOJIS['clock']} <b>תזכורת נדחתה</b>
 
-{config.EMOJIS['medicine']} **{medicine.name}**
+{config.EMOJIS['medicine']} <b>{medicine.name}</b>
 💊 מינון: {medicine.dosage}
 
 ⏰ תזכורת חוזרת: {snooze_time.strftime('%H:%M')}
@@ -167,6 +168,7 @@ class ReminderHandler:
             
             await query.edit_message_text(
                 message,
+                parse_mode='HTML',
                 reply_markup=self._get_snooze_keyboard(medicine_id)
             )
             
@@ -194,9 +196,9 @@ class ReminderHandler:
                 return
             
             message = f"""
-{config.EMOJIS['warning']} **אישור דילוג על תרופה**
+{config.EMOJIS['warning']} <b>אישור דילוג על תרופה</b>
 
-{config.EMOJIS['medicine']} **{medicine.name}**
+{config.EMOJIS['medicine']} <b>{medicine.name}</b>
 💊 מינון: {medicine.dosage}
 
 האם אתם בטוחים שברצונכם לדלג על התרופה?
@@ -206,6 +208,7 @@ class ReminderHandler:
             
             await query.edit_message_text(
                 message,
+                parse_mode='HTML',
                 reply_markup=get_confirmation_keyboard("skip", medicine_id)
             )
             
@@ -259,9 +262,9 @@ class ReminderHandler:
             await self._notify_caregivers_dose_skipped(user_id, medicine, now)
             
             message = f"""
-{config.EMOJIS['info']} **תרופה דולגה**
+{config.EMOJIS['info']} <b>תרופה דולגה</b>
 
-{config.EMOJIS['medicine']} **{medicine.name}**
+{config.EMOJIS['medicine']} <b>{medicine.name}</b>
 💊 מינון: {medicine.dosage}
 ⏰ זמן: {now.strftime('%H:%M')}
 
@@ -272,6 +275,7 @@ class ReminderHandler:
             
             await query.edit_message_text(
                 message,
+                parse_mode='HTML',
                 reply_markup=get_main_menu_keyboard()
             )
             
@@ -301,19 +305,20 @@ class ReminderHandler:
             
             # Return to original reminder
             message = f"""
-{config.EMOJIS['reminder']} **זמן לקחת תרופה!**
+{config.EMOJIS['reminder']} <b>זמן לקחת תרופה!</b>
 
-{config.EMOJIS['medicine']} **{medicine.name}**
+{config.EMOJIS['medicine']} <b>{medicine.name}</b>
 💊 מינון: {medicine.dosage}
 
 {config.EMOJIS['inventory']} מלאי נותר: {medicine.inventory_count} יחידות
             """
             
             if medicine.inventory_count <= medicine.low_stock_threshold:
-                message += f"\n{config.EMOJIS['warning']} **מלאי נמוך! כדאי להזמין עוד**"
+                message += f"\n{config.EMOJIS['warning']} <b>מלאי נמוך! כדאי להזמין עוד</b>"
             
             await query.edit_message_text(
                 message,
+                parse_mode='HTML',
                 reply_markup=get_reminder_keyboard(medicine_id)
             )
             
@@ -348,7 +353,7 @@ class ReminderHandler:
             snooze_time = datetime.now() + timedelta(minutes=config.REMINDER_SNOOZE_MINUTES)
             
             message = f"""
-{config.EMOJIS['clock']} **התזכורת האחרונה נדחתה**
+{config.EMOJIS['clock']} <b>התזכורת האחרונה נדחתה</b>
 
 {config.EMOJIS['medicine']} {latest_reminder['medicine_name']}
 ⏰ תזכורת חוזרת: {snooze_time.strftime('%H:%M')}
@@ -356,6 +361,7 @@ class ReminderHandler:
             
             await update.message.reply_text(
                 message,
+                parse_mode='HTML',
                 reply_markup=get_main_menu_keyboard()
             )
             
@@ -406,6 +412,7 @@ class ReminderHandler:
             
             await update.message.reply_text(
                 message,
+                parse_mode='HTML',
                 reply_markup=get_main_menu_keyboard()
             )
             
@@ -457,6 +464,7 @@ class ReminderHandler:
             
             await update.message.reply_text(
                 message,
+                parse_mode='HTML',
                 reply_markup=get_main_menu_keyboard()
             )
             
@@ -586,7 +594,7 @@ class ReminderHandler:
                         await context.bot.send_message(
                             chat_id=caregiver.caregiver_telegram_id,
                             text=message,
-                            parse_mode='Markdown'
+                            parse_mode='HTML'
                         )
                     except Exception as e:
                         logger.error(f"Failed to notify caregiver {caregiver.id}: {e}")
@@ -622,7 +630,7 @@ class ReminderHandler:
                         await context.bot.send_message(
                             chat_id=caregiver.caregiver_telegram_id,
                             text=message,
-                            parse_mode='Markdown'
+                            parse_mode='HTML'
                         )
                     except Exception as e:
                         logger.error(f"Failed to notify caregiver {caregiver.id}: {e}")

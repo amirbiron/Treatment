@@ -107,7 +107,7 @@ class CaregiverHandler:
             existing_caregivers = await DatabaseManager.get_user_caregivers(user.id, active_only=False)
             if len(existing_caregivers) >= config.MAX_CAREGIVERS_PER_USER:
                 message = f"""
-{config.EMOJIS['error']} **הגעתם למגבלת המטפלים**
+{config.EMOJIS['error']} <b>הגעתם למגבלת המטפלים</b>
 
 אתם יכולים להוסיף עד {config.MAX_CAREGIVERS_PER_USER} מטפלים.
 אנא הסירו מטפל קיים לפני הוספת מטפל חדש.
@@ -117,13 +117,13 @@ class CaregiverHandler:
                     await update.callback_query.answer()
                     await update.callback_query.edit_message_text(
                         message,
-                        parse_mode='Markdown',
+                        parse_mode='HTML',
                         reply_markup=get_caregiver_keyboard()
                     )
                 else:
                     await update.message.reply_text(
                         message,
-                        parse_mode='Markdown',
+                        parse_mode='HTML',
                         reply_markup=get_caregiver_keyboard()
                     )
                 
@@ -136,9 +136,9 @@ class CaregiverHandler:
             }
             
             message = f"""
-{config.EMOJIS['caregiver']} **הוספת מטפל חדש**
+{config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
 
-🔹 **שלב 1/4:** מזהה טלגרם
+🔹 <b>שלב 1/4:</b> מזהה טלגרם
 
 אנא שלחו את מזהה הטלגרם של המטפל:
 • ניתן לקבל את המזהה ממטפל
@@ -151,13 +151,13 @@ class CaregiverHandler:
                 await update.callback_query.answer()
                 await update.callback_query.edit_message_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=get_cancel_keyboard()
                 )
             else:
                 await update.message.reply_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=get_cancel_keyboard()
                 )
             
@@ -213,11 +213,11 @@ class CaregiverHandler:
             self.user_caregiver_data[user_id]['caregiver_telegram_id'] = caregiver_telegram_id
             
             message = f"""
-{config.EMOJIS['caregiver']} **הוספת מטפל חדש**
+{config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
 
-✅ **מזהה טלגרם:** {caregiver_telegram_id}
+✅ <b>מזהה טלגרם:</b> {caregiver_telegram_id}
 
-🔹 **שלב 2/4:** שם המטפל
+🔹 <b>שלב 2/4:</b> שם המטפל
 
 אנא הזינו את שם המטפל:
 (לדוגמה: ד"ר כהן, אמא, אחות שרה)
@@ -225,7 +225,7 @@ class CaregiverHandler:
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=get_cancel_keyboard()
             )
             
@@ -276,18 +276,18 @@ class CaregiverHandler:
             ])
             
             message = f"""
-{config.EMOJIS['caregiver']} **הוספת מטפל חדש**
+{config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
 
-✅ **שם המטפל:** {caregiver_name}
+✅ <b>שם המטפל:</b> {caregiver_name}
 
-🔹 **שלב 3/4:** קשר למטופל
+🔹 <b>שלב 3/4:</b> קשר למטופל
 
 בחרו את סוג הקשר של המטפל אליכם:
             """
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
@@ -309,16 +309,16 @@ class CaregiverHandler:
             
             if data == "rel_custom":
                 message = f"""
-{config.EMOJIS['caregiver']} **הוספת מטפל חדש**
+{config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
 
-🔹 **הזנת קשר מותאם אישית:**
+🔹 <b>הזנת קשר מותאם אישית:</b>
 
 אנא הזינו את סוג הקשר של המטפל אליכם:
                 """
                 
                 await query.edit_message_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=get_cancel_keyboard()
                 )
                 
@@ -344,23 +344,23 @@ class CaregiverHandler:
             caregiver_name = self.user_caregiver_data[user_id]['caregiver_name']
             
             message = f"""
-{config.EMOJIS['caregiver']} **הוספת מטפל חדש**
+{config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
 
-✅ **שם המטפל:** {caregiver_name}
-✅ **קשר:** {relationship}
+✅ <b>שם המטפל:</b> {caregiver_name}
+✅ <b>קשר:</b> {relationship}
 
-🔹 **שלב 4/4:** הרשאות
+🔹 <b>שלב 4/4:</b> הרשאות
 
 בחרו את רמת ההרשאות של המטפל:
 
-• **צפייה בלבד** - יכול לראות דוחות בלבד
-• **ניהול תרופות** - יכול להוסיף ולערוך תרופות
-• **מנהל מלא** - גישה מלאה לכל הפונקציות
+• <b>צפייה בלבד</b> - יכול לראות דוחות בלבד
+• <b>ניהול תרופות</b> - יכול להוסיף ולערוך תרופות
+• <b>מנהל מלא</b> - גישה מלאה לכל הפונקציות
             """
             
             await query.edit_message_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
@@ -407,19 +407,19 @@ class CaregiverHandler:
             caregiver_name = self.user_caregiver_data[user_id]['caregiver_name']
             
             message = f"""
-{config.EMOJIS['caregiver']} **הוספת מטפל חדש**
+{config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
 
-✅ **שם המטפל:** {caregiver_name}
-✅ **קשר:** {relationship}
+✅ <b>שם המטפל:</b> {caregiver_name}
+✅ <b>קשר:</b> {relationship}
 
-🔹 **שלב 4/4:** הרשאות
+🔹 <b>שלב 4/4:</b> הרשאות
 
 בחרו את רמת ההרשאות של המטפל:
             """
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
@@ -449,9 +449,9 @@ class CaregiverHandler:
                 perm_desc = self.permission_levels.get(permissions, permissions)
                 
                 message = f"""
-{config.EMOJIS['success']} **מטפל נוסף בהצלחה!**
+{config.EMOJIS['success']} <b>מטפל נוסף בהצלחה!</b>
 
-{config.EMOJIS['caregiver']} **פרטי המטפל:**
+{config.EMOJIS['caregiver']} <b>פרטי המטפל:</b>
 • שם: {data['caregiver_name']}
 • קשר: {data['relationship_type']}
 • הרשאות: {perm_desc}
@@ -488,7 +488,7 @@ class CaregiverHandler:
             
             await query.edit_message_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
             
@@ -519,7 +519,7 @@ class CaregiverHandler:
             
             if not caregivers:
                 message = f"""
-{config.EMOJIS['info']} **אין מטפלים רשומים**
+{config.EMOJIS['info']} <b>אין מטפלים רשומים</b>
 
 עדיין לא הוספתם מטפלים.
 מטפלים יכולים לעזור לכם לעקוב אחר נטילת התרופות ולקבל דוחות.
@@ -534,13 +534,13 @@ class CaregiverHandler:
                     ]
                 ]
             else:
-                message = f"{config.EMOJIS['caregiver']} **המטפלים שלכם ({len(caregivers)}):**\n\n"
+                message = f"{config.EMOJIS['caregiver']} <b>המטפלים שלכם ({len(caregivers)}):</b>\n\n"
                 
                 for caregiver in caregivers:
                     status_emoji = config.EMOJIS['success'] if caregiver.is_active else config.EMOJIS['error']
                     perm_desc = self.permission_levels.get(caregiver.permissions, caregiver.permissions)
                     
-                    message += f"{status_emoji} **{caregiver.caregiver_name}**\n"
+                    message += f"{status_emoji} <b>{caregiver.caregiver_name}</b>\n"
                     message += f"   👤 {caregiver.relationship_type}\n"
                     message += f"   🔐 {perm_desc}\n"
                     message += f"   📅 נוסף: {caregiver.created_at.strftime('%d/%m/%Y')}\n\n"
@@ -583,13 +583,13 @@ class CaregiverHandler:
                 await update.callback_query.answer()
                 await update.callback_query.edit_message_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             else:
                 await update.message.reply_text(
                     message,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             
@@ -624,11 +624,11 @@ class CaregiverHandler:
                 return
             
             message = f"""
-{config.EMOJIS['caregiver']} **הוזמנתם כמטפל**
+{config.EMOJIS['caregiver']} <b>הוזמנתם כמטפל</b>
 
-👤 **מטופל:** {user.first_name} {user.last_name or ''}
-🏥 **קשר:** {caregiver_data['relationship_type']}
-🔐 **הרשאות:** {self.permission_levels.get(caregiver_data['permissions'], caregiver_data['permissions'])}
+👤 <b>מטופל:</b> {user.first_name} {user.last_name or ''}
+🏥 <b>קשר:</b> {caregiver_data['relationship_type']}
+🔐 <b>הרשאות:</b> {self.permission_levels.get(caregiver_data['permissions'], caregiver_data['permissions'])}
 
 אתם יכולים עכשיו לקבל דוחות על נטילת התרופות ולעזור במעקב.
 
@@ -640,7 +640,7 @@ class CaregiverHandler:
                 await bot.send_message(
                     chat_id=caregiver_data['caregiver_telegram_id'],
                     text=message,
-                    parse_mode='Markdown'
+                    parse_mode='HTML'
                 )
             
         except Exception as e:
