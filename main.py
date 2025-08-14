@@ -279,7 +279,7 @@ class MedicineReminderBot:
             
             await DatabaseManager.update_inventory(selected.id, new_count)
             await update.message.reply_text(
-                f"{config.EMOJIS['success']} עודכן מלאי לתרופה {selected.name}: {new_count}"
+                f"{config.EMOJES['success']} עודכן מלאי לתרופה {selected.name}: {new_count}"
             )
         
         except Exception as e:
@@ -345,9 +345,9 @@ class MedicineReminderBot:
             jobs = medicine_scheduler.get_scheduled_jobs(user.id)
             
             if not jobs:
-                message = f"{config.EMOJIS['info']} אין תזכורות מתוזמנות"
+                message = f"{config.EMOJES['info']} אין תזכורות מתוזמנות"
             else:
-                message = f"{config.EMOJIS['clock']} *התזכורות הבאות:*\n\n"
+                message = f"{config.EMOJES['clock']} *התזכורות הבאות:*\n\n"
                 for job in sorted(jobs, key=lambda x: x['next_run']):
                     if job['next_run']:
                         time_str = job['next_run'].strftime('%H:%M')
@@ -406,7 +406,7 @@ class MedicineReminderBot:
         medicine_scheduler.reminder_attempts[reminder_key] = 0
         
         await query.edit_message_text(
-            f"{config.EMOJIS['success']} נטילת התרופה אושרה!\n"
+            f"{config.EMOJES['success']} נטילת התרופה אושרה!\n"
             f"מלאי נותר: {new_count if medicine else 'לא ידוע'} כדורים"
         )
     
@@ -419,7 +419,7 @@ class MedicineReminderBot:
         job_id = await medicine_scheduler.schedule_snooze_reminder(user_id, medicine_id)
         
         await query.edit_message_text(
-            f"{config.EMOJIS['clock']} תזכורת נדחתה ל-{config.REMINDER_SNOOZE_MINUTES} דקות"
+            f"{config.EMOJES['clock']} תזכורת נדחתה ל-{config.REMINDER_SNOOZE_MINUTES} דקות"
         )
     
     async def handle_text_message(self, update: Update, context):
@@ -467,7 +467,7 @@ class MedicineReminderBot:
             await self.application.run_webhook(
                 listen="0.0.0.0",
                 port=config.WEBHOOK_PORT,
-                url_path=config.WEBHOOK_PATH,
+                url_path=config.WEBHOOK_PATH.lstrip('/'),
                 webhook_url=webhook_url,
                 allowed_updates=["message", "callback_query"],
                 secret_token=(config.BOT_TOKEN[-32:] if len(config.BOT_TOKEN) >= 32 else None),
