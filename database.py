@@ -453,3 +453,27 @@ class DatabaseManager:
                 .order_by(DoseLog.scheduled_time.asc())
             )
             return list(result.scalars().all())
+
+	@staticmethod
+	async def create_symptom_log(
+		user_id: int,
+		log_date: datetime,
+		symptoms: str = None,
+		side_effects: str = None,
+		mood_score: int = None,
+		notes: str = None
+	) -> "SymptomLog":
+		"""Create a new symptom/side-effects log entry."""
+		async with async_session() as session:
+			log = SymptomLog(
+				user_id=user_id,
+				log_date=log_date,
+				symptoms=symptoms,
+				side_effects=side_effects,
+				mood_score=mood_score,
+				notes=notes
+			)
+			session.add(log)
+			await session.commit()
+			await session.refresh(log)
+			return log

@@ -71,9 +71,9 @@ def get_medicines_keyboard(medicines: List) -> InlineKeyboardMarkup:
     # Add medicine buttons (max 5 per page)
     for i, medicine in enumerate(medicines[:config.MAX_MEDICINES_PER_PAGE]):
         status_emoji = config.EMOJIS['success'] if medicine.is_active else config.EMOJIS['error']
-        warning_emoji = config.EMOJIS['warning'] if medicine.inventory_count <= medicine.low_stock_threshold else ""
+        # Removed warning emoji from button label for clarity
         
-        button_text = f"{status_emoji} {medicine.name} {warning_emoji}"
+        button_text = f"{status_emoji} {medicine.name}"
         keyboard.append([
             InlineKeyboardButton(
                 button_text,
@@ -238,20 +238,6 @@ def get_symptoms_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 f"{config.EMOJIS['symptoms']} רשום תופעות לוואי",
                 callback_data="symptoms_log"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                f"😊 מצב רוח טוב",
-                callback_data="mood_good"
-            ),
-            InlineKeyboardButton(
-                f"😐 מצב רוח בינוני",
-                callback_data="mood_medium"
-            ),
-            InlineKeyboardButton(
-                f"😟 מצב רוח רע",
-                callback_data="mood_bad"
             )
         ],
         [
