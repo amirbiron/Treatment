@@ -379,6 +379,45 @@ class DatabaseManager:
             await session.commit()
             await session.refresh(caregiver)
             return caregiver
+
+    @staticmethod
+    async def get_caregiver_by_id(caregiver_id: int) -> Optional[Caregiver]:
+        """Get a caregiver by primary key."""
+        async with async_session() as session:
+            return await session.get(Caregiver, caregiver_id)
+
+    @staticmethod
+    async def update_caregiver(
+        caregiver_id: int,
+        caregiver_name: Optional[str] = None,
+        relationship_type: Optional[str] = None,
+        permissions: Optional[str] = None,
+    ) -> Optional[Caregiver]:
+        """Update caregiver fields (name/relationship_type/permissions)."""
+        async with async_session() as session:
+            caregiver = await session.get(Caregiver, caregiver_id)
+            if not caregiver:
+                return None
+            if caregiver_name is not None:
+                caregiver.caregiver_name = caregiver_name
+            if relationship_type is not None:
+                caregiver.relationship_type = relationship_type
+            if permissions is not None:
+                caregiver.permissions = permissions
+            await session.commit()
+            await session.refresh(caregiver)
+            return caregiver
+
+    @staticmethod
+    async def set_caregiver_active(caregiver_id: int, is_active: bool) -> bool:
+        """Enable/disable a caregiver."""
+        async with async_session() as session:
+            caregiver = await session.get(Caregiver, caregiver_id)
+            if not caregiver:
+                return False
+            caregiver.is_active = is_active
+            await session.commit()
+            return True
     
     @staticmethod
     async def get_all_active_users() -> List[User]:
