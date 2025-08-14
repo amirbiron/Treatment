@@ -101,9 +101,9 @@ class ReminderHandler:
             
             # Create success message
             message = f"""
-{config.EMOJIS['success']} **מעולה! נטילת התרופה אושרה**
+{config.EMOJIS['success']} <b>מעולה! נטילת התרופה אושרה</b>
 
-{config.EMOJIS['medicine']} **{medicine.name}**
+{config.EMOJIS['medicine']} <b>{medicine.name}</b>
 💊 מינון: {medicine.dosage}
 ⏰ זמן נטילה: {now.strftime('%H:%M')}
 📦 מלאי נותר: {new_count} יחידות{low_stock_warning}
@@ -116,7 +116,7 @@ class ReminderHandler:
             
             await query.edit_message_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=self._get_post_dose_keyboard(medicine_id)
             )
             
@@ -155,9 +155,9 @@ class ReminderHandler:
             snooze_time = datetime.now() + timedelta(minutes=config.REMINDER_SNOOZE_MINUTES)
             
             message = f"""
-{config.EMOJIS['clock']} **תזכורת נדחתה**
+{config.EMOJIS['clock']} <b>תזכורת נדחתה</b>
 
-{config.EMOJIS['medicine']} **{medicine.name}**
+{config.EMOJIS['medicine']} <b>{medicine.name}</b>
 💊 מינון: {medicine.dosage}
 
 ⏰ תזכורת חוזרת: {snooze_time.strftime('%H:%M')}
@@ -168,7 +168,7 @@ class ReminderHandler:
             
             await query.edit_message_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=self._get_snooze_keyboard(medicine_id)
             )
             
@@ -196,9 +196,9 @@ class ReminderHandler:
                 return
             
             message = f"""
-{config.EMOJIS['warning']} **אישור דילוג על תרופה**
+{config.EMOJIS['warning']} <b>אישור דילוג על תרופה</b>
 
-{config.EMOJIS['medicine']} **{medicine.name}**
+{config.EMOJIS['medicine']} <b>{medicine.name}</b>
 💊 מינון: {medicine.dosage}
 
 האם אתם בטוחים שברצונכם לדלג על התרופה?
@@ -208,7 +208,7 @@ class ReminderHandler:
             
             await query.edit_message_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=get_confirmation_keyboard("skip", medicine_id)
             )
             
@@ -275,7 +275,7 @@ class ReminderHandler:
             
             await query.edit_message_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=get_main_menu_keyboard()
             )
             
@@ -305,20 +305,20 @@ class ReminderHandler:
             
             # Return to original reminder
             message = f"""
-{config.EMOJIS['reminder']} **זמן לקחת תרופה!**
+{config.EMOJIS['reminder']} <b>זמן לקחת תרופה!</b>
 
-{config.EMOJIS['medicine']} **{medicine.name}**
+{config.EMOJIS['medicine']} <b>{medicine.name}</b>
 💊 מינון: {medicine.dosage}
 
 {config.EMOJIS['inventory']} מלאי נותר: {medicine.inventory_count} יחידות
             """
             
             if medicine.inventory_count <= medicine.low_stock_threshold:
-                message += f"\n{config.EMOJIS['warning']} **מלאי נמוך! כדאי להזמין עוד**"
+                message += f"\n{config.EMOJIS['warning']} <b>מלאי נמוך! כדאי להזמין עוד</b>"
             
             await query.edit_message_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=get_reminder_keyboard(medicine_id)
             )
             
@@ -353,7 +353,7 @@ class ReminderHandler:
             snooze_time = datetime.now() + timedelta(minutes=config.REMINDER_SNOOZE_MINUTES)
             
             message = f"""
-{config.EMOJIS['clock']} **התזכורת האחרונה נדחתה**
+{config.EMOJIS['clock']} <b>התזכורת האחרונה נדחתה</b>
 
 {config.EMOJIS['medicine']} {latest_reminder['medicine_name']}
 ⏰ תזכורת חוזרת: {snooze_time.strftime('%H:%M')}
@@ -361,7 +361,7 @@ class ReminderHandler:
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=get_main_menu_keyboard()
             )
             
@@ -381,12 +381,12 @@ class ReminderHandler:
             
             if not jobs:
                 message = f"""
-{config.EMOJIS['info']} **אין תזכורות מתוזמנות**
+{config.EMOJIS['info']} <b>אין תזכורות מתוזמנות</b>
 
 לחצו על "התרופות שלי" כדי להוסיף תרופות ולקבוע תזכורות.
                 """
             else:
-                message = f"{config.EMOJIS['clock']} **התזכורות הבאות:**\n\n"
+                message = f"{config.EMOJIS['clock']} <b>התזכורות הבאות:</b>\n\n"
                 
                 # Sort jobs by next run time
                 sorted_jobs = sorted(
@@ -403,16 +403,16 @@ class ReminderHandler:
                     medicine_name = job['name'].split(' for user ')[0].replace('Medicine reminder', '').strip()
                     
                     if next_run.date() == datetime.now().date():
-                        message += f"⏰ **היום {time_str}** - {medicine_name}\n"
+                        message += f"⏰ <b>היום {time_str}</b> - {medicine_name}\n"
                     else:
-                        message += f"📅 **{date_str} {time_str}** - {medicine_name}\n"
+                        message += f"📅 <b>{date_str} {time_str}</b> - {medicine_name}\n"
                 
                 if len(jobs) > 10:
                     message += f"\n{config.EMOJIS['info']} ועוד {len(jobs) - 10} תזכורות..."
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
+                parse_mode='HTML',
                 reply_markup=get_main_menu_keyboard()
             )
             
