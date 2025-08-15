@@ -1040,6 +1040,12 @@ class DatabaseManagerMongo:
 		await _mongo_db.medicines.update_one({"_id": int(medicine_id)}, {"$set": {"inventory_count": float(new_count)}})
 
 	@staticmethod
+	async def set_medicine_active(medicine_id: int, is_active: bool) -> bool:
+		await _init_mongo()
+		res = await _mongo_db.medicines.update_one({"_id": int(medicine_id)}, {"$set": {"is_active": bool(is_active)}})
+		return res.modified_count >= 0
+
+	@staticmethod
 	async def log_dose_taken(medicine_id: int, scheduled_time: datetime, taken_at: datetime = None) -> DoseLog:
 		await _init_mongo()
 		if taken_at is None:
