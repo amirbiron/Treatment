@@ -54,6 +54,19 @@ class Config:
     MAX_CAREGIVERS_PER_USER: int = int(os.getenv("MAX_CAREGIVERS_PER_USER", "5"))
     CAREGIVER_DAILY_REPORT_TIME: str = os.getenv("CAREGIVER_DAILY_REPORT_TIME", "20:00")
     
+    # Appointment Settings
+    APPOINTMENT_ENABLE: bool = True
+    APPOINTMENT_TIMEZONE: str = DEFAULT_TIMEZONE
+    APPOINTMENT_ALLOW_CUSTOM: bool = True
+    
+    # Default reminders for appointments (booleans)
+    APPOINTMENT_REMIND_DAY_BEFORE: bool = True
+    APPOINTMENT_REMIND_3_DAYS_BEFORE: bool = False
+    
+    APPOINTMENTS_HELP: str = (
+        "קבעו תור לרופא, בדיקת דם, טיפול או בדיקה. ניתן גם להזין נושא חופשי."
+    )
+    
     # Message Templates
     WELCOME_MESSAGE: str = """
 🏥 *ברוכים הבאים לבוט תזכורת התרופות!*
@@ -134,7 +147,8 @@ class Config:
         "calendar": "📅",
         "clock": "🕐",
         "hospital": "🏥",
-        "doctor": "👨‍⚕️"
+        "doctor": "👨‍⚕️",
+        "appointment": "📅"
     }
     
     @classmethod

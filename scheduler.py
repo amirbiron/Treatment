@@ -16,7 +16,7 @@ from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, JobExecutionEvent
 
 from config import config
-from database import DatabaseManager, MedicineSchedule, Medicine, User
+from database import DatabaseManager, MedicineSchedule, Medicine, User, Appointment
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,9 @@ class MedicineScheduler:
             
             # Schedule inventory checks
             await self._schedule_inventory_checks()
+            
+            # Load and schedule upcoming appointments
+            await self._schedule_upcoming_appointments()
             
         except Exception as e:
             logger.error(f"Failed to start scheduler: {e}")
@@ -391,6 +394,67 @@ class MedicineScheduler:
             })
         
         return jobs
+
+    async def schedule_appointment_reminders(self, user_id: int, appointment_id: int, when_at: datetime, rem1: bool, rem3: bool, timezone: str = "UTC"):
+        """Schedule one-time reminders for an appointment at when_at - N days"""
+        try:
+            # Cancel existing
+            await self.cancel_appointment_reminders(user_id, appointment_id)
+            reminders = []
+            if rem3:
+                reminders.append((3, f"appointment_reminder_{user_id}_{appointment_id}_3d"))
+            if rem1:
+                reminders.append((1, f"appointment_reminder_{user_id}_{appointment_id}_1d"))
+            for days_before, job_id in reminders:
+                run_time = when_at - timedelta(days=days_before)
+                if run_time <= datetime.utcnow():
+                    continue
+                self.scheduler.add_job(
+                    func=self._send_appointment_reminder,
+                    trigger=DateTrigger(run_date=run_time, timezone=timezone),
+                    id=job_id,
+                    args=[user_id, appointment_id, days_before],
+                    name=f"Appointment reminder {appointment_id} ({days_before}d) for user {user_id}",
+                    replace_existing=True
+                )
+            logger.info(f"Scheduled appointment reminders for appt {appointment_id}")
+        except Exception as exc:
+            logger.error(f"Failed to schedule appointment reminders: {exc}")
+
+    async def cancel_appointment_reminders(self, user_id: int, appointment_id: int):
+        for suffix in ("_1d", "_3d"):
+            job_id = f"appointment_reminder_{user_id}_{appointment_id}{suffix}"
+            if self.scheduler.get_job(job_id):
+                self.scheduler.remove_job(job_id)
+
+    async def _send_appointment_reminder(self, user_id: int, appointment_id: int, days_before: int):
+        try:
+            # Fetch appointment to compose message
+            # DatabaseManager has no get by id; get all in range and filter minimal overhead avoided: implement direct fetch if needed
+            upcoming = await DatabaseManager.get_upcoming_appointments(user_id, until_days=365)
+            appt = next((a for a in upcoming if a.id == appointment_id), None)
+            if not appt:
+                return
+            day_text = "מחר" if days_before == 1 else f"בעוד {days_before} ימים"
+            msg = (
+                f"{config.EMOJIS['calendar']} תזכורת לתור {day_text}:\n"
+                f"{appt.title} ({appt.category})\n"
+                f"בתאריך: {appt.when_at.strftime('%d/%m/%Y %H:%M')}"
+            )
+            await self.bot.send_message(chat_id=user_id, text=msg)
+        except Exception as exc:
+            logger.error(f"Error sending appointment reminder: {exc}")
+
+    async def _schedule_upcoming_appointments(self):
+        try:
+            appts = await DatabaseManager.get_all_upcoming_appointments(until_days=90)
+            for appt in appts:
+                # Assume user timezone
+                user = await DatabaseManager.get_user_by_id(appt.user_id)
+                tz = user.timezone or config.DEFAULT_TIMEZONE
+                await self.schedule_appointment_reminders(appt.user_id, appt.id, appt.when_at, appt.remind_day_before, appt.remind_3days_before, tz)
+        except Exception as exc:
+            logger.error(f"Failed scheduling existing appointments: {exc}")
 
 
 # Global scheduler instance

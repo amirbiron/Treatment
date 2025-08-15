@@ -25,6 +25,9 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
             KeyboardButton(f"{config.EMOJIS['caregiver']} מטפלים")
         ],
         [
+            KeyboardButton(f"{config.EMOJIS['calendar']} קביעת תור")
+        ],
+        [
             KeyboardButton(f"{config.EMOJIS['settings']} הגדרות"),
             KeyboardButton(f"{config.EMOJIS['info']} עזרה")
         ]
@@ -36,6 +39,77 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
         one_time_keyboard=False,
         input_field_placeholder="בחרו פעולה..."
     )
+
+
+def get_appointments_menu_keyboard() -> InlineKeyboardMarkup:
+    """Inline menu for creating an appointment"""
+    keyboard = [
+        [
+            InlineKeyboardButton(f"{config.EMOJIS['doctor']} לרופא", callback_data="appt_type_doctor"),
+            InlineKeyboardButton(f"🧪 לבדיקת דם", callback_data="appt_type_blood")
+        ],
+        [
+            InlineKeyboardButton(f"💆 לטיפול", callback_data="appt_type_treatment"),
+            InlineKeyboardButton(f"🔎 לבדיקה", callback_data="appt_type_checkup")
+        ],
+        [
+            InlineKeyboardButton(f"{config.EMOJIS['info']} אחר...", callback_data="appt_type_custom")
+        ],
+        [
+            InlineKeyboardButton(f"{config.EMOJIS['back']} חזור לתפריט", callback_data="main_menu")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_calendar_keyboard(year: int, month: int) -> InlineKeyboardMarkup:
+    """Simple inline calendar for date picking (Sunday-first)."""
+    import calendar
+    cal = calendar.Calendar(firstweekday=6)  # Sunday=6 in Python's calendar when firstweekday=6
+    month_days = cal.monthdayscalendar(year, month)
+    header = [
+        InlineKeyboardButton("«", callback_data=f"appt_cal_nav_{year}_{month}_prev"),
+        InlineKeyboardButton(f"{year}-{month:02d}", callback_data="noop"),
+        InlineKeyboardButton("»", callback_data=f"appt_cal_nav_{year}_{month}_next"),
+    ]
+    keyboard = [header]
+    # Weekday headers (S M T W T F S in Hebrew order might differ; keep generic)
+    keyboard.append([
+        InlineKeyboardButton("א", callback_data="noop"),
+        InlineKeyboardButton("ב", callback_data="noop"),
+        InlineKeyboardButton("ג", callback_data="noop"),
+        InlineKeyboardButton("ד", callback_data="noop"),
+        InlineKeyboardButton("ה", callback_data="noop"),
+        InlineKeyboardButton("ו", callback_data="noop"),
+        InlineKeyboardButton("ש", callback_data="noop"),
+    ])
+    for week in month_days:
+        row = []
+        for day in week:
+            if day == 0:
+                row.append(InlineKeyboardButton(" ", callback_data="noop"))
+            else:
+                row.append(InlineKeyboardButton(str(day), callback_data=f"appt_date_{year}_{month:02d}_{day:02d}"))
+        keyboard.append(row)
+    keyboard.append([InlineKeyboardButton(f"{config.EMOJIS['back']} ביטול", callback_data="appt_cancel")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_appointment_reminder_keyboard(rem1: bool, rem3: bool) -> InlineKeyboardMarkup:
+    """Toggle reminders and confirm"""
+    on = "✅"
+    off = "⭕"
+    keyboard = [
+        [
+            InlineKeyboardButton(f"{on if rem1 else off} תזכורת יום לפני", callback_data="appt_rem1_toggle"),
+            InlineKeyboardButton(f"{on if rem3 else off} תזכורת 3 ימים לפני", callback_data="appt_rem3_toggle"),
+        ],
+        [
+            InlineKeyboardButton(f"{config.EMOJIS['success']} שמור תור", callback_data="appt_save"),
+            InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="appt_back")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 
 def get_reminder_keyboard(medicine_id: int) -> InlineKeyboardMarkup:

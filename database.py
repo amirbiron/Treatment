@@ -140,6 +140,24 @@ class Caregiver(Base):
     user: Mapped["User"] = relationship("User", back_populates="caregivers")
 
 
+class Appointment(Base):
+    """Appointments such as doctor visits and tests"""
+    __tablename__ = "appointments"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
+    category: Mapped[str] = mapped_column(String(30), default="custom")
+    title: Mapped[str] = mapped_column(String(200))
+    when_at: Mapped[datetime] = mapped_column(DateTime)
+    remind_day_before: Mapped[bool] = mapped_column(Boolean, default=True)
+    remind_3days_before: Mapped[bool] = mapped_column(Boolean, default=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    user: Mapped["User"] = relationship("User")
+
+
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./medicine_bot.db")
 
@@ -709,6 +727,7 @@ async def _init_mongo():
 		await _mongo_db.symptom_logs.create_index([("user_id", 1), ("log_date", 1)])
 		await _mongo_db.symptom_logs.create_index([("medicine_id", 1)])
 		await _mongo_db.caregivers.create_index([("user_id", 1)])
+		await _mongo_db.appointments.create_index([("user_id", 1), ("when_at", 1)])
 
 # Wrap SQLAlchemy models into dict converters for Mongo
 
@@ -1124,6 +1143,78 @@ class DatabaseManagerMongo:
 		class _S: pass
 		s = _S(); s.id = next_id; s.user_id = user_id; s.log_date = log_date; s.symptoms = symptoms; s.side_effects = side_effects; s.mood_score = mood_score; s.notes = notes; s.medicine_id = medicine_id
 		return s # type: ignore
+
+	@staticmethod
+	async def create_appointment(user_id: int, category: str, title: str, when_at: datetime, remind_day_before: bool = True, remind_3days_before: bool = False, notes: Optional[str] = None):
+		await _init_mongo()
+		last = await _mongo_db.appointments.find().sort("_id", -1).limit(1).to_list(1)
+		next_id = (last[0]["_id"] + 1) if last else 1
+		doc = {
+			"_id": next_id,
+			"user_id": user_id,
+			"category": category,
+			"title": title,
+			"when_at": when_at,
+			"remind_day_before": bool(remind_day_before),
+			"remind_3days_before": bool(remind_3days_before),
+			"notes": notes,
+			"created_at": datetime.utcnow(),
+		}
+		await _mongo_db.appointments.insert_one(doc)
+		# Return lightweight object
+		appt = Appointment()
+		appt.id = next_id
+		appt.user_id = user_id
+		appt.category = category
+		appt.title = title
+		appt.when_at = when_at
+		appt.remind_day_before = bool(remind_day_before)
+		appt.remind_3days_before = bool(remind_3days_before)
+		return appt
+
+	@staticmethod
+	async def get_upcoming_appointments(user_id: int, until_days: int = 60):
+		await _init_mongo()
+		now = datetime.utcnow()
+		until = now + timedelta(days=until_days)
+		rows = await _mongo_db.appointments.find({"user_id": user_id, "when_at": {"$gte": now, "$lte": until}}).sort("when_at", 1).to_list(1000)
+		result = []
+		for d in rows:
+			appt = Appointment()
+			appt.id = d.get("_id")
+			appt.user_id = d.get("user_id")
+			appt.category = d.get("category", "custom")
+			appt.title = d.get("title")
+			appt.when_at = d.get("when_at")
+			appt.remind_day_before = bool(d.get("remind_day_before", True))
+			appt.remind_3days_before = bool(d.get("remind_3days_before", False))
+			result.append(appt)
+		return result
+
+	@staticmethod
+	async def get_all_upcoming_appointments(until_days: int = 60):
+		await _init_mongo()
+		now = datetime.utcnow()
+		until = now + timedelta(days=until_days)
+		rows = await _mongo_db.appointments.find({"when_at": {"$gte": now, "$lte": until}}).sort("when_at", 1).to_list(1000)
+		result = []
+		for d in rows:
+			appt = Appointment()
+			appt.id = d.get("_id")
+			appt.user_id = d.get("user_id")
+			appt.category = d.get("category", "custom")
+			appt.title = d.get("title")
+			appt.when_at = d.get("when_at")
+			appt.remind_day_before = bool(d.get("remind_day_before", True))
+			appt.remind_3days_before = bool(d.get("remind_3days_before", False))
+			result.append(appt)
+		return result
+
+	@staticmethod
+	async def delete_appointment(appointment_id: int) -> bool:
+		await _init_mongo()
+		res = await _mongo_db.appointments.delete_one({"_id": int(appointment_id)})
+		return res.deleted_count > 0
 
 
 # Select backend at runtime
