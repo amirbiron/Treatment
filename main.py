@@ -138,9 +138,16 @@ class MedicineReminderBot:
         """Handle /start command"""
         try:
             user = update.effective_user
+            # Show main menu immediately for faster UX
+            from utils.keyboards import get_main_menu_keyboard
+            await update.message.reply_text(
+                config.WELCOME_MESSAGE,
+                parse_mode='Markdown',
+                reply_markup=get_main_menu_keyboard()
+            )
             telegram_id = user.id
             
-            # Get or create user in database
+            # Get or create user in database (after showing UI)
             db_user = await DatabaseManager.get_user_by_telegram_id(telegram_id)
             if not db_user:
                 db_user = await DatabaseManager.create_user(
@@ -150,15 +157,6 @@ class MedicineReminderBot:
                     last_name=user.last_name
                 )
                 logger.info(f"Created new user: {telegram_id}")
-            
-            # Send welcome message with main menu
-            from utils.keyboards import get_main_menu_keyboard
-            
-            await update.message.reply_text(
-                config.WELCOME_MESSAGE,
-                parse_mode='Markdown',
-                reply_markup=get_main_menu_keyboard()
-            )
             
         except Exception as e:
             logger.error(f"Error in start command: {e}")
