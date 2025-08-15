@@ -382,43 +382,49 @@ class MedicineReminderBot:
             data = query.data
             user_id = query.from_user.id
             
-            # Time selection buttons: if editing schedule via inline flow, handle here
-            if data.startswith("time_"):
-                if context.user_data.get('editing_schedule_for'):
-                    parts = data.split("_")
-                    if len(parts) >= 3:
-                        try:
-                            h = int(parts[1]); m = int(parts[2])
-                            from datetime import time as dtime
-                            new_time = dtime(hour=h, minute=m)
-                            medicine_id = int(context.user_data.get('editing_schedule_for'))
-                            # Replace schedules
-                            await DatabaseManager.replace_medicine_schedules(medicine_id, [new_time])
-                            # Reschedule reminders
-                            user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
-                            await medicine_scheduler.cancel_medicine_reminders(user.id, medicine_id)
-                            await medicine_scheduler.schedule_medicine_reminder(
-                                user_id=user.id,
-                                medicine_id=medicine_id,
-                                reminder_time=new_time,
-                                timezone=user.timezone or config.DEFAULT_TIMEZONE
-                            )
-                            context.user_data.pop('editing_schedule_for', None)
-                            # Show success and medicine details
-                            from utils.keyboards import get_medicine_detail_keyboard
-                            med = await DatabaseManager.get_medicine_by_id(medicine_id)
-                            await query.edit_message_text(
-                                f"{config.EMOJIS['success']} השעה עודכנה ל- {new_time.strftime('%H:%M')}\n{config.EMOJIS['medicine']} {med.name}",
-                                reply_markup=get_medicine_detail_keyboard(medicine_id)
-                            )
-                            return
-                        except Exception as ex:
-                            logger.error(f"Failed to update schedule via time buttons: {ex}")
-                            await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
-                            return
-                # Otherwise, let the conversation handlers handle it
+            # Time selection buttons: handle preset hour and custom entry
+            if data == "time_custom":
+                await query.edit_message_text("הקלידו שעה בפורמט HH:MM (למשל 08:30)")
                 return
-            
+            if data.startswith("time_"):
+                parts = data.split("_")
+                if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
+                    try:
+                        if not context.user_data.get('editing_schedule_for'):
+                            await query.edit_message_text("שגיאה: אין תרופה נבחרת. חזרו ל'שנה שעות' ונסו שוב.")
+                            return
+                        h = int(parts[1]); m = int(parts[2])
+                        from datetime import time as dtime
+                        new_time = dtime(hour=h, minute=m)
+                        medicine_id = int(context.user_data.get('editing_schedule_for'))
+                        # Replace schedules
+                        await DatabaseManager.replace_medicine_schedules(medicine_id, [new_time])
+                        # Reschedule reminders
+                        user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+                        await medicine_scheduler.cancel_medicine_reminders(user.id, medicine_id)
+                        await medicine_scheduler.schedule_medicine_reminder(
+                            user_id=user.id,
+                            medicine_id=medicine_id,
+                            reminder_time=new_time,
+                            timezone=user.timezone or config.DEFAULT_TIMEZONE
+                        )
+                        context.user_data.pop('editing_schedule_for', None)
+                        # Show success and medicine details
+                        from utils.keyboards import get_medicine_detail_keyboard
+                        med = await DatabaseManager.get_medicine_by_id(medicine_id)
+                        await query.edit_message_text(
+                            f"{config.EMOJIS['success']} השעה עודכנה ל- {new_time.strftime('%H:%M')}\n{config.EMOJIS['medicine']} {med.name}",
+                            reply_markup=get_medicine_detail_keyboard(medicine_id)
+                        )
+                        return
+                    except Exception as ex:
+                        logger.error(f"Failed to update schedule via time buttons: {ex}")
+                        await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
+                        return
+                else:
+                    await query.edit_message_text("שעה לא תקינה")
+                    return
+
             # Handle different callback types
             if data.startswith("dose_taken_") or data.startswith("dose_snooze_") or data.startswith("dose_skip_"):
                 # Handled by reminder handler callbacks (already registered)
