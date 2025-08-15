@@ -56,7 +56,38 @@ def get_appointments_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(f"{config.EMOJIS['info']} אחר...", callback_data="appt_type_custom")
         ],
         [
+            InlineKeyboardButton(f"📋 התורים שלי", callback_data="appt_list")
+        ],
+        [
             InlineKeyboardButton(f"{config.EMOJIS['back']} חזור לתפריט", callback_data="main_menu")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_appointments_list_keyboard(items: list) -> InlineKeyboardMarkup:
+    """Show upcoming appointments list with select/delete buttons"""
+    keyboard = []
+    for appt in items[:10]:
+        title = appt.title or 'תור'
+        when_txt = appt.when_at.strftime('%d/%m %H:%M')
+        keyboard.append([
+            InlineKeyboardButton(f"{when_txt} — {title}", callback_data=f"appt_view_{appt.id}")
+        ])
+    keyboard.append([
+        InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="appt_back_to_menu")
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_appointment_detail_keyboard(appt_id: int) -> InlineKeyboardMarkup:
+    keyboard = [
+        [
+            InlineKeyboardButton("שנה תאריך/שעה", callback_data=f"appt_edit_time_{appt_id}"),
+            InlineKeyboardButton("מחק", callback_data=f"appt_delete_{appt_id}"),
+        ],
+        [
+            InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="appt_list")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)

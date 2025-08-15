@@ -1173,6 +1173,44 @@ class DatabaseManagerMongo:
 		return appt
 
 	@staticmethod
+	async def get_appointment_by_id(appointment_id: int) -> Optional["Appointment"]:
+		await _init_mongo()
+		d = await _mongo_db.appointments.find_one({"_id": int(appointment_id)})
+		if not d:
+			return None
+		appt = Appointment()
+		appt.id = d.get("_id")
+		appt.user_id = d.get("user_id")
+		appt.category = d.get("category", "custom")
+		appt.title = d.get("title")
+		appt.when_at = d.get("when_at")
+		appt.remind_day_before = bool(d.get("remind_day_before", True))
+		appt.remind_3days_before = bool(d.get("remind_3days_before", False))
+		appt.notes = d.get("notes")
+		return appt
+
+	@staticmethod
+	async def update_appointment(appointment_id: int, when_at: datetime = None, title: str = None, category: str = None, remind_day_before: bool = None, remind_3days_before: bool = None, notes: str = None):
+		await _init_mongo()
+		updates = {}
+		if when_at is not None:
+			updates["when_at"] = when_at
+		if title is not None:
+			updates["title"] = title
+		if category is not None:
+			updates["category"] = category
+		if remind_day_before is not None:
+			updates["remind_day_before"] = bool(remind_day_before)
+		if remind_3days_before is not None:
+			updates["remind_3days_before"] = bool(remind_3days_before)
+		if notes is not None:
+			updates["notes"] = notes
+		if not updates:
+			return await DatabaseManagerMongo.get_appointment_by_id(appointment_id)
+		await _mongo_db.appointments.update_one({"_id": int(appointment_id)}, {"$set": updates})
+		return await DatabaseManagerMongo.get_appointment_by_id(appointment_id)
+
+	@staticmethod
 	async def get_upcoming_appointments(user_id: int, until_days: int = 60):
 		await _init_mongo()
 		now = datetime.utcnow()

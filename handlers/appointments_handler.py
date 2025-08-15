@@ -12,6 +12,8 @@ from utils.keyboards import (
 	get_calendar_keyboard,
 	get_time_selection_keyboard,
 	get_appointment_reminder_keyboard,
+	get_appointments_list_keyboard,
+	get_appointment_detail_keyboard,
 )
 from scheduler import medicine_scheduler
 
@@ -43,6 +45,81 @@ class AppointmentsHandler:
 			context.user_data.pop('appt_state', None)
 			await query.edit_message_text("בוטל", reply_markup=get_main_menu_keyboard())
 			return
+
+		if data == 'appt_back_to_menu':
+			context.user_data.pop('appt_state', None)
+			await query.edit_message_text(
+				f"{config.EMOJIS['calendar']} הוספת תור\n\n{config.APPOINTMENTS_HELP}",
+				reply_markup=get_appointments_menu_keyboard()
+			)
+			return
+
+		if data == 'appt_list':
+			user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+			items = await DatabaseManager.get_upcoming_appointments(user.id)
+			if not items:
+				await query.edit_message_text("אין תורים קרובים", reply_markup=get_appointments_menu_keyboard())
+				return
+			await query.edit_message_text("התורים הקרובים:", reply_markup=get_appointments_list_keyboard(items))
+			return
+
+		if data.startswith('appt_view_'):
+			appt_id = int(data.split('_')[2])
+			appt = await DatabaseManager.get_appointment_by_id(appt_id)
+			if not appt:
+				await query.edit_message_text("התור לא נמצא", reply_markup=get_appointments_menu_keyboard())
+				return
+			msg = (
+				f"{config.EMOJIS['calendar']} תור\n"
+				f"כותרת: {appt.title}\n"
+				f"סוג: {appt.category}\n"
+				f"מתי: {appt.when_at.strftime('%d/%m/%Y %H:%M')}\n"
+				f"תזכורות: {'יום לפני' if appt.remind_day_before else ''} {'ו-3 ימים לפני' if appt.remind_3days_before else ''}"
+			)
+			await query.edit_message_text(msg, reply_markup=get_appointment_detail_keyboard(appt.id))
+			return
+
+		if data.startswith('appt_delete_'):
+			appt_id = int(data.split('_')[2])
+			user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+			await medicine_scheduler.cancel_appointment_reminders(user.id, appt_id)
+			ok = await DatabaseManager.delete_appointment(appt_id)
+			if ok:
+				await query.edit_message_text(f"{config.EMOJIS['success']} התור נמחק")
+			else:
+				await query.edit_message_text(config.ERROR_MESSAGES['general'])
+			return
+
+		if data.startswith('appt_edit_time_'):
+			appt_id = int(data.split('_')[3])
+			ud['edit_appt_id'] = appt_id
+			ud['step'] = 'edit_time_date'
+			now = datetime.utcnow()
+			await query.edit_message_text("בחרו תאריך חדש:", reply_markup=get_calendar_keyboard(now.year, now.month))
+			return
+
+		if data.startswith('appt_date_') and ud.get('step') == 'edit_time_date':
+			_, _, y, m, d = data.split('_')
+			year, month, day = int(y), int(m), int(d)
+			ud['new_date'] = f"{year:04d}-{month:02d}-{day:02d}"
+			ud['step'] = 'edit_time_time'
+			await query.edit_message_text("בחרו שעה חדשה:", reply_markup=get_time_selection_keyboard())
+			return
+
+		if data.startswith('time_') and ud.get('step') == 'edit_time_time':
+			parts = data.split('_')
+			if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
+				hour = int(parts[1]); minute = int(parts[2])
+				ud['new_time'] = f"{hour:02d}:{minute:02d}"
+				appt_id = int(ud.get('edit_appt_id'))
+				date_str = ud.get('new_date')
+				when = datetime.strptime(f"{date_str} {ud['new_time']}", "%Y-%m-%d %H:%M")
+				appt = await DatabaseManager.update_appointment(appt_id, when_at=when)
+				user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+				await medicine_scheduler.schedule_appointment_reminders(user.id, appt_id, when, appt.remind_day_before, appt.remind_3days_before, user.timezone or config.DEFAULT_TIMEZONE)
+				context.user_data.pop('appt_state', None)
+				await query.edit_message_text(f"{config.EMOJIS['success']} עודכן התאריך/שעה", reply_markup=get_appointment_detail_keyboard(appt_id))
+				return
 
 		if data.startswith('appt_type_'):
 			appt_type = data.split('_', 2)[2]
