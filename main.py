@@ -503,7 +503,7 @@ class MedicineReminderBot:
                 await query.edit_message_text(prompt)
                 return
             elif data.startswith("settings_") or data.startswith("tz_"):
-                await self._handle_settings_action(query, context)
+                await self._handle_settings_action(update, context)
             elif data.startswith("report_") or data.startswith("report_action_") or data.startswith("export_report_"):
                 # Routed by reports handler; do nothing here (already registered)
                 return
@@ -830,10 +830,11 @@ class MedicineReminderBot:
             logger.error(f"Error in _handle_medicine_action: {exc}")
             await query.edit_message_text(config.ERROR_MESSAGES["general"])
     
-    async def _handle_settings_action(self, query, context):
-        """Handle settings-related inline actions"""
+    async def _handle_settings_action(self, update: Update, context):
+        """Handle settings-related inline actions (works with CallbackQuery or Message)."""
         try:
-            data = query.data
+            query = update.callback_query
+            data = query.data if query else ""
             if data == "settings_timezone":
                 # Minimal timezone selector
                 zones = ["UTC", "Asia/Jerusalem", "Europe/London", "America/New_York"]
@@ -842,19 +843,24 @@ class MedicineReminderBot:
                     rows.append([InlineKeyboardButton(z, callback_data=f"tz_{z}")])
                 rows.append([InlineKeyboardButton("הקלד אזור זמן", callback_data="tz_custom")])
                 rows.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="main_menu")])
-                await query.edit_message_text(
-                    "בחרו אזור זמן:",
-                    reply_markup=InlineKeyboardMarkup(rows)
-                )
+                if query:
+                    await query.edit_message_text(
+                        "בחרו אזור זמן:",
+                        reply_markup=InlineKeyboardMarkup(rows)
+                    )
             elif data.startswith("tz_"):
-                # Apply selected timezone
+                # Apply selected timezone only for recognized values
                 tz = data[3:]
+                allowed = {"UTC", "Asia/Jerusalem", "Europe/London", "America/New_York"}
+                if tz not in allowed:
+                    await query.edit_message_text("אזור זמן לא נתמך.")
+                    return
                 user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
                 await DatabaseManager.update_user_timezone(user.id, tz)
                 await query.edit_message_text(f"{config.EMOJIS['success']} עודכן אזור הזמן ל- {tz}")
             elif data == "tz_custom":
-                await query.edit_message_text("הקלידו את אזור הזמן (למשל Asia/Jerusalem)")
                 context.user_data['awaiting_timezone_text'] = True
+                await query.edit_message_text("הקלידו את אזור הזמן (למשל Asia/Jerusalem)")
             elif data == "settings_reminders":
                 # Show full reminders settings UI
                 user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
@@ -877,7 +883,7 @@ class MedicineReminderBot:
                 await query.edit_message_text("ניהול מטפלים זמין דרך תפריט 'מטפלים'.")
             elif data == "settings_reports":
                 from handlers import reports_handler
-                await reports_handler.show_reports_menu(query, context)
+                await reports_handler.show_reports_menu(update, context)
                 return
             elif data == "settings_appointments":
                 await appointments_handler.show_menu(query, context)

@@ -161,7 +161,7 @@ class ReportsHandler:
                     parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            else:
+            elif getattr(update, 'message', None):
                 await update.message.reply_text(
                     message,
                     parse_mode='HTML',
@@ -244,7 +244,7 @@ class ReportsHandler:
                     parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            else:
+            elif getattr(update, 'message', None):
                 await update.message.reply_text(
                     message,
                     parse_mode='HTML',
@@ -303,7 +303,7 @@ class ReportsHandler:
                     parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            else:
+            elif getattr(update, 'message', None):
                 await update.message.reply_text(
                     message,
                     parse_mode='HTML',
