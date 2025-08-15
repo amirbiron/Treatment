@@ -96,7 +96,7 @@ class MedicineHandler:
             message = f"""
 {config.EMOJIS['medicine']} <b>הוספת תרופה חדשה</b>
 
-🔹 <b>שלב 1/4:</b> שם התרופה
+🔹 <b>שלב 1/3:</b> שם התרופה
 
 אנא שלחו את שם התרופה:
 (לדוגמה: אקמול, ויטמין D, לבופה וכו')
@@ -160,7 +160,7 @@ class MedicineHandler:
             message = f"""
 {config.EMOJIS['medicine']} <b>הוספת תרופה: {medicine_name}</b>
 
-🔹 <b>שלב 2/4:</b> מינון
+🔹 <b>שלב 2/3:</b> מינון
 
 אנא הזינו את המינון:
 (לדוגמה: 500 מ"ג, 1 כדור, כפית, 2 טיפות וכו')
@@ -206,7 +206,7 @@ class MedicineHandler:
 {config.EMOJIS['medicine']} <b>הוספת תרופה: {medicine_name}</b>
 💊 <b>מינון:</b> {dosage}
 
-🔹 <b>שלב 3/4:</b> שעות נטילה
+🔹 <b>שלב 3/3:</b> שעות נטילה
 
 בחרו את השעה הראשונה לנטילת התרופה:
 (תוכלו להוסיף שעות נוספות אחר כך)
@@ -258,7 +258,7 @@ class MedicineHandler:
                 
                 selected_time = time(hour, minute)
                 
-                # Store time and move to inventory
+                # Store time and finalize creation (inventory defaults to 0)
                 if 'schedules' not in self.user_medicine_data[user_id]['medicine_data']:
                     self.user_medicine_data[user_id]['medicine_data']['schedules'] = []
                 
@@ -266,25 +266,35 @@ class MedicineHandler:
                 
                 medicine_name = self.user_medicine_data[user_id]['medicine_data']['name']
                 dosage = self.user_medicine_data[user_id]['medicine_data']['dosage']
-                
-                message = f"""
-{config.EMOJIS['medicine']} <b>הוספת תרופה: {medicine_name}</b>
-💊 <b>מינון:</b> {dosage}
-⏰ <b>שעה:</b> {selected_time.strftime('%H:%M')}
+                # Default inventory to 0 and create medicine immediately
+                self.user_medicine_data[user_id]['medicine_data']['inventory_count'] = 0.0
+                success = await self._create_medicine_in_db(user_id)
+                if success:
+                    schedules_text = ', '.join([t.strftime('%H:%M') for t in self.user_medicine_data[user_id]['medicine_data']['schedules']])
+                    message = f"""
+{config.EMOJIS['success']} <b>התרופה נוספה בהצלחה!</b>
 
-🔹 <b>שלב 4/4:</b> כמות במלאי
+{config.EMOJIS['medicine']} <b>{medicine_name}</b>
+💊 מינון: {dosage}
+⏰ שעות נטילה: {schedules_text}
+📦 מלאי התחלתי: 0 יחידות (ניתן לעדכן דרך "עדכן מלאי")
 
-כמה כדורים/יחידות יש לכם כרגע במלאי?
-(הזינו מספר, לדוגמה: 30)
-                """
-                
-                await query.edit_message_text(
-                    message,
-                    parse_mode='HTML',
-                    reply_markup=get_cancel_keyboard()
-                )
-                
-                return MEDICINE_INVENTORY
+התזכורות הופעלו אוטומטית!
+                    """
+                    await query.edit_message_text(
+                        message,
+                        parse_mode='HTML',
+                        reply_markup=get_main_menu_keyboard()
+                    )
+                else:
+                    await query.edit_message_text(
+                        f"{config.EMOJIS['error']} שגיאה בשמירת התרופה. אנא נסו שוב.",
+                        reply_markup=get_main_menu_keyboard()
+                    )
+                # Clean up and end
+                if user_id in self.user_medicine_data:
+                    del self.user_medicine_data[user_id]
+                return ConversationHandler.END
             
         except Exception as e:
             logger.error(f"Error handling time selection: {e}")
@@ -311,7 +321,7 @@ class MedicineHandler:
             minute = int(match.group(2))
             selected_time = time(hour, minute)
             
-            # Store time and move to inventory
+            # Store time and finalize creation (inventory defaults to 0)
             if 'schedules' not in self.user_medicine_data[user_id]['medicine_data']:
                 self.user_medicine_data[user_id]['medicine_data']['schedules'] = []
             
@@ -319,25 +329,33 @@ class MedicineHandler:
             
             medicine_name = self.user_medicine_data[user_id]['medicine_data']['name']
             dosage = self.user_medicine_data[user_id]['medicine_data']['dosage']
-            
-            message = f"""
-{config.EMOJIS['medicine']} <b>הוספת תרופה: {medicine_name}</b>
-💊 <b>מינון:</b> {dosage}
-⏰ <b>שעה:</b> {selected_time.strftime('%H:%M')}
+            self.user_medicine_data[user_id]['medicine_data']['inventory_count'] = 0.0
+            success = await self._create_medicine_in_db(user_id)
+            if success:
+                schedules_text = ', '.join([t.strftime('%H:%M') for t in self.user_medicine_data[user_id]['medicine_data']['schedules']])
+                message = f"""
+{config.EMOJIS['success']} <b>התרופה נוספה בהצלחה!</b>
 
-🔹 <b>שלב 4/4:</b> כמות במלאי
+{config.EMOJIS['medicine']} <b>{medicine_name}</b>
+💊 מינון: {dosage}
+⏰ שעות נטילה: {schedules_text}
+📦 מלאי התחלתי: 0 יחידות (ניתן לעדכן דרך "עדכן מלאי")
 
-כמה כדורים/יחידות יש לכם כרגע במלאי?
-(הזינו מספר, לדוגמה: 30)
-            """
-            
-            await update.message.reply_text(
-                message,
-                parse_mode='HTML',
-                reply_markup=get_cancel_keyboard()
-            )
-            
-            return MEDICINE_INVENTORY
+התזכורות הופעלו אוטומטית!
+                """
+                await update.message.reply_text(
+                    message,
+                    parse_mode='HTML',
+                    reply_markup=get_main_menu_keyboard()
+                )
+            else:
+                await update.message.reply_text(
+                    f"{config.EMOJIS['error']} שגיאה בשמירת התרופה. אנא נסו שוב.",
+                    reply_markup=get_main_menu_keyboard()
+                )
+            if user_id in self.user_medicine_data:
+                del self.user_medicine_data[user_id]
+            return ConversationHandler.END
             
         except Exception as e:
             logger.error(f"Error getting custom time: {e}")
@@ -419,7 +437,7 @@ class MedicineHandler:
                 user_id=user.id,
                 name=medicine_data['name'],
                 dosage=medicine_data['dosage'],
-                inventory_count=medicine_data['inventory_count']
+                inventory_count=medicine_data.get('inventory_count', 0.0)
             )
             
             # Create schedules
@@ -678,11 +696,10 @@ class MedicineHandler:
             return ConversationHandler.END
 
     async def edit_medicine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle request to edit medicine details (placeholder)."""
+        """Handle request to edit medicine details by switching to text-based edit mode."""
         try:
             query = update.callback_query
             await query.answer()
-            
             # Expect callback data like: medicine_edit_<id>
             parts = query.data.split("_")
             medicine_id = int(parts[2]) if len(parts) > 2 else None
@@ -691,29 +708,22 @@ class MedicineHandler:
                     f"{config.EMOJIS['error']} שגיאה: לא נמצא מזהה התרופה"
                 )
                 return ConversationHandler.END
-            
             medicine = await DatabaseManager.get_medicine_by_id(medicine_id)
             if not medicine:
                 await query.edit_message_text(
                     f"{config.EMOJIS['error']} התרופה לא נמצאה"
                 )
                 return ConversationHandler.END
-            
-            message = f"""
-{config.EMOJIS['settings']} <b>עריכת תרופה</b>
-
-פיצ׳ר עריכת פרטי התרופה יתווסף בקרוב.
-בינתיים ניתן:
-- לעדכן מלאי
-- לצפות בפרטי התרופה
-            """
-            
-            await query.edit_message_text(
-                message,
-                parse_mode='HTML',
-                reply_markup=get_medicine_detail_keyboard(medicine_id)
+            # Put user into edit mode
+            context.user_data['editing_medicine_for'] = medicine_id
+            message = (
+                "עריכת פרטי תרופה:\n"
+                "• שלחו שם חדש כדי לשנות שם\n"
+                "• הקלידו: מינון <טקסט> כדי לשנות מינון\n"
+                "• הקלידו: הערות <טקסט> כדי לעדכן הערות\n"
+                "• הקלידו: השבת או הפעל כדי לשנות סטטוס"
             )
-            
+            await query.edit_message_text(message)
             return ConversationHandler.END
         except Exception as e:
             logger.error(f"Error handling edit medicine: {e}")

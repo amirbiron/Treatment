@@ -136,15 +136,13 @@ class CaregiverHandler:
             }
             
             message = f"""
-{config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
-
-🔹 <b>שלב 1/4:</b> מזהה טלגרם
-
-אנא שלחו את מזהה הטלגרם של המטפל:
-• ניתן לקבל את המזהה ממטפל
-• או לשלוח @username (אם קיים)
-
-דוגמה: 123456789
+  {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
+  
+  🔹 <b>שלב 1/4:</b> פרטי יצירת קשר
+  
+  אם יש למטפל טלגרם – שלחו את מזהה הטלגרם (מספר). אם אין – ניתן לדלג ולהזין שם ומספר טלפון בשלב הבא.
+  
+  דוגמה למזהה: 123456789
             """
             
             if update.callback_query:
@@ -174,10 +172,29 @@ class CaregiverHandler:
             user_id = update.effective_user.id
             telegram_id_str = update.message.text.strip()
             
-            # Handle @username format
+            # Allow skipping Telegram ID
+            if telegram_id_str in ("דלג", "skip", "אין"):
+                # Proceed to name step without telegram id
+                self.user_caregiver_data[user_id] = self.user_caregiver_data.get(user_id, {})
+                self.user_caregiver_data[user_id]['caregiver_telegram_id'] = None
+                message = f"""
+{config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
+
+🔹 <b>שלב 2/4:</b> שם המטפל
+
+אנא הזינו את שם המטפל:
+(לדוגמה: ד"ר כהן, אמא, אחות שרה)
+                """
+                await update.message.reply_text(
+                    message,
+                    parse_mode='HTML',
+                    reply_markup=get_cancel_keyboard()
+                )
+                return CAREGIVER_NAME
+            # Handle @username format – ask for numeric ID or skip
             if telegram_id_str.startswith('@'):
                 await update.message.reply_text(
-                    f"{config.EMOJIS['info']} שלוח מזהה מספרי של המטפל (לא @username)"
+                    f"{config.EMOJIS['info']} אם אין מזהה מספרי ניתן לכתוב 'דלג' ולהמשיך ללא טלגרם"
                 )
                 return CAREGIVER_TELEGRAM_ID
             
@@ -185,7 +202,7 @@ class CaregiverHandler:
             is_valid, error_msg = validate_telegram_id(telegram_id_str)
             if not is_valid:
                 await update.message.reply_text(
-                    f"{config.EMOJIS['error']} {error_msg}"
+                    f"{config.EMOJIS['error']} {error_msg} | ניתן גם לכתוב 'דלג'"
                 )
                 return CAREGIVER_TELEGRAM_ID
             
@@ -203,26 +220,26 @@ class CaregiverHandler:
             existing_caregivers = await DatabaseManager.get_user_caregivers(user.id)
             
             for caregiver in existing_caregivers:
-                if caregiver.caregiver_telegram_id == caregiver_telegram_id:
+                if caregiver.caregiver_telegram_id and caregiver.caregiver_telegram_id == caregiver_telegram_id:
                     await update.message.reply_text(
                         f"{config.EMOJIS['warning']} מטפל זה כבר קיים ברשימה"
                     )
                     return CAREGIVER_TELEGRAM_ID
-            
+             
             # Store Telegram ID
             self.user_caregiver_data[user_id]['caregiver_telegram_id'] = caregiver_telegram_id
             
             message = f"""
-{config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
+  {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
+ 
+ ✅ <b>מזהה טלגרם:</b> {caregiver_telegram_id}
+ 
+ 🔹 <b>שלב 2/4:</b> שם המטפל
+ 
+ אנא הזינו את שם המטפל:
+ (לדוגמה: ד"ר כהן, אמא, אחות שרה)
+             """
 
-✅ <b>מזהה טלגרם:</b> {caregiver_telegram_id}
-
-🔹 <b>שלב 2/4:</b> שם המטפל
-
-אנא הזינו את שם המטפל:
-(לדוגמה: ד"ר כהן, אמא, אחות שרה)
-            """
-            
             await update.message.reply_text(
                 message,
                 parse_mode='HTML',
@@ -230,7 +247,7 @@ class CaregiverHandler:
             )
             
             return CAREGIVER_NAME
-            
+
         except Exception as e:
             logger.error(f"Error getting caregiver telegram ID: {e}")
             await self._send_error_message(update, "שגיאה בקבלת מזהה הטלגרם")
