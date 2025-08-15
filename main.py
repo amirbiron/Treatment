@@ -710,11 +710,26 @@ class MedicineReminderBot:
                         message += f"{status_emoji} <b>{medicine.name}</b>\n"
                         message += f"   💊 {medicine.dosage}\n"
                         message += f"   📦 מלאי: {medicine.inventory_count}{inventory_warning}\n\n"
-                await query.edit_message_text(
-                    message,
-                    parse_mode='HTML',
-                    reply_markup=get_medicines_keyboard(medicines if medicines else [])
-                )
+                try:
+                    await query.edit_message_text(
+                        message,
+                        parse_mode='HTML',
+                        reply_markup=get_medicines_keyboard(medicines if medicines else [])
+                    )
+                except Exception as exc:
+                    if 'Message is not modified' in str(exc):
+                        try:
+                            await query.answer("כבר מוצג")
+                        except Exception:
+                            pass
+                    else:
+                        # Fallback: send a fresh message instead of editing
+                        await self.application.bot.send_message(
+                            chat_id=query.message.chat_id,
+                            text=message,
+                            parse_mode='HTML',
+                            reply_markup=get_medicines_keyboard(medicines if medicines else [])
+                        )
                 return
             
             # Add medicine flow entry point (prompt via inline)
