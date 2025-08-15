@@ -100,6 +100,8 @@ class ReportsHandler:
         return [
             CommandHandler("generate_report", self.start_custom_report),
             CommandHandler("send_to_doctor", self.send_to_doctor_flow),
+            CallbackQueryHandler(self.show_reports_menu, pattern="^reports_menu$"),
+            CallbackQueryHandler(self.start_custom_report, pattern="^report_"),
             CallbackQueryHandler(self.handle_report_actions, pattern="^report_action_"),
             CallbackQueryHandler(self.export_report, pattern="^export_report_"),
         ]
