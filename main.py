@@ -202,15 +202,14 @@ class MedicineReminderBot:
             from utils.keyboards import get_cancel_keyboard
             
             message = f"""
-{config.EMOJIS['medicine']} *הוספת תרופה חדשה*
+{config.EMOJES['medicine']} <b>הוספת תרופה חדשה</b>
 
 אנא שלחו את שם התרופה:
             """
             
             await update.message.reply_text(
                 message,
-                parse_mode='Markdown',
-                reply_markup=get_cancel_keyboard()
+                parse_mode='HTML'
             )
             
             # Store conversation state (in real implementation, use ConversationHandler)
@@ -234,18 +233,18 @@ class MedicineReminderBot:
             
             if not medicines:
                 message = f"""
-{config.EMOJIS['info']} <b>אין תרופות רשומות</b>
+{config.EMOJES['info']} <b>אין תרופות רשומות</b>
 
 לחצו על /add_medicine כדי להוסיף תרופה ראשונה.
                 """
             else:
-                message = f"{config.EMOJIS['medicine']} <b>התרופות שלכם:</b>\n\n"
+                message = f"{config.EMOJES['medicine']} <b>התרופות שלכם:</b>\n\n"
                 for medicine in medicines:
-                    status_emoji = config.EMOJIS['success'] if medicine.is_active else config.EMOJIS['error']
+                    status_emoji = config.EMOJES['success'] if medicine.is_active else config.EMOJES['error']
                     inventory_warning = ""
                     
                     if medicine.inventory_count <= medicine.low_stock_threshold:
-                        inventory_warning = f" {config.EMOJIS['warning']}"
+                        inventory_warning = f" {config.EMOJES['warning']}"
                     
                     message += f"{status_emoji} <b>{medicine.name}</b>\n"
                     message += f"   💊 {medicine.dosage}\n"
@@ -401,7 +400,7 @@ class MedicineReminderBot:
                 from utils.keyboards import get_main_menu_keyboard
                 context.user_data.pop('editing_schedule_for', None)
                 # Telegram edit_message_text cannot attach ReplyKeyboardMarkup. Send a new message instead.
-                await query.edit_message_text(f"{config.EMOJIS['info']} הפעולה בוטלה")
+                await query.edit_message_text(f"{config.EMOJES['info']} הפעולה בוטלה")
                 await self.application.bot.send_message(
                     chat_id=query.message.chat_id,
                     text="בחרו פעולה:",
@@ -561,8 +560,26 @@ class MedicineReminderBot:
                     user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
                     await medicine_scheduler.cancel_medicine_reminders(user.id, medicine_id)
                     ok = await DatabaseManager.delete_medicine(medicine_id)
+                    # After deletion, show the medicines list page at current offset (if any in context)
+                    offset = context.user_data.get('med_list_offset', 0)
+                    db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
+                    meds = await DatabaseManager.get_user_medicines(db_user.id) if db_user else []
+                    message = (f"{config.EMOJES['success']} התרופה נמחקה" if ok else f"{config.EMOJES['error']} התרופה לא נמצאה") + "\n\n"
+                    if not meds:
+                        message += f"{config.EMOJES['info']} אין תרופות רשומות"
+                    else:
+                        message += f"{config.EMOJES['medicine']} <b>התרופות שלכם:</b>\n\n"
+                        slice_start = max(0, int(offset))
+                        slice_end = slice_start + config.MAX_MEDICINES_PER_PAGE
+                        for med in meds[slice_start:slice_end]:
+                            status_emoji = config.EMOJES['success'] if med.is_active else config.EMOJES['error']
+                            inv_warn = f" {config.EMOJES['warning']}" if med.inventory_count <= med.low_stock_threshold else ""
+                            message += f"{status_emoji} <b>{med.name}</b>\n   💊 {med.dosage}\n   📦 מלאי: {med.inventory_count}{inv_warn}\n\n"
+                    from utils.keyboards import get_medicines_keyboard
                     await query.edit_message_text(
-                        f"{config.EMOJES['success']} התרופה נמחקה" if ok else f"{config.EMOJES['error']} התרופה לא נמצאה"
+                        message,
+                        parse_mode='HTML',
+                        reply_markup=get_medicines_keyboard(meds if meds else [], offset=offset)
                     )
                     return
                 elif parts[-1] == "cancel":
@@ -807,6 +824,8 @@ class MedicineReminderBot:
                             parse_mode='HTML',
                             reply_markup=get_medicines_keyboard(medicines if medicines else [], offset=offset)
                         )
+                # Persist current offset for returns after actions
+                context.user_data['med_list_offset'] = offset
                 return
             
             # Add medicine flow entry point (prompt via inline)
