@@ -134,8 +134,8 @@ def get_calendar_keyboard(year: int, month: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_appointment_reminder_keyboard(rem1: bool, rem3: bool, rem0: bool = True) -> InlineKeyboardMarkup:
-    """Toggle reminders and confirm"""
+def get_appointment_reminder_keyboard(rem1: bool, rem3: bool, rem0: bool = False) -> InlineKeyboardMarkup:
+    """Toggle reminders and confirm. Tap to toggle each option on/off."""
     on = "✅"
     off = "⭕"
     keyboard = [

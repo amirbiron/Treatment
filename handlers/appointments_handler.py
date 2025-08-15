@@ -206,14 +206,15 @@ class AppointmentsHandler:
 				minute = int(parts[2])
 				ud['time'] = f"{hour:02d}:{minute:02d}"
 				ud['step'] = 'reminders'
-				rem1 = config.APPOINTMENT_REMIND_DAY_BEFORE
-				rem3 = config.APPOINTMENT_REMIND_3_DAYS_BEFORE
-				rem0 = config.APPOINTMENT_REMIND_SAME_DAY
+				# Defaults: all off until user selects
+				rem1 = False
+				rem3 = False
+				rem0 = False
 				ud['rem1'] = rem1
 				ud['rem3'] = rem3
 				ud['rem0'] = rem0
 				await query.edit_message_text(
-					"בחירת תזכורות:",
+					"בחרו תזכורות ללפני התור ו/או ביום התור (לחיצה על הכפתור מפעילה/מכבה)",
 					reply_markup=get_appointment_reminder_keyboard(rem1, rem3, rem0)
 				)
 				return
@@ -317,13 +318,14 @@ class AppointmentsHandler:
 					raise ValueError()
 				ud['time'] = f"{hour:02d}:{minute:02d}"
 				ud['step'] = 'reminders'
-				rem1 = config.APPOINTMENT_REMIND_DAY_BEFORE
-				rem3 = config.APPOINTMENT_REMIND_3_DAYS_BEFORE
+				# Defaults: all off until user selects
+				rem1 = False
+				rem3 = False
 				ud['rem1'] = rem1
 				ud['rem3'] = rem3
 				await update.message.reply_text(
-					"בחירת תזכורות:",
-					reply_markup=get_appointment_reminder_keyboard(rem1, rem3, config.APPOINTMENT_REMIND_SAME_DAY)
+					"בחרו תזכורות ללפני התור ו/או ביום התור (לחיצה על הכפתור מפעילה/מכבה)",
+					reply_markup=get_appointment_reminder_keyboard(rem1, rem3, False)
 				)
 				return
 			except Exception:
