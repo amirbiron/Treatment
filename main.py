@@ -509,6 +509,19 @@ class MedicineReminderBot:
             elif data.startswith("report_") or data.startswith("report_action_") or data.startswith("export_report_"):
                 # Routed by reports handler; do nothing here (already registered)
                 return
+            # Confirmation dialogs (generic)
+            elif data.startswith("symdel_"):
+                parts = data.split("_")
+                if parts[-1] == "confirm":
+                    log_id = int(parts[-2])
+                    ok = await DatabaseManager.delete_symptom_log(log_id)
+                    await query.edit_message_text(
+                        f"{config.EMOJIS['success']} הרישום נמחק" if ok else f"{config.EMOJIS['error']} הרישום לא נמצא"
+                    )
+                    return
+                elif parts[-1] == "cancel":
+                    await query.edit_message_text("בוטל")
+                    return
             # Reminders settings controls
             elif data.startswith("rsnoop_") or data.startswith("rattempts_") or data == "rsilent_toggle" or data == "settings_menu":
                 await self._handle_reminders_settings_controls(query)
@@ -592,9 +605,10 @@ class MedicineReminderBot:
                     return
                 if data.startswith("symptoms_delete_"):
                     log_id = int(data.split("_")[-1])
-                    ok = await DatabaseManager.delete_symptom_log(log_id)
+                    from utils.keyboards import get_confirmation_keyboard
                     await query.edit_message_text(
-                        f"{config.EMOJIS['success']} הרישום נמחק" if ok else f"{config.EMOJIS['error']} הרישום לא נמצא"
+                        "האם למחוק את הרישום?",
+                        reply_markup=get_confirmation_keyboard("symdel", log_id)
                     )
                     return
                 if data.startswith("symptoms_edit_"):
