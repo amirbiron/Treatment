@@ -721,6 +721,7 @@ class MedicineHandler:
             buttons = [
                 [InlineKeyboardButton("שנה שם", callback_data=f"mededit_name_{medicine_id}"), InlineKeyboardButton("שנה מינון", callback_data=f"mededit_dosage_{medicine_id}")],
                 [InlineKeyboardButton("עדכן הערות", callback_data=f"mededit_notes_{medicine_id}"), InlineKeyboardButton("שנה שעות", callback_data=f"medicine_schedule_{medicine_id}")],
+                [InlineKeyboardButton("שנה גודל חבילה", callback_data=f"mededit_packsize_{medicine_id}")],
                 [InlineKeyboardButton("הפעל/השבת", callback_data=f"mededit_toggle_{medicine_id}")],
                 [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data=f"medicine_view_{medicine_id}")]
             ]

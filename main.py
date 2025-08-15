@@ -475,6 +475,10 @@ class MedicineReminderBot:
                         reply_markup=get_medicine_detail_keyboard(mid)
                     )
                     return
+                if action == "packsize":
+                    context.user_data['editing_field_for'] = {"id": mid, "field": "packsize"}
+                    await query.edit_message_text("הקלידו גודל חבילה (למשל 30):")
+                    return
                 # For name/dosage/notes, prompt text input
                 context.user_data['editing_field_for'] = {"id": mid, "field": action}
                 prompt = {
@@ -888,6 +892,11 @@ class MedicineReminderBot:
                 if field == 'notes':
                     await DatabaseManager.update_medicine(mid, notes=text)
                     await update.message.reply_text(f"{config.EMOJIS['success']} ההערות עודכנו")
+                    await self.my_medicines_command(update, context)
+                    return
+                if field == 'packsize' and text.isdigit():
+                    await DatabaseManager.update_medicine(mid, pack_size=int(text))
+                    await update.message.reply_text(f"{config.EMOJIS['success']} גודל החבילה עודכן")
                     await self.my_medicines_command(update, context)
                     return
                 # Fallback
