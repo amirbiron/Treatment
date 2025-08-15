@@ -420,17 +420,18 @@ def get_time_selection_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_inventory_update_keyboard(medicine_id: int) -> InlineKeyboardMarkup:
-    """Keyboard for quick inventory updates"""
+    """Keyboard for quick inventory updates (by packs of 28 pills)."""
+    pack = 28
     keyboard = [
         [
-            InlineKeyboardButton("+1", callback_data=f"inventory_{medicine_id}_+1"),
-            InlineKeyboardButton("+2", callback_data=f"inventory_{medicine_id}_+2"),
-            InlineKeyboardButton("+5", callback_data=f"inventory_{medicine_id}_+5")
+            InlineKeyboardButton(f"+1 חבילה (+{pack})", callback_data=f"inventory_{medicine_id}_+{pack}"),
+            InlineKeyboardButton(f"+2 חבילות (+{pack*2})", callback_data=f"inventory_{medicine_id}_+{pack*2}"),
+            InlineKeyboardButton(f"+3 חבילות (+{pack*3})", callback_data=f"inventory_{medicine_id}_+{pack*3}")
         ],
         [
-            InlineKeyboardButton("-1", callback_data=f"inventory_{medicine_id}_-1"),
-            InlineKeyboardButton("-2", callback_data=f"inventory_{medicine_id}_-2"),
-            InlineKeyboardButton("-5", callback_data=f"inventory_{medicine_id}_-5")
+            InlineKeyboardButton(f"-1 חבילה (-{pack})", callback_data=f"inventory_{medicine_id}_-{pack}"),
+            InlineKeyboardButton(f"-2 חבילות (-{pack*2})", callback_data=f"inventory_{medicine_id}_-{pack*2}"),
+            InlineKeyboardButton(f"-3 חבילות (-{pack*3})", callback_data=f"inventory_{medicine_id}_-{pack*3}")
         ],
         [
             InlineKeyboardButton(

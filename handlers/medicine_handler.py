@@ -586,7 +586,7 @@ class MedicineHandler:
 
 מלאי נוכחי: {medicine.inventory_count} כדורים
 
-אנא הזינו את הכמות החדשה:
+אנא הזינו את הכמות החדשה (במספר כדורים):
                 """
                 
                 await query.edit_message_text(
@@ -624,7 +624,7 @@ class MedicineHandler:
 {config.EMOJIS['success']} <b>מלאי עודכן!</b>
 
 {config.EMOJIS['medicine']} {medicine.name}
-📦 מלאי חדש: {new_count} כדורים{status_msg}
+📦 מלאי חדש: {int(new_count)} כדורים{status_msg}
                 """
                 
                 await query.edit_message_text(
@@ -675,7 +675,7 @@ class MedicineHandler:
 {config.EMOJIS['success']} <b>מלאי עודכן בהצלחה!</b>
 
 {config.EMOJIS['medicine']} {medicine.name}
-📦 מלאי חדש: {new_count} כדורים{status_msg}
+📦 מלאי חדש: {int(new_count)} כדורים{status_msg}
             """
             
             await update.message.reply_text(
