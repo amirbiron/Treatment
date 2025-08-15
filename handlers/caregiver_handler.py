@@ -136,30 +136,30 @@ class CaregiverHandler:
             }
             
             message = f"""
- {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
- 
- 🔹 <b>שלב 1/4:</b> פרטי יצירת קשר
- 
- אם יש למטפל טלגרם – שלחו את מזהה הטלגרם (מספר). אם אין – ניתן לדלג ולהזין שם ומספר טלפון בשלב הבא.
- 
- דוגמה למזהה: 123456789
+  {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
+  
+  🔹 <b>שלב 1/4:</b> פרטי יצירת קשר
+  
+  אם יש למטפל טלגרם – שלחו את מזהה הטלגרם (מספר). אם אין – ניתן לדלג ולהזין שם ומספר טלפון בשלב הבא.
+  
+  דוגמה למזהה: 123456789
             """
-             
-             if update.callback_query:
-                 await update.callback_query.answer()
-                 await update.callback_query.edit_message_text(
-                     message,
-                     parse_mode='HTML',
-                     reply_markup=get_cancel_keyboard()
-                 )
-             else:
-                 await update.message.reply_text(
-                     message,
-                     parse_mode='HTML',
-                     reply_markup=get_cancel_keyboard()
-                 )
-             
-             return CAREGIVER_TELEGRAM_ID
+            
+            if update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.edit_message_text(
+                    message,
+                    parse_mode='HTML',
+                    reply_markup=get_cancel_keyboard()
+                )
+            else:
+                await update.message.reply_text(
+                    message,
+                    parse_mode='HTML',
+                    reply_markup=get_cancel_keyboard()
+                )
+            
+            return CAREGIVER_TELEGRAM_ID
             
         except Exception as e:
             logger.error(f"Error starting add caregiver: {e}")
@@ -230,7 +230,7 @@ class CaregiverHandler:
             self.user_caregiver_data[user_id]['caregiver_telegram_id'] = caregiver_telegram_id
              
             message = f"""
- {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
+  {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
  
  ✅ <b>מזהה טלגרם:</b> {caregiver_telegram_id}
  
