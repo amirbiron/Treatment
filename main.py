@@ -27,6 +27,7 @@ from config import config
 from database import init_database, DatabaseManager
 from scheduler import medicine_scheduler
 from handlers.reports_handler import reports_handler
+from utils.keyboards import get_reminders_settings_keyboard, get_inventory_main_keyboard
 
 # Configure logging
 logging.basicConfig(
@@ -405,6 +406,14 @@ class MedicineReminderBot:
                     reply_markup=get_main_menu_keyboard()
                 )
                 return
+            # Reminders settings controls
+            elif data.startswith("rsnoop_") or data.startswith("rattempts_") or data == "rsilent_toggle" or data == "settings_menu":
+                await self._handle_reminders_settings_controls(query)
+                return
+            # Inventory main controls
+            elif data.startswith("inventory_") or data == "inventory_report":
+                await self._handle_inventory_controls(query, context)
+                return
             elif data.startswith("caregiver_"):
                 # Routed by caregiver handler; do nothing here
                 return
@@ -679,7 +688,20 @@ class MedicineReminderBot:
                 await query.edit_message_text("הקלידו את אזור הזמן (למשל Asia/Jerusalem)")
                 context.user_data['awaiting_timezone_text'] = True
             elif data == "settings_reminders":
-                await query.edit_message_text("הגדרות תזכורות בסיסיות: כרגע דחייה היא ל-5 דקות (ניתן לשנות בקובץ ההגדרות).")
+                # Show full reminders settings UI
+                user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+                settings = await DatabaseManager.get_user_settings(user.id)
+                msg = (
+                    f"{config.EMOJIS['reminder']} הגדרות תזכורות\n\n"
+                    f"דחיית תזכורת: {settings.snooze_minutes} דקות\n"
+                    f"מספר ניסיונות תזכורת: {settings.max_attempts}\n"
+                    f"מצב שקט: {'מופעל' if settings.silent_mode else 'כבוי'}\n"
+                )
+                await query.edit_message_text(
+                    msg,
+                    reply_markup=get_reminders_settings_keyboard(settings.snooze_minutes, settings.max_attempts, settings.silent_mode)
+                )
+                 
             elif data == "settings_inventory":
                 await query.edit_message_text("הגדרות מלאי בסיסיות: התראות מלאי נמוכים מופעלות.")
             elif data == "settings_caregivers":
@@ -846,7 +868,11 @@ class MedicineReminderBot:
             if text in buttons:
                 action = buttons[text]
                 if action == "my_medicines" or action == "inventory":
-                    await self.my_medicines_command(update, context)
+                    # Inventory from main menu goes to a simple inventory center
+                    if action == "inventory":
+                        await self._open_inventory_center(update)
+                    else:
+                        await self.my_medicines_command(update, context)
                     return
                 if action == "reminders":
                     # Rich reminders menu
@@ -933,6 +959,90 @@ class MedicineReminderBot:
             await update.effective_message.reply_text(
                 config.ERROR_MESSAGES["general"]
             )
+    
+    async def _handle_reminders_settings_controls(self, query):
+        try:
+            data = query.data
+            user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+            settings = await DatabaseManager.get_user_settings(user.id)
+            if data.startswith("rsnoop_"):
+                delta = 1 if data.endswith("+1") else -1
+                new_val = max(1, min(120, settings.snooze_minutes + delta))
+                settings = await DatabaseManager.update_user_settings(user.id, snooze_minutes=new_val)
+            elif data.startswith("rattempts_"):
+                delta = 1 if data.endswith("+1") else -1
+                new_val = max(1, min(10, settings.max_attempts + delta))
+                settings = await DatabaseManager.update_user_settings(user.id, max_attempts=new_val)
+            elif data == "rsilent_toggle":
+                settings = await DatabaseManager.update_user_settings(user.id, silent_mode=not settings.silent_mode)
+            elif data == "settings_menu":
+                from utils.keyboards import get_settings_keyboard
+                await query.edit_message_text(
+                    f"{config.EMOJIS['settings']} *הגדרות אישיות*",
+                    reply_markup=get_settings_keyboard()
+                )
+                return
+            # Refresh UI
+            msg = (
+                f"{config.EMOJIS['reminder']} הגדרות תזכורות\n\n"
+                f"דחיית תזכורת: {settings.snooze_minutes} דקות\n"
+                f"מספר ניסיונות תזכורת: {settings.max_attempts}\n"
+                f"מצב שקט: {'מופעל' if settings.silent_mode else 'כבוי'}\n"
+            )
+            await query.edit_message_text(
+                msg,
+                reply_markup=get_reminders_settings_keyboard(settings.snooze_minutes, settings.max_attempts, settings.silent_mode)
+            )
+        except Exception as exc:
+            logger.error(f"Error in _handle_reminders_settings_controls: {exc}")
+            await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
+
+    async def _open_inventory_center(self, update):
+        try:
+            # Show inventory overview with actions
+            from database import DatabaseManager
+            user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
+            meds = await DatabaseManager.get_user_medicines(user.id)
+            low = [m for m in meds if m.inventory_count <= m.low_stock_threshold]
+            msg = f"{config.EMOJIS['inventory']} מרכז המלאי\n\n"
+            if not meds:
+                msg += "אין תרופות במערכת. הוסיפו תרופה מהתרופות שלי."
+            else:
+                msg += f"סה""כ תרופות: {len(meds)} | נמוך: {len(low)}\n"
+                for m in meds[:10]:
+                    warn = f" {config.EMOJIS['warning']}" if m.inventory_count <= m.low_stock_threshold else ""
+                    msg += f"• {m.name} — {m.inventory_count}{warn}\n"
+                if len(meds) > 10:
+                    msg += f"ועוד {len(meds)-10}...\n"
+            await update.message.reply_text(msg, reply_markup=get_inventory_main_keyboard())
+        except Exception as exc:
+            logger.error(f"Error in _open_inventory_center: {exc}")
+            await update.message.reply_text(config.ERROR_MESSAGES["general"]) 
+
+    async def _handle_inventory_controls(self, query, context):
+        try:
+            data = query.data
+            if data == "inventory_report":
+                from handlers import reports_handler
+                # Use existing inventory report generator
+                await reports_handler.start_custom_report(query, context)
+                return
+            if data == "inventory_add":
+                # Reuse medicines list and then per-medicine inventory keyboard
+                user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+                meds = await DatabaseManager.get_user_medicines(user.id)
+                if not meds:
+                    await query.edit_message_text("אין תרופות להוספת מלאי.")
+                    return
+                from utils.keyboards import get_medicines_keyboard
+                await query.edit_message_text(
+                    "בחרו תרופה לעדכון מלאי:",
+                    reply_markup=get_medicines_keyboard(meds)
+                )
+                return
+        except Exception as exc:
+            logger.error(f"Error in _handle_inventory_controls: {exc}")
+            await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
     
     async def run_webhook(self):
         """Run bot in webhook mode (for production) with health endpoint."""

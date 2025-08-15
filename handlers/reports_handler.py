@@ -493,18 +493,46 @@ class ReportsHandler:
  
  {full_report}
              """
-            if update.callback_query:
-                await update.callback_query.edit_message_text(
-                    message,
-                    parse_mode='HTML',
-                    reply_markup=get_main_menu_keyboard()
-                )
-            else:
-                await update.message.reply_text(
-                    message,
-                    parse_mode='HTML',
-                    reply_markup=get_main_menu_keyboard()
-                )
+            # Export as a simple text-based PDF placeholder
+            filename = create_report_filename("doctor_report", end_date, ext="pdf")
+            try:
+                # Write plain text with .pdf extension as a placeholder for sharing
+                with open(filename, "w", encoding="utf-8") as f:
+                    f.write(full_report)
+                if update.callback_query:
+                    await update.callback_query.edit_message_text(
+                        message,
+                        parse_mode='HTML'
+                    )
+                    await update.callback_query.message.reply_document(
+                        document=open(filename, "rb"),
+                        filename=filename,
+                        caption="קובץ לשיתוף עם הרופא"
+                    )
+                else:
+                    await update.message.reply_text(
+                        message,
+                        parse_mode='HTML'
+                    )
+                    await update.message.reply_document(
+                        document=open(filename, "rb"),
+                        filename=filename,
+                        caption="קובץ לשיתוף עם הרופא"
+                    )
+            except Exception:
+                # Fallback: only text
+                if update.callback_query:
+                    await update.callback_query.edit_message_text(
+                        message,
+                        parse_mode='HTML',
+                        reply_markup=get_main_menu_keyboard()
+                    )
+                else:
+                    await update.message.reply_text(
+                        message,
+                        parse_mode='HTML',
+                        reply_markup=get_main_menu_keyboard()
+                    )
             return ConversationHandler.END
         except Exception as e:
             logger.error(f"Error in send_to_doctor_flow: {e}")

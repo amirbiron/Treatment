@@ -103,6 +103,21 @@ class SymptomLog(Base):
     user: Mapped["User"] = relationship("User", back_populates="symptom_logs")
 
 
+class UserSettings(Base):
+    """Per-user settings including reminder snooze, attempts, and silent mode."""
+    __tablename__ = "user_settings"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), unique=True)
+    snooze_minutes: Mapped[int] = mapped_column(Integer, default=5)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    silent_mode: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relationship (no back_populates to avoid heavy graph)
+    user: Mapped["User"] = relationship("User")
+
+
 class Caregiver(Base):
     """Caregiver/family member access for monitoring"""
     __tablename__ = "caregivers"
@@ -608,3 +623,35 @@ class DatabaseManager:
             await session.delete(medicine)
             await session.commit()
             return True
+
+    @staticmethod
+    async def get_user_settings(user_id: int) -> UserSettings:
+        """Get or create user settings with defaults."""
+        async with async_session() as session:
+            result = await session.execute(select(UserSettings).where(UserSettings.user_id == user_id))
+            settings = result.scalar_one_or_none()
+            if not settings:
+                settings = UserSettings(user_id=user_id)
+                session.add(settings)
+                await session.commit()
+                await session.refresh(settings)
+            return settings
+
+    @staticmethod
+    async def update_user_settings(user_id: int, snooze_minutes: Optional[int] = None, max_attempts: Optional[int] = None, silent_mode: Optional[bool] = None) -> UserSettings:
+        """Update user settings fields."""
+        async with async_session() as session:
+            result = await session.execute(select(UserSettings).where(UserSettings.user_id == user_id))
+            settings = result.scalar_one_or_none()
+            if not settings:
+                settings = UserSettings(user_id=user_id)
+                session.add(settings)
+            if snooze_minutes is not None:
+                settings.snooze_minutes = max(1, min(120, int(snooze_minutes)))
+            if max_attempts is not None:
+                settings.max_attempts = max(1, min(10, int(max_attempts)))
+            if silent_mode is not None:
+                settings.silent_mode = bool(silent_mode)
+            await session.commit()
+            await session.refresh(settings)
+            return settings

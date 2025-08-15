@@ -201,6 +201,57 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_reminders_settings_keyboard(current_snooze: int, current_attempts: int, silent: bool) -> InlineKeyboardMarkup:
+    """Keyboard for reminders settings adjustments."""
+    keyboard = [
+        [
+            InlineKeyboardButton(f"דחייה: {current_snooze} דק'", callback_data="rsnoop_info"),
+            InlineKeyboardButton("-1", callback_data="rsnoop_-1"),
+            InlineKeyboardButton("+1", callback_data="rsnoop_+1"),
+        ],
+        [
+            InlineKeyboardButton(f"ניסיונות: {current_attempts}", callback_data="rattempts_info"),
+            InlineKeyboardButton("-1", callback_data="rattempts_-1"),
+            InlineKeyboardButton("+1", callback_data="rattempts_+1"),
+        ],
+        [
+            InlineKeyboardButton(
+                f"מצב שקט: {'מופעל' if silent else 'כבוי'}",
+                callback_data="rsilent_toggle"
+            )
+        ],
+        [
+            InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="settings_menu")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_inventory_main_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for inventory main section."""
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                f"{config.EMOJIS['inventory']} הוסף מלאי",
+                callback_data="inventory_add"
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                f"{config.EMOJIS['report']} דוח מצב מלאי",
+                callback_data="inventory_report"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                f"{config.EMOJIS['back']} חזור לתפריט",
+                callback_data="main_menu"
+            )
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def get_caregiver_keyboard() -> InlineKeyboardMarkup:
     """Caregiver management keyboard"""
     keyboard = [
