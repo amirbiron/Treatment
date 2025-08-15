@@ -131,7 +131,7 @@ class ReportsHandler:
 
 {full_report}
 
-{config.EMOJIS['info']} דוח זה נשלח אוטומטית למטפלים שלכם (אם הוגדרו). ניתן גם לשתף ידנית עם הרופא בלחיצה על "שלח לרופא".
+{config.EMOJIS['info']} ניתן לשתף דוח זה ידנית עם הרופא/המטפל בלחיצה על "שלח לרופא".
             """
             
             # Send to user
@@ -881,7 +881,7 @@ class ReportsHandler:
 
 {report_content}
 
-{config.EMOJIS['info']} דוח זה נשלח אוטומטית למטפלים (אם הוגדרו).
+{config.EMOJIS['info']} לשיתוף עם מטפל יש להשתמש ב"שלח לרופא" או לשתף ידנית.
             """
             
             for caregiver in caregivers:
