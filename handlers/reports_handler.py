@@ -204,7 +204,7 @@ class ReportsHandler:
             ])
             
             message = f"""
-{config.EMOJES['report']} <b>דוח חודשי מקיף</b>
+{config.EMOJIS['report']} <b>דוח חודשי מקיף</b>
 📅 {format_date_hebrew(start_date)} - {format_date_hebrew(end_date)}
 
 {full_report}
@@ -479,7 +479,7 @@ class ReportsHandler:
             if update.callback_query:
                 await update.callback_query.answer()
                 await update.callback_query.edit_message_text(
-                    f"{config.EMOJES['success']} הדוח נשלח בהצלחה",
+                    f"{config.EMOJIS['success']} הדוח נשלח בהצלחה",
                     reply_markup=get_main_menu_keyboard()
                 )
             return ConversationHandler.END
@@ -508,7 +508,7 @@ class ReportsHandler:
             full_report = self._combine_reports([adherence, symptoms, trends])
             
             message = f"""
-{config.EMOJES['report']} <b>שליחת דוח לרופא</b>
+{config.EMOJIS['report']} <b>שליחת דוח לרופא</b>
 הדוח החודשי האחרון מוכן לשליחה. פונקציית שליחה אוטומטית תתווסף בקרוב; בינתיים ניתן להעתיק ולשתף ידנית.
  
  תוכן הדוח:
@@ -572,7 +572,7 @@ class ReportsHandler:
                 await self.send_to_doctor_flow(update, context)
             elif data == "report_action_share":
                 await update.callback_query.edit_message_text(
-                    f"{config.EMOJES['info']} אפשרויות שיתוף יתמכו בקרוב",
+                    f"{config.EMOJIS['info']} אפשרויות שיתוף יתמכו בקרוב",
                     reply_markup=get_main_menu_keyboard()
                 )
             else:
@@ -589,12 +589,12 @@ class ReportsHandler:
             if update.callback_query:
                 await update.callback_query.answer()
                 await update.callback_query.edit_message_text(
-                    f"{config.EMOJES['info']} יצוא דוחות לקובץ יהיה זמין בקרוב",
+                    f"{config.EMOJIS['info']} יצוא דוחות לקובץ יהיה זמין בקרוב",
                     reply_markup=get_main_menu_keyboard()
                 )
             else:
                 await update.message.reply_text(
-                    f"{config.EMOJES['info']} יצוא דוחות לקובץ יהיה זמין בקרוב",
+                    f"{config.EMOJIS['info']} יצוא דוחות לקובץ יהיה זמין בקרוב",
                     reply_markup=get_main_menu_keyboard()
                 )
             return ConversationHandler.END
@@ -646,7 +646,7 @@ class ReportsHandler:
                     skipped_doses += med_skipped
             
             if total_doses == 0:
-                return f"{config.EMOJES['info']} אין נתוני נטילה בתקופה זו"
+                return f"{config.EMOJIS['info']} אין נתוני נטילה בתקופה זו"
             
             overall_adherence = (taken_doses / total_doses) * 100
             
@@ -864,13 +864,13 @@ class ReportsHandler:
                 return
             
             message = f"""
-{config.EMOJES['report']} <b>{report_title}</b>
+{config.EMOJIS['report']} <b>{report_title}</b>
 👤 <b>מטופל:</b> {user.first_name} {user.last_name or ''}
 📅 <b>תאריך:</b> {format_datetime_hebrew(datetime.now())}
 
 {report_content}
 
-{config.EMOJES['info']} דוח זה נשלח אוטומטיות למטפלים.
+{config.EMOJIS['info']} דוח זה נשלח אוטומטיות למטפלים.
             """
             
             for caregiver in caregivers:
@@ -938,7 +938,7 @@ class ReportsHandler:
             if user_id in self.user_report_data:
                 del self.user_report_data[user_id]
             
-            message = f"{config.EMOJES['info']} יצירת הדוח בוטלה"
+            message = f"{config.EMOJIS['info']} יצירת הדוח בוטלה"
             
             if update.callback_query:
                 await update.callback_query.answer()
@@ -964,7 +964,7 @@ class ReportsHandler:
             # Support both Update and CallbackQuery
             if hasattr(update, "data") and hasattr(update, "edit_message_text"):
                 await update.edit_message_text(
-                    f"{config.EMOJES['error']} {error_text}",
+                    f"{config.EMOJIS['error']} {error_text}",
                     reply_markup=get_main_menu_keyboard()
                 )
             elif getattr(update, "callback_query", None):
@@ -974,7 +974,7 @@ class ReportsHandler:
                 )
             else:
                 await update.message.reply_text(
-                    f"{config.EMOJES['error']} {error_text}",
+                    f"{config.EMOJIS['error']} {error_text}",
                     reply_markup=get_main_menu_keyboard()
                 )
         except Exception as e:
