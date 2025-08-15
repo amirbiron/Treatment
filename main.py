@@ -1016,6 +1016,9 @@ class MedicineReminderBot:
                         "בחרו אזור זמן:",
                         reply_markup=InlineKeyboardMarkup(rows)
                     )
+            elif data == "tz_custom":
+                context.user_data['awaiting_timezone_text'] = True
+                await query.edit_message_text("הקלידו את אזור הזמן (למשל Asia/Jerusalem)")
             elif data.startswith("tz_"):
                 # Apply selected timezone only for recognized values
                 tz = data[3:]
@@ -1026,9 +1029,6 @@ class MedicineReminderBot:
                 user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
                 await DatabaseManager.update_user_timezone(user.id, tz)
                 await query.edit_message_text(f"{config.EMOJES['success']} עודכן אזור הזמן ל- {tz}")
-            elif data == "tz_custom":
-                context.user_data['awaiting_timezone_text'] = True
-                await query.edit_message_text("הקלידו את אזור הזמן (למשל Asia/Jerusalem)")
             elif data == "settings_reminders":
                 # Show full reminders settings UI
                 user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
