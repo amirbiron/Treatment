@@ -228,10 +228,6 @@ def get_medicines_keyboard(medicines: List, offset: int = 0) -> InlineKeyboardMa
         InlineKeyboardButton(
             f"{config.EMOJIS['medicine']} הוסף תרופה",
             callback_data="medicine_add"
-        ),
-        InlineKeyboardButton(
-            f"{config.EMOJIS['settings']} ניהול",
-            callback_data="medicine_manage"
         )
     ]
     keyboard.append(action_row)
