@@ -395,18 +395,24 @@ class MedicineScheduler:
         
         return jobs
 
-    async def schedule_appointment_reminders(self, user_id: int, appointment_id: int, when_at: datetime, rem1: bool, rem3: bool, timezone: str = "UTC"):
-        """Schedule one-time reminders for an appointment at when_at - N days"""
+    async def schedule_appointment_reminders(self, user_id: int, appointment_id: int, when_at: datetime, rem1: bool, rem3: bool, timezone: str = "UTC", same_day: bool = True):
+        """Schedule one-time reminders for an appointment at when_at - N days and optionally same-day morning"""
         try:
             # Cancel existing
             await self.cancel_appointment_reminders(user_id, appointment_id)
             reminders = []
             if rem3:
-                reminders.append((3, f"appointment_reminder_{user_id}_{appointment_id}_3d"))
+                reminders.append((3, f"appointment_reminder_{user_id}_{appointment_id}_3d", None))
             if rem1:
-                reminders.append((1, f"appointment_reminder_{user_id}_{appointment_id}_1d"))
-            for days_before, job_id in reminders:
-                run_time = when_at - timedelta(days=days_before)
+                reminders.append((1, f"appointment_reminder_{user_id}_{appointment_id}_1d", None))
+            if same_day:
+                # same-day at configured morning hour
+                reminders.append((0, f"appointment_reminder_{user_id}_{appointment_id}_0d", config.APPOINTMENT_SAME_DAY_REMINDER_HOUR))
+            for days_before, job_id, hour_override in reminders:
+                if days_before == 0 and hour_override is not None:
+                    run_time = when_at.replace(hour=hour_override, minute=0, second=0, microsecond=0)
+                else:
+                    run_time = when_at - timedelta(days=days_before)
                 if run_time <= datetime.utcnow():
                     continue
                 self.scheduler.add_job(
@@ -422,7 +428,7 @@ class MedicineScheduler:
             logger.error(f"Failed to schedule appointment reminders: {exc}")
 
     async def cancel_appointment_reminders(self, user_id: int, appointment_id: int):
-        for suffix in ("_1d", "_3d"):
+        for suffix in ("_0d", "_1d", "_3d"):
             job_id = f"appointment_reminder_{user_id}_{appointment_id}{suffix}"
             if self.scheduler.get_job(job_id):
                 self.scheduler.remove_job(job_id)
@@ -452,7 +458,7 @@ class MedicineScheduler:
                 # Assume user timezone
                 user = await DatabaseManager.get_user_by_id(appt.user_id)
                 tz = user.timezone or config.DEFAULT_TIMEZONE
-                await self.schedule_appointment_reminders(appt.user_id, appt.id, appt.when_at, appt.remind_day_before, appt.remind_3days_before, tz)
+                await self.schedule_appointment_reminders(appt.user_id, appt.id, appt.when_at, appt.remind_day_before, appt.remind_3days_before, tz, same_day=getattr(appt, 'remind_same_day', True))
         except Exception as exc:
             logger.error(f"Failed scheduling existing appointments: {exc}")
 

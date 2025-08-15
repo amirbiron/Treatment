@@ -62,6 +62,8 @@ class Config:
     # Default reminders for appointments (booleans)
     APPOINTMENT_REMIND_DAY_BEFORE: bool = True
     APPOINTMENT_REMIND_3_DAYS_BEFORE: bool = False
+    APPOINTMENT_REMIND_SAME_DAY: bool = True
+    APPOINTMENT_SAME_DAY_REMINDER_HOUR: int = 8  # 08:00 בבוקר
     
     APPOINTMENTS_HELP: str = (
         "קבעו תור לרופא, בדיקת דם, טיפול או בדיקה. ניתן גם להזין נושא חופשי."

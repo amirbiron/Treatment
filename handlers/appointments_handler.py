@@ -182,25 +182,34 @@ class AppointmentsHandler:
 				ud['step'] = 'reminders'
 				rem1 = config.APPOINTMENT_REMIND_DAY_BEFORE
 				rem3 = config.APPOINTMENT_REMIND_3_DAYS_BEFORE
+				rem0 = config.APPOINTMENT_REMIND_SAME_DAY
 				ud['rem1'] = rem1
 				ud['rem3'] = rem3
+				ud['rem0'] = rem0
 				await query.edit_message_text(
 					"בחירת תזכורות:",
-					reply_markup=get_appointment_reminder_keyboard(rem1, rem3)
+					reply_markup=get_appointment_reminder_keyboard(rem1, rem3, rem0)
 				)
 				return
 
 		if data == 'appt_rem1_toggle':
 			ud['rem1'] = not bool(ud.get('rem1', False))
 			await query.edit_message_reply_markup(
-				reply_markup=get_appointment_reminder_keyboard(ud.get('rem1', False), ud.get('rem3', False))
+				reply_markup=get_appointment_reminder_keyboard(ud.get('rem1', False), ud.get('rem3', False), ud.get('rem0', False))
 			)
 			return
 
 		if data == 'appt_rem3_toggle':
 			ud['rem3'] = not bool(ud.get('rem3', False))
 			await query.edit_message_reply_markup(
-				reply_markup=get_appointment_reminder_keyboard(ud.get('rem1', False), ud.get('rem3', False))
+				reply_markup=get_appointment_reminder_keyboard(ud.get('rem1', False), ud.get('rem3', False), ud.get('rem0', False))
+			)
+			return
+
+		if data == 'appt_rem0_toggle':
+			ud['rem0'] = not bool(ud.get('rem0', False))
+			await query.edit_message_reply_markup(
+				reply_markup=get_appointment_reminder_keyboard(ud.get('rem1', False), ud.get('rem3', False), ud.get('rem0', False))
 			)
 			return
 
@@ -226,6 +235,7 @@ class AppointmentsHandler:
 				time_str = ud.get('time', '09:00')
 				rem1 = bool(ud.get('rem1', False))
 				rem3 = bool(ud.get('rem3', False))
+				rem0 = bool(ud.get('rem0', False))
 				if not date_str or not time_str:
 					await query.edit_message_text("אנא בחרו תאריך ושעה")
 					return
@@ -237,9 +247,10 @@ class AppointmentsHandler:
 					when_at=when,
 					remind_day_before=rem1,
 					remind_3days_before=rem3,
+					remind_same_day=rem0,
 				)
 				# Schedule reminders
-				await medicine_scheduler.schedule_appointment_reminders(user.id, appt.id, when, rem1, rem3, user.timezone or config.DEFAULT_TIMEZONE)
+				await medicine_scheduler.schedule_appointment_reminders(user.id, appt.id, when, rem1, rem3, user.timezone or config.DEFAULT_TIMEZONE, same_day=rem0)
 				context.user_data.pop('appt_state', None)
 				await query.edit_message_text(f"{config.EMOJIS['success']} התור נשמר!", reply_markup=get_main_menu_keyboard())
 				return
@@ -280,7 +291,7 @@ class AppointmentsHandler:
 				ud['rem3'] = rem3
 				await update.message.reply_text(
 					"בחירת תזכורות:",
-					reply_markup=get_appointment_reminder_keyboard(rem1, rem3)
+					reply_markup=get_appointment_reminder_keyboard(rem1, rem3, config.APPOINTMENT_REMIND_SAME_DAY)
 				)
 				return
 			except Exception:

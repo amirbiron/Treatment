@@ -151,6 +151,7 @@ class Appointment(Base):
     when_at: Mapped[datetime] = mapped_column(DateTime)
     remind_day_before: Mapped[bool] = mapped_column(Boolean, default=True)
     remind_3days_before: Mapped[bool] = mapped_column(Boolean, default=False)
+    remind_same_day: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
@@ -1157,6 +1158,7 @@ class DatabaseManagerMongo:
 			"when_at": when_at,
 			"remind_day_before": bool(remind_day_before),
 			"remind_3days_before": bool(remind_3days_before),
+			"remind_same_day": bool(config.APPOINTMENT_REMIND_SAME_DAY),
 			"notes": notes,
 			"created_at": datetime.utcnow(),
 		}
@@ -1170,6 +1172,7 @@ class DatabaseManagerMongo:
 		appt.when_at = when_at
 		appt.remind_day_before = bool(remind_day_before)
 		appt.remind_3days_before = bool(remind_3days_before)
+		appt.remind_same_day = bool(config.APPOINTMENT_REMIND_SAME_DAY)
 		return appt
 
 	@staticmethod
@@ -1186,6 +1189,7 @@ class DatabaseManagerMongo:
 		appt.when_at = d.get("when_at")
 		appt.remind_day_before = bool(d.get("remind_day_before", True))
 		appt.remind_3days_before = bool(d.get("remind_3days_before", False))
+		appt.remind_same_day = bool(d.get("remind_same_day", True))
 		appt.notes = d.get("notes")
 		return appt
 
@@ -1226,6 +1230,7 @@ class DatabaseManagerMongo:
 			appt.when_at = d.get("when_at")
 			appt.remind_day_before = bool(d.get("remind_day_before", True))
 			appt.remind_3days_before = bool(d.get("remind_3days_before", False))
+			appt.remind_same_day = bool(d.get("remind_same_day", True))
 			result.append(appt)
 		return result
 
@@ -1245,6 +1250,7 @@ class DatabaseManagerMongo:
 			appt.when_at = d.get("when_at")
 			appt.remind_day_before = bool(d.get("remind_day_before", True))
 			appt.remind_3days_before = bool(d.get("remind_3days_before", False))
+			appt.remind_same_day = bool(d.get("remind_same_day", True))
 			result.append(appt)
 		return result
 
