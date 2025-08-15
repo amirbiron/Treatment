@@ -324,22 +324,46 @@ class MedicineReminderBot:
     async def log_symptoms_command(self, update: Update, context):
         """Open symptoms tracking menu"""
         try:
-            from utils.keyboards import get_symptoms_keyboard, get_symptoms_medicine_picker
-            user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
+            user = update.effective_user
             meds = await DatabaseManager.get_user_medicines(user.id) if user else []
+            # Support both message command and callback button
+            if getattr(update, "callback_query", None):
+                await update.callback_query.answer()
+                if meds:
+                    from utils.keyboards import get_symptoms_medicine_picker
+                    await update.callback_query.edit_message_text(
+                        "בחרו תרופה לשיוך מעקב תופעות:",
+                        reply_markup=get_symptoms_medicine_picker(meds)
+                    )
+                else:
+                    from utils.keyboards import get_symptoms_keyboard
+                    await update.callback_query.edit_message_text(
+                        "מעקב סימפטומים (ללא שיוך לתרופה - אין תרופות במערכת):",
+                        reply_markup=get_symptoms_keyboard()
+                    )
+                return
+            # Fallback to classic message reply
             if meds:
+                from utils.keyboards import get_symptoms_medicine_picker
                 await update.message.reply_text(
                     "בחרו תרופה לשיוך מעקב תופעות:",
                     reply_markup=get_symptoms_medicine_picker(meds)
                 )
             else:
+                from utils.keyboards import get_symptoms_keyboard
                 await update.message.reply_text(
                     "מעקב סימפטומים (ללא שיוך לתרופה - אין תרופות במערכת):",
                     reply_markup=get_symptoms_keyboard()
                 )
         except Exception as e:
             logger.error(f"Error in log_symptoms command: {e}")
-            await update.message.reply_text(config.ERROR_MESSAGES["general"])
+            try:
+                if getattr(update, "callback_query", None):
+                    await update.callback_query.edit_message_text(config.ERROR_MESSAGES["general"])
+                else:
+                    await update.message.reply_text(config.ERROR_MESSAGES["general"])
+            except Exception:
+                pass
     
     async def weekly_report_command(self, update: Update, context):
         """Handle /weekly_report command (stub)"""
@@ -996,8 +1020,8 @@ class MedicineReminderBot:
                 await query.edit_message_text("הגדרות לא נתמכות")
         except Exception as exc:
             logger.error(f"Error in _handle_settings_action: {exc}")
-            await query.edit_message_text(config.ERROR_MESSAGES["general"])
-        
+            await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
+
     async def handle_text_message(self, update: Update, context):
         """Handle regular text messages (for conversation flows)"""
         try:
@@ -1445,7 +1469,7 @@ class MedicineReminderBot:
             try:
                 await self._serve_forever_event.wait()
             except asyncio.CancelledError:
-                logger.info("Webhook run cancelled - shutting down")
+                logger.debug("Webhook run cancelled - shutting down")
             finally:
                 try:
                     await runner.cleanup()
@@ -1507,7 +1531,7 @@ class MedicineReminderBot:
             logger.info("Bot shutdown completed")
             
         except asyncio.CancelledError:
-            logger.info("Shutdown cancelled by event loop")
+            logger.debug("Shutdown cancelled by event loop")
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")
 
@@ -1516,24 +1540,31 @@ async def main():
     """Main entry point"""
     bot = MedicineReminderBot()
     
-    # Setup signal handlers for graceful shutdown
-    def signal_handler(signum, frame):
-        logger.info(f"Received signal {signum}")
-        asyncio.create_task(bot.shutdown())
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    # Use event-based signal handling to reduce CancelledError noise on shutdown
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    try:
+        loop.add_signal_handler(signal.SIGINT, stop_event.set)
+        loop.add_signal_handler(signal.SIGTERM, stop_event.set)
+    except NotImplementedError:
+        # Fallback for environments without add_signal_handler
+        signal.signal(signal.SIGINT, lambda *_: asyncio.create_task(bot.shutdown()))
+        signal.signal(signal.SIGTERM, lambda *_: asyncio.create_task(bot.shutdown()))
     
     try:
         # Initialize bot
         await bot.initialize()
         
-        # Run bot based on environment
+        # Start run task according to environment
         if config.is_production():
-            await bot.run_webhook()
+            run_task = asyncio.create_task(bot.run_webhook())
         else:
-            await bot.run_polling()
-            
+            run_task = asyncio.create_task(bot.run_polling())
+        
+        # Wait for either stop signal or task completion
+        stop_task = asyncio.create_task(stop_event.wait())
+        await asyncio.wait({run_task, stop_task}, return_when=asyncio.FIRST_COMPLETED)
+        
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:
@@ -1541,6 +1572,11 @@ async def main():
         raise
     finally:
         await bot.shutdown()
+        # Ensure run task is finished/cleaned
+        try:
+            await asyncio.wait_for(run_task, timeout=10)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
