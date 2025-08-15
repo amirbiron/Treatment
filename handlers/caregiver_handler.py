@@ -132,7 +132,8 @@ class CaregiverHandler:
             # Initialize caregiver data
             self.user_caregiver_data[user_id] = {
                 'user_id': user.id,
-                'step': 'name'
+                'step': 'name',
+                'caregiver_telegram_id': None
             }
             
             message = f"""
