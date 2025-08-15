@@ -166,8 +166,7 @@ class MedicineReminderBot:
         """Handle /help command"""
         try:
             await update.message.reply_text(
-                config.HELP_MESSAGE,
-                parse_mode='Markdown'
+                config.HELP_MESSAGE
             )
         except Exception as e:
             logger.error(f"Error in help command: {e}")
