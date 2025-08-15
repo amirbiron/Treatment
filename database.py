@@ -196,6 +196,14 @@ async def init_database():
                 await conn.exec_driver_sql("ALTER TABLE medicines ADD COLUMN pack_size INTEGER NULL")
         except Exception:
             pass
+        # Add remind_same_day to appointments if missing
+        try:
+            res3 = await conn.exec_driver_sql("PRAGMA table_info(appointments)")
+            cols3 = [row[1] for row in res3.fetchall()]
+            if "remind_same_day" not in cols3:
+                await conn.exec_driver_sql("ALTER TABLE appointments ADD COLUMN remind_same_day BOOLEAN DEFAULT 1")
+        except Exception:
+            pass
 
 
 async def get_session():
@@ -1146,7 +1154,7 @@ class DatabaseManagerMongo:
 		return s # type: ignore
 
 	@staticmethod
-	async def create_appointment(user_id: int, category: str, title: str, when_at: datetime, remind_day_before: bool = True, remind_3days_before: bool = False, notes: Optional[str] = None):
+	async def create_appointment(user_id: int, category: str, title: str, when_at: datetime, remind_day_before: bool = True, remind_3days_before: bool = False, remind_same_day: bool = True, notes: Optional[str] = None):
 		await _init_mongo()
 		last = await _mongo_db.appointments.find().sort("_id", -1).limit(1).to_list(1)
 		next_id = (last[0]["_id"] + 1) if last else 1
@@ -1158,7 +1166,7 @@ class DatabaseManagerMongo:
 			"when_at": when_at,
 			"remind_day_before": bool(remind_day_before),
 			"remind_3days_before": bool(remind_3days_before),
-			"remind_same_day": bool(config.APPOINTMENT_REMIND_SAME_DAY),
+			"remind_same_day": bool(remind_same_day),
 			"notes": notes,
 			"created_at": datetime.utcnow(),
 		}
@@ -1172,7 +1180,7 @@ class DatabaseManagerMongo:
 		appt.when_at = when_at
 		appt.remind_day_before = bool(remind_day_before)
 		appt.remind_3days_before = bool(remind_3days_before)
-		appt.remind_same_day = bool(config.APPOINTMENT_REMIND_SAME_DAY)
+		appt.remind_same_day = bool(remind_same_day)
 		return appt
 
 	@staticmethod
@@ -1194,7 +1202,16 @@ class DatabaseManagerMongo:
 		return appt
 
 	@staticmethod
-	async def update_appointment(appointment_id: int, when_at: datetime = None, title: str = None, category: str = None, remind_day_before: bool = None, remind_3days_before: bool = None, notes: str = None):
+	async def update_appointment(
+		appointment_id: int,
+		when_at: Optional[datetime] = None,
+		title: Optional[str] = None,
+		category: Optional[str] = None,
+		remind_day_before: Optional[bool] = None,
+		remind_3days_before: Optional[bool] = None,
+		remind_same_day: Optional[bool] = None,
+		notes: Optional[str] = None,
+	) -> Optional["Appointment"]:
 		await _init_mongo()
 		updates = {}
 		if when_at is not None:
@@ -1207,6 +1224,8 @@ class DatabaseManagerMongo:
 			updates["remind_day_before"] = bool(remind_day_before)
 		if remind_3days_before is not None:
 			updates["remind_3days_before"] = bool(remind_3days_before)
+		if remind_same_day is not None:
+			updates["remind_same_day"] = bool(remind_same_day)
 		if notes is not None:
 			updates["notes"] = notes
 		if not updates:

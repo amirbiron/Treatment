@@ -661,7 +661,7 @@ class MedicineReminderBot:
                 )
                 context.user_data.pop('adding_medicine', None)
                 await update.message.reply_text(
-                    f"{config.EMOJES['success']} התרופה נוספה בהצלחה!",
+                    f"{config.EMOJIS['success']} התרופה נוספה בהצלחה!",
                 )
                 await self.my_medicines_command(update, context)
                 return
