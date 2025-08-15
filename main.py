@@ -951,8 +951,23 @@ class MedicineReminderBot:
                 return
             
             if data.startswith("medicine_history_"):
-                from handlers.reports_handler import reports_handler
-                await reports_handler.generate_weekly_report(update, context)
+                # Show last 30 days history for this specific medicine
+                try:
+                    medicine_id = int(data.split("_")[-1])
+                except Exception:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
+                    return
+                from datetime import date, timedelta
+                end_date = date.today(); start_date = end_date - timedelta(days=30)
+                logs = await DatabaseManager.get_symptom_logs_in_range(query.from_user.id, start_date, end_date, med_filter=medicine_id)
+                if not logs:
+                    await query.edit_message_text("אין היסטוריה 30 ימים לתרופה זו")
+                    return
+                from utils.keyboards import get_symptom_logs_list_keyboard
+                await query.edit_message_text(
+                    f"היסטוריה (30 ימים) לתרופה {medicine_id}:",
+                    reply_markup=get_symptom_logs_list_keyboard(logs[-10:])
+                )
                 return
             # Add manage schedules and delete actions (via simple keywords)
             if data.startswith("medicine_toggle_"):
