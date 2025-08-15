@@ -228,7 +228,7 @@ class CaregiverHandler:
              
             # Store Telegram ID
             self.user_caregiver_data[user_id]['caregiver_telegram_id'] = caregiver_telegram_id
-             
+            
             message = f"""
   {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
  
@@ -239,15 +239,15 @@ class CaregiverHandler:
  אנא הזינו את שם המטפל:
  (לדוגמה: ד"ר כהן, אמא, אחות שרה)
              """
-             
-             await update.message.reply_text(
-                 message,
-                 parse_mode='HTML',
-                 reply_markup=get_cancel_keyboard()
-             )
-             
-             return CAREGIVER_NAME
+
+            await update.message.reply_text(
+                message,
+                parse_mode='HTML',
+                reply_markup=get_cancel_keyboard()
+            )
             
+            return CAREGIVER_NAME
+
         except Exception as e:
             logger.error(f"Error getting caregiver telegram ID: {e}")
             await self._send_error_message(update, "שגיאה בקבלת מזהה הטלגרם")
