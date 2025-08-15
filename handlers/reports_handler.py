@@ -278,30 +278,14 @@ class ReportsHandler:
                         callback_data="report_weekly"
                     ),
                     InlineKeyboardButton(
-                        f"📊 דוח חודשי",
-                        callback_data="report_monthly"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        f"💊 דוח נטילת תרופות",
-                        callback_data="report_adherence"
-                    ),
-                    InlineKeyboardButton(
-                        f"🩺 דוח תופעות לוואי",
-                        callback_data="report_symptoms"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
                         f"📋 דוח מקיף",
                         callback_data="report_full"
                     )
                 ],
                 [
                     InlineKeyboardButton(
-                        f"📧 שלח לרופא",
-                        callback_data="report_send_doctor"
+                        f"⚙️ דוחות מתקדמים",
+                        callback_data="reports_advanced"
                     )
                 ],
                 [
@@ -362,6 +346,24 @@ class ReportsHandler:
                 return ConversationHandler.END
             if data == "report_send_doctor":
                 await self.send_to_doctor_flow(update, context)
+                return ConversationHandler.END
+            if data == "reports_advanced":
+                adv_msg = """
+⚙️ <b>דוחות מתקדמים</b>
+
+בחרו דוח ממוקד:
+• דוח נטילת תרופות (ציות לפי תרופה)
+• דוח תופעות לוואי (תסמינים ותופעות נפוצות)
+                """
+                adv_kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💊 דוח נטילת תרופות", callback_data="report_adherence")],
+                    [InlineKeyboardButton("🩺 דוח תופעות לוואי", callback_data="report_symptoms")],
+                    [InlineKeyboardButton(f"{config.EMOJIS['back']} חזרה", callback_data="reports_menu")]
+                ])
+                if getattr(update, "callback_query", None):
+                    await update.callback_query.edit_message_text(adv_msg, parse_mode='HTML', reply_markup=adv_kb)
+                else:
+                    await update.message.reply_text(adv_msg, parse_mode='HTML', reply_markup=adv_kb)
                 return ConversationHandler.END
             if data == "report_detailed":
                 # Placeholder detailed report
