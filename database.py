@@ -801,6 +801,7 @@ async def _init_mongo():
 		await _mongo_db.caregivers.create_index([("email", 1)])
 		await _mongo_db.caregivers.create_index([("phone", 1)])
 		await _mongo_db.appointments.create_index([("user_id", 1), ("when_at", 1)])
+		await _mongo_db.user_settings.create_index([("user_id", 1)], unique=True)
 
 # Wrap SQLAlchemy models into dict converters for Mongo
 
@@ -1481,6 +1482,62 @@ class DatabaseManagerMongo:
 		res = await _mongo_db.appointments.delete_one({"_id": int(appointment_id)})
 		return res.deleted_count > 0
 
+	@staticmethod
+	async def get_user_settings(user_id: int) -> UserSettings:
+		"""Get or create user settings with defaults (Mongo)."""
+		await _init_mongo()
+		doc = await _mongo_db.user_settings.find_one({"user_id": int(user_id)})
+		if not doc:
+			default = {"user_id": int(user_id), "snooze_minutes": 10, "max_attempts": 3, "silent_mode": False}
+			await _mongo_db.user_settings.insert_one(default)
+			doc = default
+		# Minimal return object compatible with SQLAlchemy model fields
+		us = UserSettings()
+		us.user_id = int(user_id)
+		us.snooze_minutes = int(doc.get("snooze_minutes", 10))
+		us.max_attempts = int(doc.get("max_attempts", 3))
+		us.silent_mode = bool(doc.get("silent_mode", False))
+		return us
+
+	@staticmethod
+	async def update_user_settings(user_id: int, snooze_minutes: Optional[int] = None, max_attempts: Optional[int] = None, silent_mode: Optional[bool] = None) -> UserSettings:
+		"""Update user settings fields (Mongo)."""
+		await _init_mongo()
+		updates = {}
+		if snooze_minutes is not None:
+			updates["snooze_minutes"] = max(1, min(120, int(snooze_minutes)))
+		if max_attempts is not None:
+			updates["max_attempts"] = max(1, min(10, int(max_attempts)))
+		if silent_mode is not None:
+			updates["silent_mode"] = bool(silent_mode)
+		if updates:
+			await _mongo_db.user_settings.update_one({"user_id": int(user_id)}, {"$set": updates}, upsert=True)
+		return await DatabaseManagerMongo.get_user_settings(user_id)
+
+	@staticmethod
+	async def update_symptom_log(log_id: int, symptoms: Optional[str] = None, side_effects: Optional[str] = None) -> bool:
+		"""Update a symptom log's text fields."""
+		async with async_session() as session:
+			log = await session.get(SymptomLog, log_id)
+			if not log:
+				return False
+			if symptoms is not None:
+				log.symptoms = symptoms
+			if side_effects is not None:
+				log.side_effects = side_effects
+			await session.commit()
+			return True
+
+	@staticmethod
+	async def delete_symptom_log(log_id: int) -> bool:
+		"""Delete a symptom log by id."""
+		async with async_session() as session:
+			log = await session.get(SymptomLog, log_id)
+			if not log:
+				return False
+			await session.delete(log)
+			await session.commit()
+			return True
 
 # Select backend at runtime
 if config.DB_BACKEND == 'mongo':
