@@ -5,6 +5,7 @@ Using SQLAlchemy 2.0 with modern typing and async support
 
 import os
 from datetime import datetime, time, timedelta
+from datetime import date
 from typing import List, Optional
 from sqlalchemy import String, Integer, Boolean, DateTime, Time, Text, ForeignKey, Float, select, func
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
@@ -1268,11 +1269,41 @@ class DatabaseManagerMongo:
 		return result
 
 	@staticmethod
-	async def get_all_upcoming_appointments(until_days: int = 60):
+	async def get_all_upcoming_appointments(until_days: int = 60) -> List["Appointment"]:
 		await _init_mongo()
 		now = datetime.utcnow()
 		until = now + timedelta(days=until_days)
 		rows = await _mongo_db.appointments.find({"when_at": {"$gte": now, "$lte": until}}).sort("when_at", 1).to_list(1000)
+		result = []
+		for d in rows:
+			appt = Appointment()
+			appt.id = d.get("_id")
+			appt.user_id = d.get("user_id")
+			appt.category = d.get("category", "custom")
+			appt.title = d.get("title")
+			appt.when_at = d.get("when_at")
+			appt.remind_day_before = bool(d.get("remind_day_before", False))
+			appt.remind_3days_before = bool(d.get("remind_3days_before", False))
+			val = d.get("same_day_reminder_time")
+			if isinstance(val, str) and ":" in val:
+				hh, mm = map(int, val.split(":"))
+				appt.same_day_reminder_time = time(hour=hh, minute=mm)
+			result.append(appt)
+		return result
+
+	@staticmethod
+	async def get_user_appointments(user_id: int, start_date: date = None, end_date: date = None, offset: int = 0, limit: int = 10) -> List[Appointment]:
+		await _init_mongo()
+		query = {"user_id": int(user_id)}
+		if start_date is not None or end_date is not None:
+			rng = {}
+			if start_date is not None:
+				rng["$gte"] = datetime.combine(start_date, datetime.min.time())
+			if end_date is not None:
+				rng["$lte"] = datetime.combine(end_date, datetime.max.time())
+			query["when_at"] = rng
+		cursor = _mongo_db.appointments.find(query).sort("when_at", 1).skip(int(max(0, offset))).limit(int(max(1, limit)))
+		rows = await cursor.to_list(limit)
 		result = []
 		for d in rows:
 			appt = Appointment()

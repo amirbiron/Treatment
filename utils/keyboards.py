@@ -65,16 +65,24 @@ def get_appointments_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_appointments_list_keyboard(items: list) -> InlineKeyboardMarkup:
+def get_appointments_list_keyboard(items: list, offset: int = 0, page_size: int = 10) -> InlineKeyboardMarkup:
     """Show upcoming appointments list with select/delete buttons"""
     keyboard = []
-    for appt in items[:10]:
+    for appt in items:
         title = appt.title or 'תור'
         when_txt = appt.when_at.strftime('%d/%m %H:%M')
         keyboard.append([
             InlineKeyboardButton(f"{when_txt} — {title}", callback_data=f"appt_view_{appt.id}")
         ])
+    nav = []
+    if offset > 0:
+        nav.append(InlineKeyboardButton("‹ הקודם", callback_data=f"appt_page_{max(0, offset - page_size)}"))
+    if len(items) == page_size:
+        nav.append(InlineKeyboardButton("הבא ›", callback_data=f"appt_page_{offset + page_size}"))
+    if nav:
+        keyboard.append(nav)
     keyboard.append([
+        InlineKeyboardButton("בחר חודש", callback_data="appt_pick_month"),
         InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="appt_back_to_menu")
     ])
     return InlineKeyboardMarkup(keyboard)

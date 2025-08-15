@@ -56,11 +56,24 @@ class AppointmentsHandler:
 
 		if data == 'appt_list':
 			user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
-			items = await DatabaseManager.get_upcoming_appointments(user.id)
+			items = await DatabaseManager.get_user_appointments(user.id, offset=0, limit=10)
 			if not items:
 				await query.edit_message_text("אין תורים קרובים", reply_markup=get_appointments_menu_keyboard())
 				return
-			await query.edit_message_text("התורים הקרובים:", reply_markup=get_appointments_list_keyboard(items))
+			await query.edit_message_text("התורים הקרובים:", reply_markup=get_appointments_list_keyboard(items, offset=0, page_size=10))
+			return
+
+		if data.startswith('appt_page_'):
+			offset = int(data.split('_')[2])
+			user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+			items = await DatabaseManager.get_user_appointments(user.id, offset=offset, limit=10)
+			await query.edit_message_text("התורים הקרובים:", reply_markup=get_appointments_list_keyboard(items, offset=offset, page_size=10))
+			return
+
+		if data == 'appt_pick_month':
+			now = datetime.utcnow()
+			await query.edit_message_text("בחרו חודש:", reply_markup=get_calendar_keyboard(now.year, now.month))
+			ud['pick_month'] = True
 			return
 
 		if data.startswith('appt_view_'):
@@ -104,6 +117,19 @@ class AppointmentsHandler:
 			ud['new_date'] = f"{year:04d}-{month:02d}-{day:02d}"
 			ud['step'] = 'edit_time_time'
 			await query.edit_message_text("בחרו שעה חדשה:", reply_markup=get_time_selection_keyboard())
+			return
+
+		# handle pick month flow for listing
+		if data.startswith('appt_date_') and ud.get('pick_month'):
+			_, _, y, m, _ = data.split('_')
+			year, month = int(y), int(m)
+			from calendar import monthrange
+			start = datetime(year, month, 1).date()
+			end = datetime(year, month, monthrange(year, month)[1]).date()
+			user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+			items = await DatabaseManager.get_user_appointments(user.id, start_date=start, end_date=end, offset=0, limit=10)
+			ud.pop('pick_month', None)
+			await query.edit_message_text(f"תורים לחודש {month:02d}/{year}:", reply_markup=get_appointments_list_keyboard(items, offset=0, page_size=10))
 			return
 
 		if data.startswith('time_') and ud.get('step') == 'edit_time_time':
