@@ -738,9 +738,16 @@ def get_symptoms_medicine_picker(medicines: List) -> InlineKeyboardMarkup:
         mid = getattr(med, 'id', None)
         if mid is None:
             continue
-        # Only special-case cannabis; otherwise show clean name without icon
+        # Icon heuristics based on common names (minimal noise): mushroom and cannabis
         lower_name = str(name).lower()
-        if any(tok in lower_name for tok in ["קנאביס", "cannabis", "cבד", "cbd", "thc"]):
+        mushroom_tokens = [
+            "אמניטה", "אמניטה מוסכריה", "פסילו", "פסילוסבין",
+            "amanita", "muscaria", "psilo", "psilocybin", "psilocybe"
+        ]
+        cannabis_tokens = ["קנאביס", "cannabis", "cbd", "thc"]
+        if any(tok in lower_name for tok in mushroom_tokens):
+            label = f"🍄 {name}"
+        elif any(tok in lower_name for tok in cannabis_tokens):
             label = f"🌿 {name}"
         else:
             label = f"{name}"
