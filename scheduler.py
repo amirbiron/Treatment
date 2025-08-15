@@ -359,7 +359,7 @@ class MedicineScheduler:
                 return
             
             message = f"""
-{config.EMOJIS['warning']} *התראה: תרופה לא נלקחה*
+{config.EMOJES['warning']} *התראה: תרופה לא נלקחה*
 
 👤 מטופל: {user.first_name} {user.last_name or ''}
 💊 תרופה: {medicine.name}
@@ -390,7 +390,8 @@ class MedicineScheduler:
                 'id': job.id,
                 'name': job.name,
                 'next_run': job.next_run_time,
-                'trigger': str(job.trigger)
+                'trigger': str(job.trigger),
+                'medicine_id': int(job.id.split('_')[3]) if job.id.startswith('medicine_reminder_') and len(job.id.split('_')) >= 4 and job.id.split('_')[3].isdigit() else None
             })
         
         return jobs

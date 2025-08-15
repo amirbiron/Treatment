@@ -745,6 +745,31 @@ class DatabaseManager:
             await session.refresh(settings)
             return settings
 
+    @staticmethod
+    async def update_symptom_log(log_id: int, symptoms: Optional[str] = None, side_effects: Optional[str] = None) -> bool:
+        """Update a symptom log's text fields."""
+        async with async_session() as session:
+            log = await session.get(SymptomLog, log_id)
+            if not log:
+                return False
+            if symptoms is not None:
+                log.symptoms = symptoms
+            if side_effects is not None:
+                log.side_effects = side_effects
+            await session.commit()
+            return True
+
+    @staticmethod
+    async def delete_symptom_log(log_id: int) -> bool:
+        """Delete a symptom log by id."""
+        async with async_session() as session:
+            log = await session.get(SymptomLog, log_id)
+            if not log:
+                return False
+            await session.delete(log)
+            await session.commit()
+            return True
+
 # ==============================
 # MongoDB Backend (Motor)
 # ==============================

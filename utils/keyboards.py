@@ -181,12 +181,16 @@ def get_reminder_keyboard(medicine_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_medicines_keyboard(medicines: List) -> InlineKeyboardMarkup:
+def get_medicines_keyboard(medicines: List, offset: int = 0) -> InlineKeyboardMarkup:
     """Keyboard for displaying user's medicines"""
     keyboard = []
     
     # Add medicine buttons (max 5 per page)
-    for i, medicine in enumerate(medicines[:config.MAX_MEDICINES_PER_PAGE]):
+    page_size = config.MAX_MEDICINES_PER_PAGE
+    slice_start = max(0, int(offset))
+    slice_end = slice_start + page_size
+    page_items = medicines[slice_start:slice_end]
+    for i, medicine in enumerate(page_items):
         status_emoji = config.EMOJIS['success'] if medicine.is_active else config.EMOJIS['error']
         # Removed warning emoji from button label for clarity
         
@@ -216,15 +220,25 @@ def get_medicines_keyboard(medicines: List) -> InlineKeyboardMarkup:
     
     keyboard.append(action_row)
     
-    # Navigation buttons if more than 5 medicines
-    if len(medicines) > config.MAX_MEDICINES_PER_PAGE:
-        nav_row = []
+    # Navigation buttons
+    nav_row = []
+    if slice_start > 0:
+        prev_offset = max(0, slice_start - page_size)
         nav_row.append(
             InlineKeyboardButton(
-                f"{config.EMOJIS['next']} עוד תרופות",
-                callback_data="medicine_next_page"
+                f"‹ הקודם",
+                callback_data=f"medicines_page_{prev_offset}"
             )
         )
+    if slice_end < len(medicines):
+        next_offset = slice_start + page_size
+        nav_row.append(
+            InlineKeyboardButton(
+                f"הבא ›",
+                callback_data=f"medicines_page_{next_offset}"
+            )
+        )
+    if nav_row:
         keyboard.append(nav_row)
     
     # Back to main menu
@@ -232,6 +246,10 @@ def get_medicines_keyboard(medicines: List) -> InlineKeyboardMarkup:
         InlineKeyboardButton(
             f"{config.EMOJIS['back']} חזור לתפריט",
             callback_data="main_menu"
+        ),
+        InlineKeyboardButton(
+            f"{config.EMOJIS['symptoms']} תופעות לוואי",
+            callback_data="symptoms_menu"
         )
     ])
     
@@ -265,6 +283,12 @@ def get_medicine_detail_keyboard(medicine_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 f"{config.EMOJIS['error']} השבת/הפעל",
                 callback_data=f"medicine_toggle_{medicine_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                f"{config.EMOJIS['error']} מחק תרופה",
+                callback_data=f"medicine_delete_{medicine_id}"
             )
         ],
         [
@@ -538,7 +562,7 @@ def get_time_selection_keyboard() -> InlineKeyboardMarkup:
 
 def get_inventory_update_keyboard(medicine_id: int, pack_size: int = None) -> InlineKeyboardMarkup:
     """Keyboard for quick inventory updates (by packs)."""
-    pack = pack_size or 28
+    pack = int(pack_size) if pack_size else 28
     keyboard = [
         [
             InlineKeyboardButton(f"+1 חבילה (+{pack})", callback_data=f"inventory_{medicine_id}_+{pack}"),
@@ -546,9 +570,9 @@ def get_inventory_update_keyboard(medicine_id: int, pack_size: int = None) -> In
             InlineKeyboardButton(f"+3 חבילות (+{pack*3})", callback_data=f"inventory_{medicine_id}_+{pack*3}")
         ],
         [
-            InlineKeyboardButton(f"+30", callback_data=f"inventory_{medicine_id}_+30"),
-            InlineKeyboardButton(f"+60", callback_data=f"inventory_{medicine_id}_+60"),
-            InlineKeyboardButton(f"+90", callback_data=f"inventory_{medicine_id}_+90")
+            InlineKeyboardButton(f"+{pack}", callback_data=f"inventory_{medicine_id}_+{pack}"),
+            InlineKeyboardButton(f"+{pack*2}", callback_data=f"inventory_{medicine_id}_+{pack*2}"),
+            InlineKeyboardButton(f"+{pack*3}", callback_data=f"inventory_{medicine_id}_+{pack*3}")
         ],
         [
             InlineKeyboardButton(f"-1 חבילה (-{pack})", callback_data=f"inventory_{medicine_id}_-{pack}"),
@@ -714,9 +738,22 @@ def get_symptoms_medicine_picker(medicines: List) -> InlineKeyboardMarkup:
         mid = getattr(med, 'id', None)
         if mid is None:
             continue
+        # Icon heuristics based on common names (minimal noise): mushroom and cannabis
+        lower_name = str(name).lower()
+        mushroom_tokens = [
+            "אמניטה", "אמניטה מוסכריה", "פסילו", "פסילוסבין",
+            "amanita", "muscaria", "psilo", "psilocybin", "psilocybe"
+        ]
+        cannabis_tokens = ["קנאביס", "cannabis", "cbd", "thc"]
+        if any(tok in lower_name for tok in mushroom_tokens):
+            label = f"🍄 {name}"
+        elif any(tok in lower_name for tok in cannabis_tokens):
+            label = f"🌿 {name}"
+        else:
+            label = f"{name}"
         keyboard.append([
             InlineKeyboardButton(
-                f"{config.EMOJIS['medicine']} {name}",
+                label,
                 callback_data=f"symptoms_log_med_{mid}"
             )
         ])
@@ -765,6 +802,31 @@ def get_symptoms_history_picker(medicines: List) -> InlineKeyboardMarkup:
         InlineKeyboardButton(
             f"{config.EMOJIS['back']} חזור",
             callback_data="main_menu"
+        )
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_symptom_logs_list_keyboard(logs: List) -> InlineKeyboardMarkup:
+    """Build a keyboard listing recent symptom logs with per-item edit/delete actions."""
+    keyboard = []
+    for log in logs:
+        ts = log.log_date.strftime('%d/%m %H:%M') if hasattr(log, 'log_date') and log.log_date else ''
+        title = (log.symptoms or log.side_effects or '—')[:25]
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{ts} — {title}",
+                callback_data=f"symptoms_view_{log.id}"
+            )
+        ])
+        keyboard.append([
+            InlineKeyboardButton("ערוך", callback_data=f"symptoms_edit_{log.id}"),
+            InlineKeyboardButton("מחק", callback_data=f"symptoms_delete_{log.id}")
+        ])
+    keyboard.append([
+        InlineKeyboardButton(
+            f"{config.EMOJIS['back']} חזור",
+            callback_data="symptoms_history"
         )
     ])
     return InlineKeyboardMarkup(keyboard)

@@ -29,8 +29,9 @@ from utils.helpers import validate_telegram_id, format_datetime_hebrew
 logger = logging.getLogger(__name__)
 
 # Conversation states
-CAREGIVER_TELEGRAM_ID, CAREGIVER_NAME, CAREGIVER_RELATIONSHIP, CAREGIVER_PERMISSIONS = range(4)
-EDIT_CAREGIVER_NAME, EDIT_CAREGIVER_RELATIONSHIP, EDIT_CAREGIVER_PERMISSIONS = range(4, 7)
+CAREGIVER_NAME, CAREGIVER_PHONE, CAREGIVER_EMAIL, CAREGIVER_PERMISSIONS = range(4)
+EDIT_CAREGIVER_NAME, EDIT_CAREGIVER_PHONE, EDIT_CAREGIVER_EMAIL, EDIT_CAREGIVER_PERMISSIONS = range(4, 8)
+EDIT_ALL_NAME, EDIT_ALL_PHONE, EDIT_ALL_EMAIL, EDIT_ALL_PERMS = range(8, 12)
 
 
 class CaregiverHandler:
@@ -62,19 +63,30 @@ class CaregiverHandler:
                 CallbackQueryHandler(self.edit_caregiver, pattern="^caregiver_edit_"),
             ],
             states={
-                CAREGIVER_TELEGRAM_ID: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_caregiver_telegram_id)
-                ],
                 CAREGIVER_NAME: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_caregiver_name)
                 ],
-                CAREGIVER_RELATIONSHIP: [
-                    CallbackQueryHandler(self.handle_relationship_selection, pattern="^rel_"),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_custom_relationship)
+                CAREGIVER_PHONE: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_caregiver_phone)
+                ],
+                CAREGIVER_EMAIL: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_caregiver_email)
                 ],
                 CAREGIVER_PERMISSIONS: [
                     CallbackQueryHandler(self.handle_permissions_selection, pattern="^perm_")
-                ]
+                ],
+                EDIT_ALL_NAME: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._edit_all_set_name)
+                ],
+                EDIT_ALL_PHONE: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._edit_all_set_phone)
+                ],
+                EDIT_ALL_EMAIL: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._edit_all_set_email)
+                ],
+                EDIT_ALL_PERMS: [
+                    CallbackQueryHandler(self._edit_all_set_perms, pattern="^perm_")
+                ],
             },
             fallbacks=[
                 CommandHandler("cancel", self.cancel_operation),
@@ -103,43 +115,21 @@ class CaregiverHandler:
                 await self._send_error_message(update, "משתמש לא נמצא")
                 return ConversationHandler.END
             
-            # Check caregiver limit
-            existing_caregivers = await DatabaseManager.get_user_caregivers(user.id, active_only=False)
-            if len(existing_caregivers) >= config.MAX_CAREGIVERS_PER_USER:
-                message = f"""
-{config.EMOJIS['error']} <b>הגעתם למגבלת המטפלים</b>
-
-אתם יכולים להוסיף עד {config.MAX_CAREGIVERS_PER_USER} מטפלים.
-אנא הסירו מטפל קיים לפני הוספת מטפל חדש.
-                """
-                
-                if update.callback_query:
-                    await update.callback_query.answer()
-                    await update.callback_query.edit_message_text(
-                        message,
-                        parse_mode='HTML',
-                        reply_markup=get_caregiver_keyboard()
-                    )
-                else:
-                    await update.message.reply_text(
-                        message,
-                        parse_mode='HTML',
-                        reply_markup=get_caregiver_keyboard()
-                    )
-                
-                return ConversationHandler.END
+            # Caregiver limit disabled per request
+            # (previous limit check removed)
             
             # Initialize caregiver data
             self.user_caregiver_data[user_id] = {
                 'user_id': user.id,
                 'step': 'name',
-                'caregiver_telegram_id': None
+                'email': None,
+                'phone': None
             }
             
             message = f"""
   {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
   
-  🔹 <b>שלב 1/3:</b> שם המטפל
+  🔹 <b>שלב 1/4:</b> שם המטפל
   
   אנא הזינו את שם המטפל:
   (לדוגמה: ד"ר כהן, אמא, אחות שרה)
@@ -295,176 +285,82 @@ class CaregiverHandler:
             # Store name
             self.user_caregiver_data[user_id]['caregiver_name'] = caregiver_name
 
-            # Create relationship selection keyboard
-            keyboard = []
-            for i, relationship in enumerate(self.relationship_types):
-                keyboard.append([
-                    InlineKeyboardButton(
-                        relationship,
-                        callback_data=f"rel_{i}"
-                    )
-                ])
-
-            keyboard.append([
-                InlineKeyboardButton(
-                    "אחר (הזן ידנית)",
-                    callback_data="rel_custom"
-                )
-            ])
-
             message = f"""
 {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
 
 ✅ <b>שם המטפל:</b> {caregiver_name}
 
-🔹 <b>שלב 3/4:</b> קשר למטופל
+🔹 <b>שלב 2/4:</b> מספר טלפון (חובה)
 
-בחרו את סוג הקשר של המטפל אליכם:
+אנא הזינו מספר טלפון של המטפל:
             """
 
             await update.message.reply_text(
                 message,
                 parse_mode='HTML',
-                reply_markup=InlineKeyboardMarkup(keyboard)
+                reply_markup=get_cancel_keyboard()
             )
 
-            return CAREGIVER_RELATIONSHIP
+            return CAREGIVER_PHONE
 
         except Exception as e:
             logger.error(f"Error getting caregiver name: {e}")
             await self._send_error_message(update, "שגיאה בקבלת שם המטפל")
             return ConversationHandler.END
     
-    async def handle_relationship_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle relationship selection"""
-        try:
-            query = update.callback_query
-            await query.answer()
-            
-            user_id = query.from_user.id
-            data = query.data
-            
-            if data == "rel_custom":
-                message = f"""
-{config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
-
-🔹 <b>הזנת קשר מותאם אישית:</b>
-
-אנא הזינו את סוג הקשר של המטפל אליכם:
-                """
-                
-                await query.edit_message_text(
-                    message,
-                    parse_mode='HTML',
-                    reply_markup=get_cancel_keyboard()
-                )
-                
-                return CAREGIVER_RELATIONSHIP
-            
-            # Parse relationship index
-            rel_index = int(data.split("_")[1])
-            relationship = self.relationship_types[rel_index]
-            
-            # Store relationship
-            self.user_caregiver_data[user_id]['relationship_type'] = relationship
-            
-            # Create permissions keyboard
-            keyboard = []
-            for perm_key, perm_desc in self.permission_levels.items():
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"{perm_desc}",
-                        callback_data=f"perm_{perm_key}"
-                    )
-                ])
-            
-            caregiver_name = self.user_caregiver_data[user_id]['caregiver_name']
-            
-            message = f"""
-{config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
-
-✅ <b>שם המטפל:</b> {caregiver_name}
-✅ <b>קשר:</b> {relationship}
-
-🔹 <b>שלב 4/4:</b> הרשאות
-
-בחרו את רמת ההרשאות של המטפל:
-
-• <b>צפייה בלבד</b> - יכול לראות דוחות בלבד
-• <b>ניהול תרופות</b> - יכול להוסיף ולערוך תרופות
-• <b>מנהל מלא</b> - גישה מלאה לכל הפונקציות
-            """
-            
-            await query.edit_message_text(
-                message,
-                parse_mode='HTML',
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            
-            return CAREGIVER_PERMISSIONS
-            
-        except Exception as e:
-            logger.error(f"Error handling relationship selection: {e}")
-            await query.edit_message_text(
-                f"{config.EMOJIS['error']} שגיאה בבחירת הקשר"
-            )
-            return ConversationHandler.END
-    
-    async def get_custom_relationship(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Get custom relationship text"""
+    async def get_caregiver_phone(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Get caregiver phone (required)."""
         try:
             user_id = update.effective_user.id
-            relationship = update.message.text.strip()
-            
-            if len(relationship) < 2:
-                await update.message.reply_text(
-                    f"{config.EMOJIS['error']} הקשר קצר מדי"
-                )
-                return CAREGIVER_RELATIONSHIP
-            
-            if len(relationship) > 50:
-                await update.message.reply_text(
-                    f"{config.EMOJIS['error']} הקשר ארוך מדי"
-                )
-                return CAREGIVER_RELATIONSHIP
-            
-            # Store relationship
-            self.user_caregiver_data[user_id]['relationship_type'] = relationship
-            
-            # Create permissions keyboard
-            keyboard = []
-            for perm_key, perm_desc in self.permission_levels.items():
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"{perm_desc}",
-                        callback_data=f"perm_{perm_key}"
-                    )
-                ])
-            
-            caregiver_name = self.user_caregiver_data[user_id]['caregiver_name']
-            
+            phone = update.message.text.strip()
+            import re
+            if not re.match(r"^[+\d][\d\-\s]{6,}$", phone):
+                await update.message.reply_text(f"{config.EMOJIS['error']} אנא הזינו מספר טלפון תקין")
+                return CAREGIVER_PHONE
+            self.user_caregiver_data[user_id]['phone'] = phone
             message = f"""
 {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
 
-✅ <b>שם המטפל:</b> {caregiver_name}
-✅ <b>קשר:</b> {relationship}
+✅ <b>טלפון:</b> {phone}
 
-🔹 <b>שלב 4/4:</b> הרשאות
-
-בחרו את רמת ההרשאות של המטפל:
+🔹 <b>שלב 3/4:</b> אימייל (לא חובה)
+(אפשר לכתוב דלג)
             """
-            
-            await update.message.reply_text(
-                message,
-                parse_mode='HTML',
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            
-            return CAREGIVER_PERMISSIONS
-            
+            await update.message.reply_text(message, parse_mode='HTML', reply_markup=get_cancel_keyboard())
+            return CAREGIVER_EMAIL
         except Exception as e:
-            logger.error(f"Error getting custom relationship: {e}")
-            await self._send_error_message(update, "שגיאה בקבלת הקשר")
+            logger.error(f"Error getting caregiver phone: {e}")
+            await self._send_error_message(update, "שגיאה בקבלת הטלפון")
+            return ConversationHandler.END
+
+    async def get_caregiver_email(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Get caregiver email (optional)."""
+        try:
+            user_id = update.effective_user.id
+            email = update.message.text.strip()
+            if email.lower() in ("דלג", "skip", "אין", "-"):
+                email = None
+            elif email:
+                import re
+                if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+                    await update.message.reply_text(f"{config.EMOJIS['error']} אימייל לא תקין או השאירו ריק וכתבו 'דלג'")
+                    return CAREGIVER_EMAIL
+            self.user_caregiver_data[user_id]['email'] = email
+            # Permissions keyboard
+            keyboard = [[InlineKeyboardButton(desc, callback_data=f"perm_{key}")] for key, desc in self.permission_levels.items()]
+            email_line = f"✅ <b>אימייל:</b> {email}\n" if email else ""
+            message = (
+                f"{config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>\n\n"
+                f"✅ <b>טלפון:</b> {self.user_caregiver_data[user_id]['phone']}\n"
+                f"{email_line}"
+                f"🔹 <b>שלב 4/4:</b> הרשאות\n"
+                f"בחרו את רמת ההרשאות של המטפל:"
+            )
+            await update.message.reply_text(message, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+            return CAREGIVER_PERMISSIONS
+        except Exception as e:
+            logger.error(f"Error getting caregiver email: {e}")
+            await self._send_error_message(update, "שגיאה בקבלת האימייל")
             return ConversationHandler.END
     
     async def handle_permissions_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -479,23 +375,23 @@ class CaregiverHandler:
             # Store permissions and save caregiver
             self.user_caregiver_data[user_id]['permissions'] = permissions
             
+            # Save with phone/email fields
             success = await self._save_caregiver(user_id)
             
             if success:
                 data = self.user_caregiver_data[user_id]
                 perm_desc = self.permission_levels.get(permissions, permissions)
                 
-                message = f"""
-{config.EMOJIS['success']} <b>מטפל נוסף בהצלחה!</b>
-
-{config.EMOJIS['caregiver']} <b>פרטי המטפל:</b>
-• שם: {data['caregiver_name']}
-• קשר: {data['relationship_type']}
-• הרשאות: {perm_desc}
-• מזהה טלגרם: {data['caregiver_telegram_id']}
-
-המטפל יקבל הודעה על ההצטרפות ויוכל לראות דוחות מיד.
-                """
+                phone_line = f"• מספר טלפון: {data.get('phone')}\n" if data.get('phone') else ""
+                email_line = f"• דואר אלקטרוני: {data.get('email')}\n" if data.get('email') else ""
+                message = (
+                    f"{config.EMOJIS['success']} <b>מטפל נוסף בהצלחה!</b>\n\n"
+                    f"{config.EMOJIS['caregiver']} <b>פרטי המטפל:</b>\n"
+                    f"• שם: {data['caregiver_name']}\n"
+                    f"• הרשאות: {perm_desc}\n"
+                    f"{phone_line}{email_line}"
+                    f"מטפל יקבל הודעה על ההצטרפות ויוכל לראות דוחות מיד."
+                )
                 
                 # Send notification to caregiver
                 await self._notify_new_caregiver(user_id, data)
@@ -543,17 +439,23 @@ class CaregiverHandler:
             return ConversationHandler.END
     
     async def view_caregivers(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """View and manage caregivers"""
+        """View and manage caregivers with pagination."""
         try:
             user_id = update.effective_user.id
             user = await DatabaseManager.get_user_by_telegram_id(user_id)
-            
             if not user:
                 await self._send_error_message(update, "משתמש לא נמצא")
-                return
-            
+                return ConversationHandler.END
+            query = update.callback_query
+            offset = 0
+            if query and query.data.startswith('caregiver_page_'):
+                try:
+                    offset = int(query.data.split('_')[-1])
+                except Exception:
+                    offset = 0
+            context.user_data['caregiver_list_offset'] = offset
+            page_size = 10
             caregivers = await DatabaseManager.get_user_caregivers(user.id, active_only=False)
-            
             if not caregivers:
                 message = f"""
 {config.EMOJIS['info']} <b>אין מטפלים רשומים</b>
@@ -561,75 +463,37 @@ class CaregiverHandler:
 עדיין לא הוספתם מטפלים.
 מטפלים יכולים לעזור לכם לעקוב אחר נטילת התרופות ולקבל דוחות.
                 """
-                
-                keyboard = [
-                    [
-                        InlineKeyboardButton(
-                            f"{config.EMOJIS['caregiver']} הוסף מטפל ראשון",
-                            callback_data="caregiver_add"
-                        )
-                    ]
-                ]
+                keyboard = [[[InlineKeyboardButton(f"{config.EMOJIS['caregiver']} הוסף מטפל ראשון", callback_data="caregiver_add")]]]
             else:
                 message = f"{config.EMOJIS['caregiver']} <b>המטפלים שלכם ({len(caregivers)}):</b>\n\n"
-                
-                for caregiver in caregivers:
-                    status_emoji = config.EMOJIS['success'] if caregiver.is_active else config.EMOJIS['error']
-                    perm_desc = self.permission_levels.get(caregiver.permissions, caregiver.permissions)
-                    
-                    message += f"{status_emoji} <b>{caregiver.caregiver_name}</b>\n"
-                    message += f"   👤 {caregiver.relationship_type}\n"
-                    message += f"   🔐 {perm_desc}\n"
-                    message += f"   📅 נוסף: {caregiver.created_at.strftime('%d/%m/%Y')}\n\n"
-                
+                for c in caregivers[offset:offset+page_size]:
+                    status_emoji = config.EMOJIS['success'] if c.is_active else config.EMOJIS['error']
+                    perm_desc = self.permission_levels.get(c.permissions, c.permissions)
+                    created_txt = c.created_at.strftime('%d/%m/%Y') if getattr(c, 'created_at', None) else ''
+                    message += f"{status_emoji} <b>{c.caregiver_name}</b>\n   👤 {c.relationship_type}\n   🔐 {perm_desc}\n   📅 נוסף: {created_txt}\n\n"
                 keyboard = []
-                
-                # Add management buttons for each caregiver
-                for caregiver in caregivers[:5]:  # Limit to 5 for space
-                    keyboard.append([
-                        InlineKeyboardButton(
-                            f"✏️ {caregiver.caregiver_name}",
-                            callback_data=f"caregiver_edit_{caregiver.id}"
-                        )
-                    ])
-                
-                # Action buttons
-                keyboard.append([
-                    InlineKeyboardButton(
-                        f"{config.EMOJIS['caregiver']} הוסף מטפל",
-                        callback_data="caregiver_add"
-                    )
-                ])
-                
+                for c in caregivers[offset:offset+page_size]:
+                    keyboard.append([InlineKeyboardButton(f"✏️ {c.caregiver_name}", callback_data=f"caregiver_edit_{c.id}")])
+                # Nav row
+                nav = []
+                if offset > 0:
+                    prev_off = max(0, offset - page_size)
+                    nav.append(InlineKeyboardButton("‹ הקודם", callback_data=f"caregiver_page_{prev_off}"))
+                if offset + page_size < len(caregivers):
+                    next_off = offset + page_size
+                    nav.append(InlineKeyboardButton("הבא ›", callback_data=f"caregiver_page_{next_off}"))
+                if nav:
+                    keyboard.append(nav)
+                # Actions
+                keyboard.append([InlineKeyboardButton(f"{config.EMOJIS['caregiver']} הוסף מטפל", callback_data="caregiver_add")])
                 if caregivers:
-                    keyboard.append([
-                        InlineKeyboardButton(
-                            f"📊 שלח דוח למטפלים",
-                            callback_data="caregiver_send_report"
-                        )
-                    ])
-            
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"{config.EMOJIS['back']} חזור",
-                    callback_data="main_menu"
-                )
-            ])
-            
-            if update.callback_query:
-                await update.callback_query.answer()
-                await update.callback_query.edit_message_text(
-                    message,
-                    parse_mode='HTML',
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                    keyboard.append([InlineKeyboardButton(f"📊 שלח דוח למטפלים", callback_data="caregiver_send_report")])
+            keyboard.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="main_menu")])
+            if query:
+                await query.answer()
+                await query.edit_message_text(message, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
             else:
-                await update.message.reply_text(
-                    message,
-                    parse_mode='HTML',
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            
+                await update.message.reply_text(message, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
         except Exception as e:
             logger.error(f"Error viewing caregivers: {e}")
             await self._send_error_message(update, "שגיאה בהצגת המטפלים")
@@ -641,10 +505,9 @@ class CaregiverHandler:
             
             caregiver = await DatabaseManager.create_caregiver(
                 user_id=data['user_id'],
-                caregiver_telegram_id=data['caregiver_telegram_id'],
                 caregiver_name=data['caregiver_name'],
-                relationship=data['relationship_type'],
-                permissions=data['permissions']
+                phone=data.get('phone'),
+                email=data.get('email')
             )
             
             return caregiver is not None
@@ -721,9 +584,8 @@ class CaregiverHandler:
                 await update.callback_query.edit_message_text(
                     f"{config.EMOJIS['error']} {error_text}"
                 )
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="תפריט ראשי:",
+                await update.effective_message.reply_text(
+                    "תפריט ראשי:",
                     reply_markup=get_main_menu_keyboard()
                 )
             else:
@@ -815,35 +677,24 @@ class CaregiverHandler:
                 )
                 return
 
-            # Edit relationship: show options
-            if data.startswith('caregiver_edit_rel_'):
+            # Edit phone
+            if data.startswith('caregiver_edit_phone_'):
                 caregiver_id = int(data.split('_')[-1])
-                context.user_data['editing_caregiver'] = {'id': caregiver_id, 'field': 'relationship'}
-                keyboard = [[InlineKeyboardButton(r, callback_data=f"caregiver_relset_{i}_{caregiver_id}")] for i, r in enumerate(self.relationship_types)]
-                keyboard.append([InlineKeyboardButton("אחר (הזן ידנית)", callback_data=f"caregiver_relset_custom_{caregiver_id}")])
+                context.user_data['editing_caregiver'] = {'id': caregiver_id, 'field': 'phone'}
                 await query.edit_message_text(
-                    f"{config.EMOJIS['caregiver']} בחרו קשר חדש:",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
+                    f"{config.EMOJIS['caregiver']} הזינו מספר טלפון חדש:",
+                    reply_markup=get_cancel_keyboard()
                 )
                 return
 
-            # Relationship selection by index
-            if data.startswith('caregiver_relset_'):
-                parts = data.split('_')
-                # caregiver_relset_{index|custom}_{id}
-                choice = parts[2]
-                caregiver_id = int(parts[3])
-                if choice == 'custom':
-                    context.user_data['editing_caregiver'] = {'id': caregiver_id, 'field': 'relationship_custom'}
-                    await query.edit_message_text(
-                        f"{config.EMOJIS['caregiver']} הזינו קשר חדש:",
-                        reply_markup=get_cancel_keyboard()
-                    )
-                    return
-                rel_index = int(choice)
-                relationship = self.relationship_types[rel_index]
-                await DatabaseManager.update_caregiver(caregiver_id, relationship_type=relationship)
-                await query.edit_message_text(f"{config.EMOJIS['success']} הקשר עודכן ל- {relationship}")
+            # Edit email
+            if data.startswith('caregiver_edit_email_'):
+                caregiver_id = int(data.split('_')[-1])
+                context.user_data['editing_caregiver'] = {'id': caregiver_id, 'field': 'email'}
+                await query.edit_message_text(
+                    f"{config.EMOJIS['caregiver']} הזינו אימייל חדש (או כתבו דלג כדי להסיר):",
+                    reply_markup=get_cancel_keyboard()
+                )
                 return
 
             # Edit permissions: show options
@@ -911,50 +762,29 @@ class CaregiverHandler:
             await query.answer()
             data = query.data
             caregiver_id = int(data.split('_')[-1])
-
             caregiver = await DatabaseManager.get_caregiver_by_id(caregiver_id)
             if not caregiver:
                 await query.edit_message_text(f"{config.EMOJIS['error']} מטפל לא נמצא")
                 return
-
             perm_desc = self.permission_levels.get(caregiver.permissions, caregiver.permissions)
             status_emoji = config.EMOJIS['success'] if caregiver.is_active else config.EMOJIS['error']
-
             message = f"""
 {config.EMOJIS['caregiver']} <b>עריכת מטפל</b>
 
 <b>{caregiver.caregiver_name}</b> {status_emoji}
-👤 {caregiver.relationship_type}
+📞 {caregiver.phone or ''}
+✉️ {caregiver.email or ''}
 🔐 {perm_desc}
             """
-
             keyboard = [
-                [
-                    InlineKeyboardButton("✏️ שנה שם", callback_data=f"caregiver_edit_name_{caregiver_id}"),
-                    InlineKeyboardButton("👥 שנה קשר", callback_data=f"caregiver_edit_rel_{caregiver_id}"),
-                ],
-                [
-                    InlineKeyboardButton("🔐 שנה הרשאות", callback_data=f"caregiver_edit_perm_{caregiver_id}")
-                ],
-                [
-                    InlineKeyboardButton(
-                        f"{'🟢 הפעל' if not caregiver.is_active else '🔴 השבת'}",
-                        callback_data=f"toggle_caregiver_{caregiver_id}"
-                    )
-                ],
-                [
-                    InlineKeyboardButton("🗑️ הסר מטפל", callback_data=f"remove_caregiver_{caregiver_id}")
-                ],
-                [
-                    InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")
-                ]
+                [InlineKeyboardButton("🧩 עריכה מרוכזת", callback_data=f"caregiver_edit_all_{caregiver_id}")],
+                [InlineKeyboardButton("✏️ שנה שם", callback_data=f"caregiver_edit_name_{caregiver_id}"), InlineKeyboardButton("📞 שנה טלפון", callback_data=f"caregiver_edit_phone_{caregiver_id}")],
+                [InlineKeyboardButton("✉️ שנה אימייל", callback_data=f"caregiver_edit_email_{caregiver_id}"), InlineKeyboardButton("🔐 שנה הרשאות", callback_data=f"caregiver_edit_perm_{caregiver_id}")],
+                [InlineKeyboardButton(f"{'🟢 הפעל' if not caregiver.is_active else '🔴 השבת'}", callback_data=f"toggle_caregiver_{caregiver_id}")],
+                [InlineKeyboardButton("🗑️ הסר מטפל", callback_data=f"remove_caregiver_{caregiver_id}")],
+                [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")]
             ]
-
-            await query.edit_message_text(
-                message,
-                parse_mode='HTML',
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            await query.edit_message_text(message, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
         except Exception as e:
             logger.error(f"Error in edit_caregiver: {e}")
             await update.callback_query.edit_message_text(config.ERROR_MESSAGES['general'])
@@ -978,6 +808,84 @@ class CaregiverHandler:
         except Exception as e:
             logger.error(f"Error in toggle_caregiver_status: {e}")
             await update.callback_query.edit_message_text(config.ERROR_MESSAGES['general'])
+
+    async def _edit_all_set_name(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            data = context.user_data.get('edit_all', {})
+            data['name'] = update.message.text.strip()
+            context.user_data['edit_all'] = data
+            await update.message.reply_text(f"{config.EMOJIS['caregiver']} הזינו מספר טלפון:", reply_markup=get_cancel_keyboard())
+            return EDIT_ALL_PHONE
+        except Exception as e:
+            logger.error(f"Error in _edit_all_set_name: {e}")
+            await self._send_error_message(update, "שגיאה בעדכון השם")
+            return ConversationHandler.END
+
+    async def _edit_all_set_phone(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            phone = update.message.text.strip()
+            import re
+            if not re.match(r"^[+\d][\d\-\s]{6,}$", phone):
+                await update.message.reply_text(f"{config.EMOJIS['error']} מספר טלפון לא תקין")
+                return EDIT_ALL_PHONE
+            data = context.user_data.get('edit_all', {})
+            data['phone'] = phone
+            context.user_data['edit_all'] = data
+            await update.message.reply_text(f"{config.EMOJIS['caregiver']} הזינו אימייל (או כתבו דלג):", reply_markup=get_cancel_keyboard())
+            return EDIT_ALL_EMAIL
+        except Exception as e:
+            logger.error(f"Error in _edit_all_set_phone: {e}")
+            await self._send_error_message(update, "שגיאה בעדכון הטלפון")
+            return ConversationHandler.END
+
+    async def _edit_all_set_email(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            email = update.message.text.strip()
+            if email.lower() in ("דלג", "skip", "אין", "-"):
+                email = None
+            elif email:
+                import re
+                if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+                    await update.message.reply_text(f"{config.EMOJIS['error']} אימייל לא תקין או כתבו דלג")
+                    return EDIT_ALL_EMAIL
+            data = context.user_data.get('edit_all', {})
+            data['email'] = email
+            context.user_data['edit_all'] = data
+            # permissions keyboard
+            keyboard = [[InlineKeyboardButton(desc, callback_data=f"perm_{key}")] for key, desc in self.permission_levels.items()]
+            await update.message.reply_text(f"{config.EMOJIS['caregiver']} בחרו הרשאות:", reply_markup=InlineKeyboardMarkup(keyboard))
+            return EDIT_ALL_PERMS
+        except Exception as e:
+            logger.error(f"Error in _edit_all_set_email: {e}")
+            await self._send_error_message(update, "שגיאה בעדכון האימייל")
+            return ConversationHandler.END
+
+    async def _edit_all_set_perms(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            query = update.callback_query
+            await query.answer()
+            perm_key = query.data.split('_')[1]
+            data = context.user_data.get('edit_all', {})
+            caregiver_id = int(data.get('id')) if data.get('id') else None
+            if not caregiver_id:
+                await query.edit_message_text(config.ERROR_MESSAGES['general'])
+                return ConversationHandler.END
+            # apply updates
+            await DatabaseManager.update_caregiver(
+                caregiver_id,
+                caregiver_name=data.get('name'),
+                permissions=perm_key,
+                email=data.get('email'),
+                phone=data.get('phone')
+            )
+            # Clear and go back to caregivers list at the current page
+            context.user_data.pop('edit_all', None)
+            await self.view_caregivers(update, context)
+            return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Error in _edit_all_set_perms: {e}")
+            await update.callback_query.edit_message_text(config.ERROR_MESSAGES['general'])
+            return ConversationHandler.END
 
 
 # Global instance
