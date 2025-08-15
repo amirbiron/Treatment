@@ -55,6 +55,10 @@ class MedicineReminderBot:
         self._reminder_handler = _reminder_handler
         self._reports_handler = _reports_handler
         self._caregiver_handler = _caregiver_handler
+        # Internal shutdown coordination
+        self._serve_forever_event = None
+        self._shutdown_started = False
+        self._runner = None
     
     async def initialize(self):
         """Initialize the bot application and all components"""
@@ -1429,14 +1433,24 @@ class MedicineReminderBot:
             app.router.add_post(config.WEBHOOK_PATH, telegram_webhook_handler)
             
             runner = web.AppRunner(app)
+            self._runner = runner
             await runner.setup()
             site = web.TCPSite(runner, host="0.0.0.0", port=config.WEBHOOK_PORT)
             await site.start()
             
             logger.info("Webhook server is up")
             
-            # Block forever
-            await asyncio.Event().wait()
+            # Wait until shutdown is requested
+            self._serve_forever_event = asyncio.Event()
+            try:
+                await self._serve_forever_event.wait()
+            except asyncio.CancelledError:
+                logger.info("Webhook run cancelled - shutting down")
+            finally:
+                try:
+                    await runner.cleanup()
+                except Exception as cleanup_exc:
+                    logger.warning(f"Error during webhook server cleanup: {cleanup_exc}")
             
         except Exception as e:
             logger.error(f"Failed to run webhook: {e}")
@@ -1469,6 +1483,18 @@ class MedicineReminderBot:
         """Graceful shutdown"""
         logger.info("Shutting down bot...")
         
+        # Prevent duplicate shutdowns
+        if self._shutdown_started:
+            return
+        self._shutdown_started = True
+        
+        # Signal the webhook runner (if any) to stop blocking
+        try:
+            if self._serve_forever_event and not self._serve_forever_event.is_set():
+                self._serve_forever_event.set()
+        except Exception:
+            pass
+        
         try:
             # Stop scheduler
             await medicine_scheduler.stop()
@@ -1480,6 +1506,8 @@ class MedicineReminderBot:
             
             logger.info("Bot shutdown completed")
             
+        except asyncio.CancelledError:
+            logger.info("Shutdown cancelled by event loop")
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")
 
@@ -1492,7 +1520,6 @@ async def main():
     def signal_handler(signum, frame):
         logger.info(f"Received signal {signum}")
         asyncio.create_task(bot.shutdown())
-        sys.exit(0)
     
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
