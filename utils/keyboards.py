@@ -201,23 +201,37 @@ def get_medicines_keyboard(medicines: List, offset: int = 0) -> InlineKeyboardMa
                 callback_data=f"medicine_view_{medicine.id}"
             )
         ])
+        # Quick actions row per medicine
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{config.EMOJIS['clock']} שעות",
+                callback_data=f"medicine_schedule_{medicine.id}"
+            ),
+            InlineKeyboardButton(
+                f"{config.EMOJIS['inventory']} מלאי",
+                callback_data=f"medicine_inventory_{medicine.id}"
+            ),
+            InlineKeyboardButton(
+                f"{config.EMOJIS['settings']} פרטים",
+                callback_data=f"medicine_edit_{medicine.id}"
+            ),
+            InlineKeyboardButton(
+                f"{config.EMOJIS['report']} היסטוריה",
+                callback_data=f"medicine_history_{medicine.id}"
+            ),
+        ])
     
-    # Action buttons
+    # Global action buttons
     action_row = [
         InlineKeyboardButton(
             f"{config.EMOJIS['medicine']} הוסף תרופה",
             callback_data="medicine_add"
+        ),
+        InlineKeyboardButton(
+            f"{config.EMOJIS['settings']} ניהול",
+            callback_data="medicine_manage"
         )
     ]
-    
-    if medicines:
-        action_row.append(
-            InlineKeyboardButton(
-                f"{config.EMOJIS['settings']} ערוך תרופות",
-                callback_data="medicine_manage"
-            )
-        )
-    
     keyboard.append(action_row)
     
     # Navigation buttons
