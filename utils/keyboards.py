@@ -232,6 +232,10 @@ def get_medicines_keyboard(medicines: List) -> InlineKeyboardMarkup:
         InlineKeyboardButton(
             f"{config.EMOJIS['back']} חזור לתפריט",
             callback_data="main_menu"
+        ),
+        InlineKeyboardButton(
+            f"{config.EMOJIS['symptoms']} תופעות לוואי",
+            callback_data="symptoms_menu"
         )
     ])
     
@@ -765,6 +769,31 @@ def get_symptoms_history_picker(medicines: List) -> InlineKeyboardMarkup:
         InlineKeyboardButton(
             f"{config.EMOJIS['back']} חזור",
             callback_data="main_menu"
+        )
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_symptom_logs_list_keyboard(logs: List) -> InlineKeyboardMarkup:
+    """Build a keyboard listing recent symptom logs with per-item edit/delete actions."""
+    keyboard = []
+    for log in logs:
+        ts = log.log_date.strftime('%d/%m %H:%M') if hasattr(log, 'log_date') and log.log_date else ''
+        title = (log.symptoms or log.side_effects or '—')[:25]
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{ts} — {title}",
+                callback_data=f"symptoms_view_{log.id}"
+            )
+        ])
+        keyboard.append([
+            InlineKeyboardButton("ערוך", callback_data=f"symptoms_edit_{log.id}"),
+            InlineKeyboardButton("מחק", callback_data=f"symptoms_delete_{log.id}")
+        ])
+    keyboard.append([
+        InlineKeyboardButton(
+            f"{config.EMOJIS['back']} חזור",
+            callback_data="symptoms_history"
         )
     ])
     return InlineKeyboardMarkup(keyboard)

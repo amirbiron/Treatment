@@ -470,8 +470,11 @@ class MedicineReminderBot:
                 # Route to internal medicine action handler which covers all medicine flows
                 await self._handle_medicine_action(query, context)
                 return
+            elif data == "symptoms_menu":
+                await self.log_symptoms_command(update, context)
+                return
             elif data.startswith("mededit_"):
-                # mededit_name_<id>, mededit_dosage_<id>, mededit_notes_<id>, mededit_toggle_<id>
+                # mededit_name_<id>, mededit_dosage_<id>, mededit_notes_<id>, mededit_toggle_<id>, mededit_packsize_<id>
                 parts = data.split("_")
                 action = parts[1] if len(parts) > 1 else ""
                 mid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
@@ -479,7 +482,6 @@ class MedicineReminderBot:
                     await query.edit_message_text(config.ERROR_MESSAGES["general"])
                     return
                 if action == "toggle":
-                    # Toggle active state
                     med = await DatabaseManager.get_medicine_by_id(mid)
                     await DatabaseManager.set_medicine_active(mid, not med.is_active)
                     from utils.keyboards import get_medicine_detail_keyboard
@@ -581,17 +583,24 @@ class MedicineReminderBot:
                     if not logs:
                         await query.edit_message_text("אין רישומי תופעות לוואי ב-30 הימים האחרונים")
                         return
-                    preview = []
-                    for log in logs[-10:]:
-                        ts = log.log_date.strftime('%d/%m %H:%M')
-                        med_name = None
-                        if getattr(log, 'medicine_id', None):
-                            m = await DatabaseManager.get_medicine_by_id(int(log.medicine_id))
-                            med_name = m.name if m else None
-                        body = (log.symptoms or log.side_effects or '—')
-                        row = f"{ts} - {med_name}: {body}" if med_name else f"{ts} - {body}"
-                        preview.append(row)
-                    await query.edit_message_text("\n".join(preview))
+                    # Show list with per-item actions
+                    from utils.keyboards import get_symptom_logs_list_keyboard
+                    await query.edit_message_text(
+                        "רישומי 30 הימים האחרונים:",
+                        reply_markup=get_symptom_logs_list_keyboard(logs[-10:])
+                    )
+                    return
+                if data.startswith("symptoms_delete_"):
+                    log_id = int(data.split("_")[-1])
+                    ok = await DatabaseManager.delete_symptom_log(log_id)
+                    await query.edit_message_text(
+                        f"{config.EMOJIS['success']} הרישום נמחק" if ok else f"{config.EMOJIS['error']} הרישום לא נמצא"
+                    )
+                    return
+                if data.startswith("symptoms_edit_"):
+                    log_id = int(data.split("_")[-1])
+                    context.user_data['editing_symptom_log'] = log_id
+                    await query.edit_message_text("שלחו את הטקסט המעודכן לרישום זה:")
                     return
                 return
             else:
@@ -1163,6 +1172,13 @@ class MedicineReminderBot:
                     await DatabaseManager.update_user_timezone(user.id, zone)
                     user_data.pop('awaiting_timezone_text', None)
                     await update.message.reply_text(f"{config.EMOJIS['success']} עודכן אזור הזמן ל- {zone}")
+                    return
+                # Edit symptom log text if awaiting
+                if user_data.get('editing_symptom_log'):
+                    log_id = int(user_data.get('editing_symptom_log'))
+                    await DatabaseManager.update_symptom_log(log_id, symptoms=text)
+                    user_data.pop('editing_symptom_log', None)
+                    await update.message.reply_text(f"{config.EMOJIS['success']} הרישום עודכן")
                     return
                 await update.message.reply_text(
                     "השתמשו בתפריט או בפקודות. /help לעזרה"
