@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 # Conversation states
 CAREGIVER_NAME, CAREGIVER_PHONE, CAREGIVER_EMAIL, CAREGIVER_PERMISSIONS = range(4)
 EDIT_CAREGIVER_NAME, EDIT_CAREGIVER_PHONE, EDIT_CAREGIVER_EMAIL, EDIT_CAREGIVER_PERMISSIONS = range(4, 8)
+EDIT_ALL_NAME, EDIT_ALL_PHONE, EDIT_ALL_EMAIL, EDIT_ALL_PERMS = range(8, 12)
 
 
 class CaregiverHandler:
@@ -73,7 +74,19 @@ class CaregiverHandler:
                 ],
                 CAREGIVER_PERMISSIONS: [
                     CallbackQueryHandler(self.handle_permissions_selection, pattern="^perm_")
-                ]
+                ],
+                EDIT_ALL_NAME: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._edit_all_set_name)
+                ],
+                EDIT_ALL_PHONE: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._edit_all_set_phone)
+                ],
+                EDIT_ALL_EMAIL: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._edit_all_set_email)
+                ],
+                EDIT_ALL_PERMS: [
+                    CallbackQueryHandler(self._edit_all_set_perms, pattern="^perm_")
+                ],
             },
             fallbacks=[
                 CommandHandler("cancel", self.cancel_operation),
@@ -764,6 +777,7 @@ class CaregiverHandler:
 🔐 {perm_desc}
             """
             keyboard = [
+                [InlineKeyboardButton("🧩 עריכה מרוכזת", callback_data=f"caregiver_edit_all_{caregiver_id}")],
                 [InlineKeyboardButton("✏️ שנה שם", callback_data=f"caregiver_edit_name_{caregiver_id}"), InlineKeyboardButton("📞 שנה טלפון", callback_data=f"caregiver_edit_phone_{caregiver_id}")],
                 [InlineKeyboardButton("✉️ שנה אימייל", callback_data=f"caregiver_edit_email_{caregiver_id}"), InlineKeyboardButton("🔐 שנה הרשאות", callback_data=f"caregiver_edit_perm_{caregiver_id}")],
                 [InlineKeyboardButton(f"{'🟢 הפעל' if not caregiver.is_active else '🔴 השבת'}", callback_data=f"toggle_caregiver_{caregiver_id}")],
@@ -794,6 +808,84 @@ class CaregiverHandler:
         except Exception as e:
             logger.error(f"Error in toggle_caregiver_status: {e}")
             await update.callback_query.edit_message_text(config.ERROR_MESSAGES['general'])
+
+    async def _edit_all_set_name(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            data = context.user_data.get('edit_all', {})
+            data['name'] = update.message.text.strip()
+            context.user_data['edit_all'] = data
+            await update.message.reply_text(f"{config.EMOJIS['caregiver']} הזינו מספר טלפון:", reply_markup=get_cancel_keyboard())
+            return EDIT_ALL_PHONE
+        except Exception as e:
+            logger.error(f"Error in _edit_all_set_name: {e}")
+            await self._send_error_message(update, "שגיאה בעדכון השם")
+            return ConversationHandler.END
+
+    async def _edit_all_set_phone(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            phone = update.message.text.strip()
+            import re
+            if not re.match(r"^[+\d][\d\-\s]{6,}$", phone):
+                await update.message.reply_text(f"{config.EMOJIS['error']} מספר טלפון לא תקין")
+                return EDIT_ALL_PHONE
+            data = context.user_data.get('edit_all', {})
+            data['phone'] = phone
+            context.user_data['edit_all'] = data
+            await update.message.reply_text(f"{config.EMOJIS['caregiver']} הזינו אימייל (או כתבו דלג):", reply_markup=get_cancel_keyboard())
+            return EDIT_ALL_EMAIL
+        except Exception as e:
+            logger.error(f"Error in _edit_all_set_phone: {e}")
+            await self._send_error_message(update, "שגיאה בעדכון הטלפון")
+            return ConversationHandler.END
+
+    async def _edit_all_set_email(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            email = update.message.text.strip()
+            if email.lower() in ("דלג", "skip", "אין", "-"):
+                email = None
+            elif email:
+                import re
+                if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+                    await update.message.reply_text(f"{config.EMOJIS['error']} אימייל לא תקין או כתבו דלג")
+                    return EDIT_ALL_EMAIL
+            data = context.user_data.get('edit_all', {})
+            data['email'] = email
+            context.user_data['edit_all'] = data
+            # permissions keyboard
+            keyboard = [[InlineKeyboardButton(desc, callback_data=f"perm_{key}")] for key, desc in self.permission_levels.items()]
+            await update.message.reply_text(f"{config.EMOJIS['caregiver']} בחרו הרשאות:", reply_markup=InlineKeyboardMarkup(keyboard))
+            return EDIT_ALL_PERMS
+        except Exception as e:
+            logger.error(f"Error in _edit_all_set_email: {e}")
+            await self._send_error_message(update, "שגיאה בעדכון האימייל")
+            return ConversationHandler.END
+
+    async def _edit_all_set_perms(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            query = update.callback_query
+            await query.answer()
+            perm_key = query.data.split('_')[1]
+            data = context.user_data.get('edit_all', {})
+            caregiver_id = int(data.get('id')) if data.get('id') else None
+            if not caregiver_id:
+                await query.edit_message_text(config.ERROR_MESSAGES['general'])
+                return ConversationHandler.END
+            # apply updates
+            await DatabaseManager.update_caregiver(
+                caregiver_id,
+                caregiver_name=data.get('name'),
+                permissions=perm_key,
+                email=data.get('email'),
+                phone=data.get('phone')
+            )
+            # Clear and show success, return to edit screen
+            context.user_data.pop('edit_all', None)
+            await self.edit_caregiver(update, context)
+            return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Error in _edit_all_set_perms: {e}")
+            await update.callback_query.edit_message_text(config.ERROR_MESSAGES['general'])
+            return ConversationHandler.END
 
 
 # Global instance
