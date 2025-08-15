@@ -1018,7 +1018,7 @@ class MedicineReminderBot:
                     )
             elif data == "tz_custom":
                 context.user_data['awaiting_timezone_text'] = True
-                await query.edit_message_text("הקלידו את אזור הזמן (למשל Asia/Jerusalem)")
+                await query.edit_message_text("הקלידו את אזור הזמן (למשל Asia/Jerusalem, Europe/Berlin או GMT+3)")
             elif data.startswith("tz_"):
                 # Apply selected timezone only for recognized values
                 tz = data[3:]
@@ -1371,14 +1371,16 @@ class MedicineReminderBot:
                         return
                 # Save timezone if awaiting text
                 if user_data.get('awaiting_timezone_text'):
-                    zone = text.strip()
-                    if '/' not in zone or len(zone) < 3:
-                        await update.message.reply_text("אנא הזינו אזור זמן תקין, למשל Asia/Jerusalem")
+                    from utils.helpers import normalize_timezone
+                    zone = (text or '').strip()
+                    ok, normalized, display = normalize_timezone(zone)
+                    if not ok or not normalized:
+                        await update.message.reply_text("אנא הזינו אזור זמן תקין (למשל Asia/Jerusalem, Europe/Berlin או GMT+3)")
                         return
                     user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
-                    await DatabaseManager.update_user_timezone(user.id, zone)
+                    await DatabaseManager.update_user_timezone(user.id, normalized)
                     user_data.pop('awaiting_timezone_text', None)
-                    await update.message.reply_text(f"{config.EMOJES['success']} עודכן אזור הזמן ל- {zone}")
+                    await update.message.reply_text(f"{config.EMOJES['success']} עודכן אזור הזמן ל- {display}")
                     return
                 # Edit symptom log text if awaiting
                 if user_data.get('editing_symptom_log'):

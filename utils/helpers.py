@@ -507,3 +507,51 @@ def cache(ttl_seconds: Optional[int] = None) -> Callable[[Callable[..., Any]], C
 		return wrapper
 
 	return decorator
+
+
+def normalize_timezone(input_tz: Optional[str]) -> Tuple[bool, Optional[str], Optional[str]]:
+	"""Normalize and validate a timezone string.
+	Returns (is_valid, normalized_tz, display_label). Accepts common variants and GMT offsets.
+	"""
+	if not input_tz or not isinstance(input_tz, str):
+		return False, None, None
+	s = input_tz.strip()
+	if not s:
+		return False, None, None
+	# Quick accept exact
+	if s in pytz.all_timezones:
+		tz = pytz.timezone(s)
+		offset = datetime.now(tz).strftime('%z')
+		display = f"{s} (GMT{offset[:3]}:{offset[3:]})"
+		return True, s, display
+	# Case-insensitive match
+	low = s.lower()
+	for name in pytz.all_timezones:
+		if name.lower() == low:
+			z = pytz.timezone(name)
+			offset = datetime.now(z).strftime('%z')
+			display = f"{name} (GMT{offset[:3]}:{offset[3:]})"
+			return True, name, display
+	# Common aliases
+	aliases = {
+		"israel": "Asia/Jerusalem",
+		"jerusalem": "Asia/Jerusalem",
+		"gmt+2": "Etc/GMT-2",
+		"gmt+3": "Etc/GMT-3",
+		"gmt-5": "Etc/GMT+5",
+	}
+	if low in aliases:
+		name = aliases[low]
+		z = pytz.timezone(name)
+		offset = datetime.now(z).strftime('%z')
+		display = f"{name} (GMT{offset[:3]}:{offset[3:]})"
+		return True, name, display
+	# Fuzzy suggestion by substring
+	candidates = [name for name in pytz.all_timezones if low in name.lower()]
+	if candidates:
+		name = candidates[0]
+		z = pytz.timezone(name)
+		offset = datetime.now(z).strftime('%z')
+		display = f"{name} (GMT{offset[:3]}:{offset[3:]})"
+		return True, name, display
+	return False, None, None
