@@ -777,6 +777,12 @@ class DatabaseManagerMongo:
 		return user
 
 	@staticmethod
+	async def update_user_timezone(user_id: int, timezone: str) -> bool:
+		await _init_mongo()
+		res = await _mongo_db.users.update_one({"_id": int(user_id)}, {"$set": {"timezone": timezone}})
+		return res.matched_count > 0
+
+	@staticmethod
 	async def get_user_by_id(user_id: int) -> Optional[User]:
 		await _init_mongo()
 		doc = await _mongo_db.users.find_one({"_id": user_id})
