@@ -383,6 +383,14 @@ class MedicineReminderBot:
             user_id = query.from_user.id
             
             # Time selection buttons: handle preset hour and custom entry
+            if data in ("cancel", "time_cancel"):
+                from utils.keyboards import get_main_menu_keyboard
+                context.user_data.pop('editing_schedule_for', None)
+                await query.edit_message_text(
+                    f"{config.EMOJIS['info']} הפעולה בוטלה",
+                    reply_markup=get_main_menu_keyboard()
+                )
+                return
             if data == "time_custom":
                 await query.edit_message_text("הקלידו שעה בפורמט HH:MM (למשל 08:30)")
                 return
@@ -472,13 +480,6 @@ class MedicineReminderBot:
                 await self._handle_settings_action(query, context)
             elif data.startswith("report_") or data.startswith("report_action_") or data.startswith("export_report_"):
                 # Routed by reports handler; do nothing here (already registered)
-                return
-            elif data in ("cancel", "time_cancel"):
-                from utils.keyboards import get_main_menu_keyboard
-                await query.edit_message_text(
-                    f"{config.EMOJIS['info']} הפעולה בוטלה",
-                    reply_markup=get_main_menu_keyboard()
-                )
                 return
             # Reminders settings controls
             elif data.startswith("rsnoop_") or data.startswith("rattempts_") or data == "rsilent_toggle" or data == "settings_menu":
