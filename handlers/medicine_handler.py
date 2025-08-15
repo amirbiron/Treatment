@@ -61,6 +61,7 @@ class MedicineHandler:
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_medicine_dosage)
                 ],
                 MEDICINE_SCHEDULE: [
+                    CallbackQueryHandler(self.cancel_operation, pattern="^time_cancel$"),
                     CallbackQueryHandler(self.handle_time_selection, pattern="^time_"),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_custom_time)
                 ],
