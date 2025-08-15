@@ -54,6 +54,21 @@ class Config:
     MAX_CAREGIVERS_PER_USER: int = int(os.getenv("MAX_CAREGIVERS_PER_USER", "5"))
     CAREGIVER_DAILY_REPORT_TIME: str = os.getenv("CAREGIVER_DAILY_REPORT_TIME", "20:00")
     
+    # Appointment Settings
+    APPOINTMENT_ENABLE: bool = True
+    APPOINTMENT_TIMEZONE: str = DEFAULT_TIMEZONE
+    APPOINTMENT_ALLOW_CUSTOM: bool = True
+    
+    # Default reminders for appointments (booleans)
+    APPOINTMENT_REMIND_DAY_BEFORE: bool = True
+    APPOINTMENT_REMIND_3_DAYS_BEFORE: bool = False
+    APPOINTMENT_REMIND_SAME_DAY: bool = True
+    APPOINTMENT_SAME_DAY_REMINDER_HOUR: int = 8  # 08:00 בבוקר
+    
+    APPOINTMENTS_HELP: str = (
+        "קבעו תור לרופא, בדיקת דם, טיפול או בדיקה. ניתן גם להזין נושא חופשי."
+    )
+    
     # Message Templates
     WELCOME_MESSAGE: str = """
 🏥 *ברוכים הבאים לבוט תזכורת התרופות!*
@@ -64,7 +79,7 @@ class Config:
 • 📝 לתעד תופעות לוואי
 • 👥 לאפשר למטפלים לעקוב
 
-לחצו /start כדי להתחיל!
+להוספת הבוט למסך האפליקציות שלכם - לחצו למעלה על שם הבוט - לאחר מכן על 3 הנקודות למעלה בצד המסך - ולבסוף על "הוסף קיצור דרך"
     """
     
     HELP_MESSAGE: str = """
@@ -134,7 +149,8 @@ class Config:
         "calendar": "📅",
         "clock": "🕐",
         "hospital": "🏥",
-        "doctor": "👨‍⚕️"
+        "doctor": "👨‍⚕️",
+        "appointment": "📅"
     }
     
     @classmethod

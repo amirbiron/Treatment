@@ -5,6 +5,7 @@ Using SQLAlchemy 2.0 with modern typing and async support
 
 import os
 from datetime import datetime, time, timedelta
+from datetime import date
 from typing import List, Optional
 from sqlalchemy import String, Integer, Boolean, DateTime, Time, Text, ForeignKey, Float, select, func
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
@@ -129,15 +130,38 @@ class Caregiver(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
-    caregiver_telegram_id: Mapped[int] = mapped_column(Integer)
+    caregiver_telegram_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     caregiver_name: Mapped[str] = mapped_column(String(100))
     relationship_type: Mapped[str] = mapped_column("relationship", String(50))  # family, doctor, nurse, etc.
     permissions: Mapped[str] = mapped_column(String(200), default="view")  # view, manage, admin
+    email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    preferred_channel: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # 'email' | 'phone' | 'telegram'
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="caregivers")
+
+
+class Appointment(Base):
+    """Appointments such as doctor visits and tests"""
+    __tablename__ = "appointments"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
+    category: Mapped[str] = mapped_column(String(30), default="custom")
+    title: Mapped[str] = mapped_column(String(200))
+    when_at: Mapped[datetime] = mapped_column(DateTime)
+    remind_day_before: Mapped[bool] = mapped_column(Boolean, default=True)
+    remind_3days_before: Mapped[bool] = mapped_column(Boolean, default=False)
+    remind_same_day: Mapped[bool] = mapped_column(Boolean, default=True)
+    same_day_reminder_time: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    user: Mapped["User"] = relationship("User")
 
 
 # Database configuration
@@ -175,6 +199,28 @@ async def init_database():
             cols2 = [row[1] for row in res2.fetchall()]
             if "pack_size" not in cols2:
                 await conn.exec_driver_sql("ALTER TABLE medicines ADD COLUMN pack_size INTEGER NULL")
+        except Exception:
+            pass
+        # Add remind_same_day to appointments if missing
+        try:
+            res3 = await conn.exec_driver_sql("PRAGMA table_info(appointments)")
+            cols3 = [row[1] for row in res3.fetchall()]
+            if "remind_same_day" not in cols3:
+                await conn.exec_driver_sql("ALTER TABLE appointments ADD COLUMN remind_same_day BOOLEAN DEFAULT 1")
+            if "same_day_reminder_time" not in cols3:
+                await conn.exec_driver_sql("ALTER TABLE appointments ADD COLUMN same_day_reminder_time TIME NULL")
+        except Exception:
+            pass
+        # Add caregiver contact fields if missing
+        try:
+            res4 = await conn.exec_driver_sql("PRAGMA table_info(caregivers)")
+            cols4 = [row[1] for row in res4.fetchall()]
+            if "email" not in cols4:
+                await conn.exec_driver_sql("ALTER TABLE caregivers ADD COLUMN email VARCHAR(200) NULL")
+            if "phone" not in cols4:
+                await conn.exec_driver_sql("ALTER TABLE caregivers ADD COLUMN phone VARCHAR(50) NULL")
+            if "preferred_channel" not in cols4:
+                await conn.exec_driver_sql("ALTER TABLE caregivers ADD COLUMN preferred_channel VARCHAR(20) NULL")
         except Exception:
             pass
 
@@ -398,10 +444,13 @@ class DatabaseManager:
     @staticmethod
     async def create_caregiver(
         user_id: int,
-        caregiver_telegram_id: int,
-        caregiver_name: str,
-        relationship: str,
-        permissions: str = "view"
+        caregiver_telegram_id: Optional[int] = None,
+        caregiver_name: str = "",
+        relationship: str = "",
+        permissions: str = "view",
+        email: Optional[str] = None,
+        phone: Optional[str] = None,
+        preferred_channel: Optional[str] = None,
     ) -> Caregiver:
         """Create a new caregiver (maps relationship to relationship_type)"""
         async with async_session() as session:
@@ -411,6 +460,9 @@ class DatabaseManager:
                 caregiver_name=caregiver_name,
                 relationship_type=relationship,
                 permissions=permissions,
+                email=email,
+                phone=phone,
+                preferred_channel=preferred_channel,
                 is_active=True
             )
             session.add(caregiver)
@@ -430,6 +482,9 @@ class DatabaseManager:
         caregiver_name: Optional[str] = None,
         relationship_type: Optional[str] = None,
         permissions: Optional[str] = None,
+        email: Optional[str] = None,
+        phone: Optional[str] = None,
+        preferred_channel: Optional[str] = None,
     ) -> Optional[Caregiver]:
         """Update caregiver fields (name/relationship_type/permissions)."""
         async with async_session() as session:
@@ -442,6 +497,12 @@ class DatabaseManager:
                 caregiver.relationship_type = relationship_type
             if permissions is not None:
                 caregiver.permissions = permissions
+            if email is not None:
+                caregiver.email = email
+            if phone is not None:
+                caregiver.phone = phone
+            if preferred_channel is not None:
+                caregiver.preferred_channel = preferred_channel
             await session.commit()
             await session.refresh(caregiver)
             return caregiver
@@ -709,6 +770,9 @@ async def _init_mongo():
 		await _mongo_db.symptom_logs.create_index([("user_id", 1), ("log_date", 1)])
 		await _mongo_db.symptom_logs.create_index([("medicine_id", 1)])
 		await _mongo_db.caregivers.create_index([("user_id", 1)])
+		await _mongo_db.caregivers.create_index([("email", 1)])
+		await _mongo_db.caregivers.create_index([("phone", 1)])
+		await _mongo_db.appointments.create_index([("user_id", 1), ("when_at", 1)])
 
 # Wrap SQLAlchemy models into dict converters for Mongo
 
@@ -743,6 +807,39 @@ class DatabaseManagerMongo:
 		user.timezone = doc.get("timezone", "UTC")
 		user.created_at = doc.get("created_at") or datetime.utcnow()
 		return user
+
+	@staticmethod
+	async def get_doses_for_date(user_id: int, day_date) -> List[DoseLog]:
+		"""Return all dose logs for the given user's medicines on a specific date (Mongo)."""
+		await _init_mongo()
+		# Collect medicine ids for the user
+		med_rows = await _mongo_db.medicines.find({"user_id": int(user_id)}).to_list(10000)
+		med_ids = [int(d.get("_id")) for d in med_rows if d.get("_id") is not None]
+		if not med_ids:
+			return []
+		day_start = datetime.combine(day_date, datetime.min.time())
+		day_end = datetime.combine(day_date, datetime.max.time())
+		rows = await _mongo_db.dose_logs.find({
+			"medicine_id": {"$in": med_ids},
+			"scheduled_time": {"$gte": day_start, "$lte": day_end}
+		}).sort("scheduled_time", 1).to_list(10000)
+		result: List[DoseLog] = []
+		for d in rows:
+			log = DoseLog()
+			log.id = d.get("_id")
+			log.medicine_id = d.get("medicine_id")
+			log.scheduled_time = d.get("scheduled_time")
+			log.taken_at = d.get("taken_at")
+			log.status = d.get("status", "pending")
+			log.notes = d.get("notes")
+			result.append(log)
+		return result
+
+	@staticmethod
+	async def update_user_timezone(user_id: int, timezone: str) -> bool:
+		await _init_mongo()
+		res = await _mongo_db.users.update_one({"_id": int(user_id)}, {"$set": {"timezone": timezone}})
+		return res.matched_count > 0
 
 	@staticmethod
 	async def get_user_by_id(user_id: int) -> Optional[User]:
@@ -996,13 +1093,32 @@ class DatabaseManagerMongo:
 		return result
 
 	@staticmethod
-	async def create_caregiver(user_id: int, caregiver_telegram_id: int, caregiver_name: str, relationship: str, permissions: str = "view") -> Caregiver:
+	async def create_caregiver(user_id: int, caregiver_telegram_id: Optional[int] = None, caregiver_name: str = "", relationship: str = "", permissions: str = "view", email: Optional[str] = None, phone: Optional[str] = None, preferred_channel: Optional[str] = None) -> Caregiver:
 		await _init_mongo()
 		last = await _mongo_db.caregivers.find().sort("_id", -1).limit(1).to_list(1)
 		next_id = (last[0]["_id"] + 1) if last else 1
-		doc = {"_id": next_id, "user_id": user_id, "caregiver_telegram_id": caregiver_telegram_id, "caregiver_name": caregiver_name, "relationship_type": relationship, "permissions": permissions, "is_active": True, "created_at": datetime.utcnow()}
+		doc = {"_id": next_id, "user_id": user_id, "caregiver_telegram_id": caregiver_telegram_id, "caregiver_name": caregiver_name, "relationship": relationship, "permissions": permissions, "is_active": True, "created_at": datetime.utcnow()}
+		if email is not None:
+			doc["email"] = email
+		if phone is not None:
+			doc["phone"] = phone
+		if preferred_channel is not None:
+			doc["preferred_channel"] = preferred_channel
 		await _mongo_db.caregivers.insert_one(doc)
-		cg = Caregiver(); cg.id = next_id; cg.user_id = user_id; cg.caregiver_telegram_id = caregiver_telegram_id; cg.caregiver_name = caregiver_name; cg.relationship_type = relationship; cg.permissions = permissions; cg.is_active = True; return cg
+		# Minimal return object
+		cg = Caregiver()
+		cg.id = next_id
+		cg.user_id = user_id
+		cg.caregiver_telegram_id = caregiver_telegram_id
+		cg.caregiver_name = caregiver_name
+		cg.relationship_type = relationship
+		cg.permissions = permissions
+		cg.email = email
+		cg.phone = phone
+		cg.preferred_channel = preferred_channel
+		cg.is_active = True
+		cg.created_at = datetime.utcnow()
+		return cg
 
 	@staticmethod
 	async def update_caregiver(
@@ -1010,15 +1126,24 @@ class DatabaseManagerMongo:
 		caregiver_name: Optional[str] = None,
 		relationship_type: Optional[str] = None,
 		permissions: Optional[str] = None,
+		email: Optional[str] = None,
+		phone: Optional[str] = None,
+		preferred_channel: Optional[str] = None,
 	) -> Optional[Caregiver]:
 		await _init_mongo()
 		updates = {}
 		if caregiver_name is not None:
 			updates["caregiver_name"] = caregiver_name
 		if relationship_type is not None:
-			updates["relationship_type"] = relationship_type
+			updates["relationship"] = relationship_type
 		if permissions is not None:
 			updates["permissions"] = permissions
+		if email is not None:
+			updates["email"] = email
+		if phone is not None:
+			updates["phone"] = phone
+		if preferred_channel is not None:
+			updates["preferred_channel"] = preferred_channel
 		if not updates:
 			return await DatabaseManagerMongo.get_caregiver_by_id(caregiver_id)
 		res = await _mongo_db.caregivers.update_one({"_id": int(caregiver_id)}, {"$set": updates})
@@ -1124,6 +1249,177 @@ class DatabaseManagerMongo:
 		class _S: pass
 		s = _S(); s.id = next_id; s.user_id = user_id; s.log_date = log_date; s.symptoms = symptoms; s.side_effects = side_effects; s.mood_score = mood_score; s.notes = notes; s.medicine_id = medicine_id
 		return s # type: ignore
+
+	@staticmethod
+	async def create_appointment(user_id: int, category: str, title: str, when_at: datetime, remind_day_before: bool = True, remind_3days_before: bool = False, remind_same_day: bool = True, same_day_reminder_time: Optional[time] = None, notes: Optional[str] = None):
+		await _init_mongo()
+		last = await _mongo_db.appointments.find().sort("_id", -1).limit(1).to_list(1)
+		next_id = (last[0]["_id"] + 1) if last else 1
+		doc = {
+			"_id": next_id,
+			"user_id": user_id,
+			"category": category,
+			"title": title,
+			"when_at": when_at,
+			"remind_day_before": bool(remind_day_before),
+			"remind_3days_before": bool(remind_3days_before),
+			"remind_same_day": bool(remind_same_day),
+			"notes": notes,
+			"created_at": datetime.utcnow(),
+		}
+		# optional same-day reminder time stored as HH:MM string in Mongo
+		if isinstance(remind_same_day, bool) and remind_same_day and hasattr(config, 'APPOINTMENT_SAME_DAY_REMINDER_HOUR'):
+			default_hh = int(getattr(config, 'APPOINTMENT_SAME_DAY_REMINDER_HOUR', 8))
+			doc["same_day_reminder_time"] = f"{default_hh:02d}:00"
+		await _mongo_db.appointments.insert_one(doc)
+		# Return lightweight object
+		appt = Appointment()
+		appt.id = next_id
+		appt.user_id = user_id
+		appt.category = category
+		appt.title = title
+		appt.when_at = when_at
+		appt.remind_day_before = bool(remind_day_before)
+		appt.remind_3days_before = bool(remind_3days_before)
+		appt.remind_same_day = bool(remind_same_day)
+		# parse same_day_reminder_time
+		val = doc.get("same_day_reminder_time")
+		if isinstance(val, str) and ":" in val:
+			hh, mm = map(int, val.split(":"))
+			appt.same_day_reminder_time = time(hour=hh, minute=mm)
+		return appt
+
+	@staticmethod
+	async def get_appointment_by_id(appointment_id: int) -> Optional["Appointment"]:
+		await _init_mongo()
+		d = await _mongo_db.appointments.find_one({"_id": int(appointment_id)})
+		if not d:
+			return None
+		appt = Appointment()
+		appt.id = d.get("_id")
+		appt.user_id = d.get("user_id")
+		appt.category = d.get("category", "custom")
+		appt.title = d.get("title")
+		appt.when_at = d.get("when_at")
+		appt.remind_day_before = bool(d.get("remind_day_before", True))
+		appt.remind_3days_before = bool(d.get("remind_3days_before", False))
+		appt.remind_same_day = bool(d.get("remind_same_day", True))
+		# parse time
+		val = d.get("same_day_reminder_time")
+		if isinstance(val, str) and ":" in val:
+			hh, mm = map(int, val.split(":"))
+			appt.same_day_reminder_time = time(hour=hh, minute=mm)
+		appt.notes = d.get("notes")
+		return appt
+
+	@staticmethod
+	async def update_appointment(appointment_id: int, when_at: datetime = None, title: str = None, category: str = None, remind_day_before: bool = None, remind_3days_before: bool = None, remind_same_day: bool = None, same_day_reminder_time: str = None, notes: str = None):
+		await _init_mongo()
+		updates = {}
+		if when_at is not None:
+			updates["when_at"] = when_at
+		if title is not None:
+			updates["title"] = title
+		if category is not None:
+			updates["category"] = category
+		if remind_day_before is not None:
+			updates["remind_day_before"] = bool(remind_day_before)
+		if remind_3days_before is not None:
+			updates["remind_3days_before"] = bool(remind_3days_before)
+		if remind_same_day is not None:
+			updates["remind_same_day"] = bool(remind_same_day)
+		if same_day_reminder_time is not None:
+			updates["same_day_reminder_time"] = same_day_reminder_time
+		if notes is not None:
+			updates["notes"] = notes
+		if not updates:
+			return await DatabaseManagerMongo.get_appointment_by_id(appointment_id)
+		await _mongo_db.appointments.update_one({"_id": int(appointment_id)}, {"$set": updates})
+		return await DatabaseManagerMongo.get_appointment_by_id(appointment_id)
+
+	@staticmethod
+	async def get_upcoming_appointments(user_id: int, until_days: int = 60):
+		await _init_mongo()
+		now = datetime.utcnow()
+		until = now + timedelta(days=until_days)
+		rows = await _mongo_db.appointments.find({"user_id": user_id, "when_at": {"$gte": now, "$lte": until}}).sort("when_at", 1).to_list(1000)
+		result = []
+		for d in rows:
+			appt = Appointment()
+			appt.id = d.get("_id")
+			appt.user_id = d.get("user_id")
+			appt.category = d.get("category", "custom")
+			appt.title = d.get("title")
+			appt.when_at = d.get("when_at")
+			appt.remind_day_before = bool(d.get("remind_day_before", True))
+			appt.remind_3days_before = bool(d.get("remind_3days_before", False))
+			appt.remind_same_day = bool(d.get("remind_same_day", True))
+			val = d.get("same_day_reminder_time")
+			if isinstance(val, str) and ":" in val:
+				hh, mm = map(int, val.split(":"))
+				appt.same_day_reminder_time = time(hour=hh, minute=mm)
+			result.append(appt)
+		return result
+
+	@staticmethod
+	async def get_all_upcoming_appointments(until_days: int = 60) -> List["Appointment"]:
+		await _init_mongo()
+		now = datetime.utcnow()
+		until = now + timedelta(days=until_days)
+		rows = await _mongo_db.appointments.find({"when_at": {"$gte": now, "$lte": until}}).sort("when_at", 1).to_list(1000)
+		result = []
+		for d in rows:
+			appt = Appointment()
+			appt.id = d.get("_id")
+			appt.user_id = d.get("user_id")
+			appt.category = d.get("category", "custom")
+			appt.title = d.get("title")
+			appt.when_at = d.get("when_at")
+			appt.remind_day_before = bool(d.get("remind_day_before", False))
+			appt.remind_3days_before = bool(d.get("remind_3days_before", False))
+			val = d.get("same_day_reminder_time")
+			if isinstance(val, str) and ":" in val:
+				hh, mm = map(int, val.split(":"))
+				appt.same_day_reminder_time = time(hour=hh, minute=mm)
+			result.append(appt)
+		return result
+
+	@staticmethod
+	async def get_user_appointments(user_id: int, start_date: date = None, end_date: date = None, offset: int = 0, limit: int = 10) -> List[Appointment]:
+		await _init_mongo()
+		query = {"user_id": int(user_id)}
+		if start_date is not None or end_date is not None:
+			rng = {}
+			if start_date is not None:
+				rng["$gte"] = datetime.combine(start_date, datetime.min.time())
+			if end_date is not None:
+				rng["$lte"] = datetime.combine(end_date, datetime.max.time())
+			query["when_at"] = rng
+		cursor = _mongo_db.appointments.find(query).sort("when_at", 1).skip(int(max(0, offset))).limit(int(max(1, limit)))
+		rows = await cursor.to_list(limit)
+		result = []
+		for d in rows:
+			appt = Appointment()
+			appt.id = d.get("_id")
+			appt.user_id = d.get("user_id")
+			appt.category = d.get("category", "custom")
+			appt.title = d.get("title")
+			appt.when_at = d.get("when_at")
+			appt.remind_day_before = bool(d.get("remind_day_before", True))
+			appt.remind_3days_before = bool(d.get("remind_3days_before", False))
+			appt.remind_same_day = bool(d.get("remind_same_day", True))
+			val = d.get("same_day_reminder_time")
+			if isinstance(val, str) and ":" in val:
+				hh, mm = map(int, val.split(":"))
+				appt.same_day_reminder_time = time(hour=hh, minute=mm)
+			result.append(appt)
+		return result
+
+	@staticmethod
+	async def delete_appointment(appointment_id: int) -> bool:
+		await _init_mongo()
+		res = await _mongo_db.appointments.delete_one({"_id": int(appointment_id)})
+		return res.deleted_count > 0
 
 
 # Select backend at runtime

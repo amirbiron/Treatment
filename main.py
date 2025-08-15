@@ -27,6 +27,7 @@ from config import config
 from database import init_database, DatabaseManager
 from scheduler import medicine_scheduler
 from handlers.reports_handler import reports_handler
+from handlers.appointments_handler import appointments_handler
 from utils.keyboards import get_reminders_settings_keyboard, get_inventory_main_keyboard
 
 # Configure logging
@@ -168,7 +169,7 @@ class MedicineReminderBot:
         try:
             await update.message.reply_text(
                 config.HELP_MESSAGE,
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
         except Exception as e:
             logger.error(f"Error in help command: {e}")
@@ -325,15 +326,15 @@ class MedicineReminderBot:
             from utils.keyboards import get_symptoms_keyboard, get_symptoms_medicine_picker
             user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
             meds = await DatabaseManager.get_user_medicines(user.id) if user else []
-            await update.message.reply_text(
-                "מעקב סימפטומים:",
-                reply_markup=get_symptoms_keyboard()
-            )
-            # Offer picking a medicine as well
             if meds:
                 await update.message.reply_text(
-                    "בחרו תרופה לשיוך דיווח התופעות:",
+                    "בחרו תרופה לשיוך מעקב תופעות:",
                     reply_markup=get_symptoms_medicine_picker(meds)
+                )
+            else:
+                await update.message.reply_text(
+                    "מעקב סימפטומים (ללא שיוך לתרופה - אין תרופות במערכת):",
+                    reply_markup=get_symptoms_keyboard()
                 )
         except Exception as e:
             logger.error(f"Error in log_symptoms command: {e}")
@@ -391,6 +392,10 @@ class MedicineReminderBot:
             data = query.data
             user_id = query.from_user.id
             
+            if data.startswith("appt_") or data.startswith("time_"):
+                await appointments_handler.handle_callback(update, context)
+                return
+
             # Time selection buttons: handle preset hour and custom entry
             if data in ("cancel", "time_cancel"):
                 from utils.keyboards import get_main_menu_keyboard
@@ -524,20 +529,30 @@ class MedicineReminderBot:
                     try:
                         med_id = int(data.split("_")[-1])
                     except Exception:
-                        await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                        await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
                         return
                     med = await DatabaseManager.get_medicine_by_id(med_id)
                     if not med:
                         await query.edit_message_text(config.ERROR_MESSAGES["medicine_not_found"]) 
                         return
-                    context.user_data['awaiting_symptom_text'] = True
                     context.user_data['symptoms_for_medicine'] = med_id
+                    from utils.keyboards import get_symptoms_keyboard
                     await query.edit_message_text(
-                        f"{config.EMOJIS['symptoms']} רשמו תופעות לוואי עבור {med.name}:",
-                        reply_markup=get_main_menu_keyboard()
+                        f"מעקב תופעות עבור {med.name}:",
+                        reply_markup=get_symptoms_keyboard()
                     )
                     return
                 if data == "symptoms_log":
+                    # Require medicine selection first; if not selected, show picker
+                    user = await DatabaseManager.get_user_by_telegram_id(user_id)
+                    meds = await DatabaseManager.get_user_medicines(user.id) if user else []
+                    if not context.user_data.get('symptoms_for_medicine') and meds:
+                        from utils.keyboards import get_symptoms_medicine_picker
+                        await query.edit_message_text(
+                            "בחרו תרופה לפני רישום תופעות:",
+                            reply_markup=get_symptoms_medicine_picker(meds)
+                        )
+                        return
                     await query.edit_message_text(
                         "שלחו עכשיו הודעה עם תיאור תופעות הלוואי שברצונכם לרשום.",
                     )
@@ -695,11 +710,26 @@ class MedicineReminderBot:
                         message += f"{status_emoji} <b>{medicine.name}</b>\n"
                         message += f"   💊 {medicine.dosage}\n"
                         message += f"   📦 מלאי: {medicine.inventory_count}{inventory_warning}\n\n"
-                await query.edit_message_text(
-                    message,
-                    parse_mode='HTML',
-                    reply_markup=get_medicines_keyboard(medicines if medicines else [])
-                )
+                try:
+                    await query.edit_message_text(
+                        message,
+                        parse_mode='HTML',
+                        reply_markup=get_medicines_keyboard(medicines if medicines else [])
+                    )
+                except Exception as exc:
+                    if 'Message is not modified' in str(exc):
+                        try:
+                            await query.answer("כבר מוצג")
+                        except Exception:
+                            pass
+                    else:
+                        # Fallback: send a fresh message instead of editing
+                        await self.application.bot.send_message(
+                            chat_id=query.message.chat_id,
+                            text=message,
+                            parse_mode='HTML',
+                            reply_markup=get_medicines_keyboard(medicines if medicines else [])
+                        )
                 return
             
             # Add medicine flow entry point (prompt via inline)
@@ -830,11 +860,11 @@ class MedicineReminderBot:
                 user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
                 settings = await DatabaseManager.get_user_settings(user.id)
                 msg = (
-                    f"{config.EMOJIS['reminder']} הגדרות תזכורות\n\n"
-                    f"דחיית תזכורת: {settings.snooze_minutes} דקות\n"
-                    f"מספר ניסיונות תזכורת: {settings.max_attempts}\n"
-                    f"מצב שקט: {'מופעל' if settings.silent_mode else 'כבוי'}\n"
-                )
+                f"{config.EMOJIS['reminder']} הגדרות תזכורות\n\n"
+                f"דחיית תזכורת: {settings.snooze_minutes} דקות\n"
+                f"מספר ניסיונות תזכורת: {settings.max_attempts}\n"
+                f"מצב שקט: {'מופעל' if settings.silent_mode else 'כבוי'}\n"
+            )
                 await query.edit_message_text(
                     msg,
                     parse_mode='Markdown',
@@ -848,6 +878,9 @@ class MedicineReminderBot:
             elif data == "settings_reports":
                 from handlers import reports_handler
                 await reports_handler.show_reports_menu(query, context)
+                return
+            elif data == "settings_appointments":
+                await appointments_handler.show_menu(query, context)
                 return
             else:
                 await query.edit_message_text("הגדרות לא נתמכות")
@@ -866,19 +899,18 @@ class MedicineReminderBot:
             
             # Route main menu buttons by text
             from utils.keyboards import (
-                get_main_menu_keyboard,
-                get_settings_keyboard,
-                get_caregiver_keyboard,
-                get_symptoms_keyboard,
+                get_main_menu_keyboard, get_medicines_keyboard, get_medicine_detail_keyboard,
+                get_settings_keyboard, get_caregiver_keyboard, get_symptoms_keyboard, get_reports_keyboard
             )
             
-            buttons = {
+            mapping = {
                 f"{config.EMOJIS['medicine']} התרופות שלי": "my_medicines",
                 f"{config.EMOJIS['reminder']} תזכורות": "reminders",
                 f"{config.EMOJIS['inventory']} מלאי": "inventory",
                 f"{config.EMOJIS['symptoms']} תופעות לוואי": "symptoms",
                 f"{config.EMOJIS['report']} דוחות": "reports",
                 f"{config.EMOJIS['caregiver']} מטפלים": "caregivers",
+                f"{config.EMOJIS['calendar']} הוספת תור": "appointments",
                 f"{config.EMOJIS['settings']} הגדרות": "settings",
                 f"{config.EMOJIS['info']} עזרה": "help",
             }
@@ -1033,8 +1065,8 @@ class MedicineReminderBot:
                     await self.my_medicines_command(update, context)
                     return
             
-            if text in buttons:
-                action = buttons[text]
+            if text in mapping:
+                action = mapping[text]
                 if action == "my_medicines" or action == "inventory":
                     # Inventory from main menu goes to a simple inventory center
                     if action == "inventory":
@@ -1064,6 +1096,9 @@ class MedicineReminderBot:
                     from handlers import reports_handler
                     await reports_handler.show_reports_menu(update, context)
                     return
+                if action == "appointments":
+                    await appointments_handler.show_menu(update, context)
+                    return
                 if action == "help":
                     await self.help_command(update, context)
                     return
@@ -1078,11 +1113,13 @@ class MedicineReminderBot:
                         from datetime import datetime as dt
                         # If tied to a specific medicine from quick action, include name prefix
                         med_prefix = None
-                        med_id = user_data.pop('symptoms_for_medicine', None)
+                        med_id = user_data.get('symptoms_for_medicine')
+                        entry_text = text
                         if med_id:
                             med = await DatabaseManager.get_medicine_by_id(int(med_id))
                             med_prefix = med.name if med else None
-                        entry_text = f"{med_prefix}: {text}" if med_prefix else text
+                        if med_prefix:
+                            entry_text = f"[{med_prefix}] {entry_text}"
                         await DatabaseManager.create_symptom_log(
                             user_id=user.id,
                             log_date=dt.utcnow(),
@@ -1090,6 +1127,7 @@ class MedicineReminderBot:
                             medicine_id=int(med_id) if med_id else None
                         )
                         user_data.pop('awaiting_symptom_text', None)
+                        user_data.pop('symptoms_for_medicine', None)
                         from utils.keyboards import get_main_menu_keyboard
                         await update.message.reply_text(
                             f"{config.EMOJIS['success']} נרשם. תודה!",
