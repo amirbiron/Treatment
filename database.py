@@ -1069,6 +1069,30 @@ class DatabaseManagerMongo:
 		return result
 
 	@staticmethod
+	async def get_symptom_logs_in_range(user_id: int, start_date, end_date) -> List["SymptomLog"]:
+		await _init_mongo()
+		start_dt = datetime.combine(start_date, datetime.min.time())
+		end_dt = datetime.combine(end_date, datetime.max.time())
+		rows = await _mongo_db.symptom_logs.find({
+			"user_id": int(user_id),
+			"log_date": {"$gte": start_dt, "$lte": end_dt}
+		}).sort("log_date", 1).to_list(10000)
+		result = []
+		class _Sym: pass
+		for d in rows:
+			obj = _Sym()
+			obj.id = d.get("_id")
+			obj.user_id = d.get("user_id")
+			obj.log_date = d.get("log_date")
+			obj.symptoms = d.get("symptoms")
+			obj.side_effects = d.get("side_effects")
+			obj.mood_score = d.get("mood_score")
+			obj.notes = d.get("notes")
+			obj.medicine_id = d.get("medicine_id")
+			result.append(obj)
+		return result
+
+	@staticmethod
 	async def create_symptom_log(user_id: int, log_date: datetime, symptoms: str = None, side_effects: str = None, mood_score: int = None, notes: str = None, medicine_id: Optional[int] = None) -> "SymptomLog":
 		await _init_mongo()
 		last = await _mongo_db.symptom_logs.find().sort("_id", -1).limit(1).to_list(1)

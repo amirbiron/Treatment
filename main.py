@@ -541,7 +541,15 @@ class MedicineReminderBot:
                     preview = []
                     for log in logs[-10:]:
                         ts = log.log_date.strftime('%d/%m %H:%M')
-                        row = f"{ts} - {log.symptoms or log.side_effects or '—'}"
+                        med_name = None
+                        if getattr(log, 'medicine_id', None):
+                            m = await DatabaseManager.get_medicine_by_id(int(log.medicine_id))
+                            med_name = m.name if m else None
+                        body = (log.symptoms or log.side_effects or '—')
+                        if med_name:
+                            row = f"{ts} - {med_name}: {body}"
+                        else:
+                            row = f"{ts} - {body}"
                         preview.append(row)
                     await query.edit_message_text("\n".join(preview))
                     return
