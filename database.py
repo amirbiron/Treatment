@@ -46,6 +46,7 @@ class Medicine(Base):
     dosage: Mapped[str] = mapped_column(String(100))
     inventory_count: Mapped[float] = mapped_column(Float, default=0.0)
     low_stock_threshold: Mapped[float] = mapped_column(Float, default=5.0)
+    pack_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # pills per package
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -168,6 +169,14 @@ async def init_database():
                 await conn.exec_driver_sql("ALTER TABLE symptom_logs ADD COLUMN medicine_id INTEGER NULL")
         except Exception:
             pass
+        # Add pack_size to medicines if missing
+        try:
+            res2 = await conn.exec_driver_sql("PRAGMA table_info(medicines)")
+            cols2 = [row[1] for row in res2.fetchall()]
+            if "pack_size" not in cols2:
+                await conn.exec_driver_sql("ALTER TABLE medicines ADD COLUMN pack_size INTEGER NULL")
+        except Exception:
+            pass
 
 
 async def get_session():
@@ -245,7 +254,8 @@ class DatabaseManager:
         dosage: str,
         inventory_count: float = 0.0,
         low_stock_threshold: float = 5.0,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        pack_size: Optional[int] = None
     ) -> Medicine:
         """Create a new medicine for a user."""
         async with async_session() as session:
@@ -256,6 +266,7 @@ class DatabaseManager:
                 inventory_count=inventory_count,
                 low_stock_threshold=low_stock_threshold,
                 notes=notes,
+                pack_size=pack_size,
                 is_active=True
             )
             session.add(medicine)
@@ -792,6 +803,7 @@ class DatabaseManagerMongo:
 			m.dosage = d.get("dosage")
 			m.inventory_count = float(d.get("inventory_count", 0))
 			m.low_stock_threshold = float(d.get("low_stock_threshold", 5))
+			m.pack_size = int(d.get("pack_size")) if d.get("pack_size") is not None else None
 			m.is_active = bool(d.get("is_active", True))
 			m.notes = d.get("notes")
 			m.created_at = d.get("created_at") or datetime.utcnow()
@@ -811,6 +823,7 @@ class DatabaseManagerMongo:
 		m.dosage = d.get("dosage")
 		m.inventory_count = float(d.get("inventory_count", 0))
 		m.low_stock_threshold = float(d.get("low_stock_threshold", 5))
+		m.pack_size = int(d.get("pack_size")) if d.get("pack_size") is not None else None
 		m.is_active = bool(d.get("is_active", True))
 		m.notes = d.get("notes")
 		m.created_at = d.get("created_at") or datetime.utcnow()
@@ -1053,6 +1066,7 @@ class DatabaseManagerMongo:
 			m.dosage = d.get("dosage")
 			m.inventory_count = float(d.get("inventory_count", 0))
 			m.low_stock_threshold = float(d.get("low_stock_threshold", 5))
+			m.pack_size = int(d.get("pack_size")) if d.get("pack_size") is not None else None
 			m.is_active = bool(d.get("is_active", True))
 			m.notes = d.get("notes")
 			m.created_at = d.get("created_at") or datetime.utcnow()

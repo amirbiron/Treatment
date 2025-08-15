@@ -419,9 +419,9 @@ def get_time_selection_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_inventory_update_keyboard(medicine_id: int) -> InlineKeyboardMarkup:
-    """Keyboard for quick inventory updates (by packs of 28 pills)."""
-    pack = 28
+def get_inventory_update_keyboard(medicine_id: int, pack_size: int = None) -> InlineKeyboardMarkup:
+    """Keyboard for quick inventory updates (by packs)."""
+    pack = pack_size or 28
     keyboard = [
         [
             InlineKeyboardButton(f"+1 חבילה (+{pack})", callback_data=f"inventory_{medicine_id}_+{pack}"),

@@ -737,7 +737,7 @@ class MedicineReminderBot:
                     from utils.keyboards import get_inventory_update_keyboard
                     await query.edit_message_text(
                         f"בחרו עדכון מהיר למלאי או הזינו כמות מדויקת:",
-                        reply_markup=get_inventory_update_keyboard(medicine_id)
+                        reply_markup=get_inventory_update_keyboard(medicine_id, getattr(await DatabaseManager.get_medicine_by_id(medicine_id), 'pack_size', None) or 28)
                     )
                     return
                 # Otherwise, forward inventory_* callbacks to handler
