@@ -325,7 +325,8 @@ class MedicineReminderBot:
         """Open symptoms tracking menu"""
         try:
             user = update.effective_user
-            meds = await DatabaseManager.get_user_medicines(user.id) if user else []
+            db_user = await DatabaseManager.get_user_by_telegram_id(user.id) if user else None
+            meds = await DatabaseManager.get_user_medicines(db_user.id) if db_user else []
             # Support both message command and callback button
             if getattr(update, "callback_query", None):
                 await update.callback_query.answer()
@@ -336,10 +337,8 @@ class MedicineReminderBot:
                         reply_markup=get_symptoms_medicine_picker(meds)
                     )
                 else:
-                    from utils.keyboards import get_symptoms_keyboard
                     await update.callback_query.edit_message_text(
-                        "מעקב סימפטומים (ללא שיוך לתרופה - אין תרופות במערכת):",
-                        reply_markup=get_symptoms_keyboard()
+                        "אין תרופות במערכת. הוסיפו תרופה דרך 'התרופות שלי'."
                     )
                 return
             # Fallback to classic message reply
@@ -350,10 +349,8 @@ class MedicineReminderBot:
                     reply_markup=get_symptoms_medicine_picker(meds)
                 )
             else:
-                from utils.keyboards import get_symptoms_keyboard
                 await update.message.reply_text(
-                    "מעקב סימפטומים (ללא שיוך לתרופה - אין תרופות במערכת):",
-                    reply_markup=get_symptoms_keyboard()
+                    "אין תרופות במערכת. הוסיפו תרופה דרך 'התרופות שלי'."
                 )
         except Exception as e:
             logger.error(f"Error in log_symptoms command: {e}")
