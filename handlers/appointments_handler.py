@@ -41,7 +41,7 @@ class AppointmentsHandler:
 		data = query.data
 		ud: Dict = context.user_data.setdefault('appt_state', {})
 
-		if data == 'appt_cancel':
+		if data == 'appt_cancel' or data == 'time_cancel':
 			context.user_data.pop('appt_state', None)
 			await query.edit_message_text("בוטל", reply_markup=get_main_menu_keyboard())
 			return
