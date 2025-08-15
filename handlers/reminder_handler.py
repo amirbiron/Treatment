@@ -278,7 +278,11 @@ class ReminderHandler:
             
             await query.edit_message_text(
                 message,
-                parse_mode='HTML',
+                parse_mode='HTML'
+            )
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="תפריט ראשי:",
                 reply_markup=get_main_menu_keyboard()
             )
             
@@ -580,14 +584,22 @@ class ReminderHandler:
             medicine_id = int(parts[-1]) if parts and parts[-1].isdigit() else None
             if not medicine_id:
                 await query.edit_message_text(
-                    f"{config.EMOJIS['error']} התרופה לא נמצאה",
+                    f"{config.EMOJIS['error']} התרופה לא נמצאה"
+                )
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="תפריט ראשי:",
                     reply_markup=get_main_menu_keyboard()
                 )
                 return
             med = await DatabaseManager.get_medicine_by_id(medicine_id)
             if not med:
                 await query.edit_message_text(
-                    f"{config.EMOJIS['error']} התרופה לא נמצאה",
+                    f"{config.EMOJIS['error']} התרופה לא נמצאה"
+                )
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="תפריט ראשי:",
                     reply_markup=get_main_menu_keyboard()
                 )
                 return

@@ -155,6 +155,7 @@ class MedicineReminderBot:
             
             await update.message.reply_text(
                 config.WELCOME_MESSAGE,
+                parse_mode='Markdown',
                 reply_markup=get_main_menu_keyboard()
             )
             
@@ -166,7 +167,8 @@ class MedicineReminderBot:
         """Handle /help command"""
         try:
             await update.message.reply_text(
-                config.HELP_MESSAGE
+                config.HELP_MESSAGE,
+                parse_mode='Markdown'
             )
         except Exception as e:
             logger.error(f"Error in help command: {e}")
@@ -393,13 +395,17 @@ class MedicineReminderBot:
             if data in ("cancel", "time_cancel"):
                 from utils.keyboards import get_main_menu_keyboard
                 context.user_data.pop('editing_schedule_for', None)
-                await query.edit_message_text(
-                    f"{config.EMOJIS['info']} הפעולה בוטלה",
+                # Telegram edit_message_text cannot attach ReplyKeyboardMarkup. Send a new message instead.
+                await query.edit_message_text(f"{config.EMOJIS['info']} הפעולה בוטלה")
+                await self.application.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text="בחרו פעולה:",
                     reply_markup=get_main_menu_keyboard()
                 )
                 return
             if data == "time_custom":
                 await query.edit_message_text("הקלידו שעה בפורמט HH:MM (למשל 08:30)")
+                context.user_data['awaiting_schedule_text'] = True
                 return
             if data.startswith("time_"):
                 parts = data.split("_")
@@ -448,7 +454,11 @@ class MedicineReminderBot:
                 from utils.keyboards import get_main_menu_keyboard
                 await query.edit_message_text(
                     config.WELCOME_MESSAGE,
-                    parse_mode='Markdown',
+                    parse_mode='Markdown'
+                )
+                await self.application.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text="בחרו פעולה:",
                     reply_markup=get_main_menu_keyboard()
                 )
             elif data.startswith("medicine_") or data.startswith("medicines_"):
@@ -487,7 +497,7 @@ class MedicineReminderBot:
                 }.get(action, "הקלידו ערך חדש:")
                 await query.edit_message_text(prompt)
                 return
-            elif data.startswith("settings_"):
+            elif data.startswith("settings_") or data.startswith("tz_"):
                 await self._handle_settings_action(query, context)
             elif data.startswith("report_") or data.startswith("report_action_") or data.startswith("export_report_"):
                 # Routed by reports handler; do nothing here (already registered)
@@ -751,11 +761,11 @@ class MedicineReminderBot:
             if data.startswith("medicine_schedule_"):
                 # Start schedule edit flow: show time selection keyboard
                 from utils.keyboards import get_time_selection_keyboard
+                context.user_data['editing_schedule_for'] = int(data.split("_")[2])
                 await query.edit_message_text(
                     "בחרו שעה חדשה לנטילת התרופה או הזינו שעה (לדוגמה 08:30)",
                     reply_markup=get_time_selection_keyboard()
                 )
-                context.user_data['editing_schedule_for'] = int(data.split("_")[2])
                 return
             
             if data.startswith("medicine_edit_"):

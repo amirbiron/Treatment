@@ -367,13 +367,17 @@ class ReportsHandler:
                 # Placeholder detailed report
                 message = f"{config.EMOJIS['info']} דוח מפורט יהיה זמין בקרוב"
                 if callback_query:
-                    await callback_query.edit_message_text(
-                        message,
+                    await callback_query.edit_message_text(message)
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text="תפריט ראשי:",
                         reply_markup=get_main_menu_keyboard()
                     )
                 else:
-                    await update.callback_query.edit_message_text(
-                        message,
+                    await update.callback_query.edit_message_text(message)
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text="תפריט ראשי:",
                         reply_markup=get_main_menu_keyboard()
                     )
                 return ConversationHandler.END
@@ -969,7 +973,11 @@ class ReportsHandler:
                 )
             elif getattr(update, "callback_query", None):
                 await update.callback_query.edit_message_text(
-                    f"{config.EMOJIS['error']} {error_text}",
+                    f"{config.EMOJIS['error']} {error_text}"
+                )
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="תפריט ראשי:",
                     reply_markup=get_main_menu_keyboard()
                 )
             else:

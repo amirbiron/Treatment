@@ -429,6 +429,11 @@ def get_inventory_update_keyboard(medicine_id: int, pack_size: int = None) -> In
             InlineKeyboardButton(f"+3 חבילות (+{pack*3})", callback_data=f"inventory_{medicine_id}_+{pack*3}")
         ],
         [
+            InlineKeyboardButton(f"+30", callback_data=f"inventory_{medicine_id}_+30"),
+            InlineKeyboardButton(f"+60", callback_data=f"inventory_{medicine_id}_+60"),
+            InlineKeyboardButton(f"+90", callback_data=f"inventory_{medicine_id}_+90")
+        ],
+        [
             InlineKeyboardButton(f"-1 חבילה (-{pack})", callback_data=f"inventory_{medicine_id}_-{pack}"),
             InlineKeyboardButton(f"-2 חבילות (-{pack*2})", callback_data=f"inventory_{medicine_id}_-{pack*2}"),
             InlineKeyboardButton(f"-3 חבילות (-{pack*3})", callback_data=f"inventory_{medicine_id}_-{pack*3}")
