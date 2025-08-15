@@ -406,8 +406,10 @@ class MedicineScheduler:
             if rem1:
                 reminders.append((1, f"appointment_reminder_{user_id}_{appointment_id}_1d", None))
             if same_day:
-                # same-day at configured morning hour
-                reminders.append((0, f"appointment_reminder_{user_id}_{appointment_id}_0d", config.APPOINTMENT_SAME_DAY_REMINDER_HOUR))
+                # same-day at appointment's own reminder time if set
+                appt = await DatabaseManager.get_appointment_by_id(appointment_id)
+                hh = getattr(appt, 'same_day_reminder_time', None).hour if getattr(appt, 'same_day_reminder_time', None) else int(config.APPOINTMENT_SAME_DAY_REMINDER_HOUR)
+                reminders.append((0, f"appointment_reminder_{user_id}_{appointment_id}_0d", hh))
             for days_before, job_id, hour_override in reminders:
                 if days_before == 0 and hour_override is not None:
                     run_time = when_at.replace(hour=hour_override, minute=0, second=0, microsecond=0)

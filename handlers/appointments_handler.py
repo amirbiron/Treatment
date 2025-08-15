@@ -213,6 +213,11 @@ class AppointmentsHandler:
 			)
 			return
 
+		if data == 'appt_rem0_time':
+			ud['awaiting_same_day_time'] = True
+			await query.edit_message_text("הקלידו שעה ליום התור בפורמט HH:MM (למשל 08:00)")
+			return
+
 		if data == 'appt_back':
 			# Go back to time selection
 			ud['step'] = 'time'
@@ -248,6 +253,7 @@ class AppointmentsHandler:
 					remind_day_before=rem1,
 					remind_3days_before=rem3,
 					remind_same_day=rem0,
+					same_day_reminder_time=(datetime.strptime(ud.get('rem0_time', f"{config.APPOINTMENT_SAME_DAY_REMINDER_HOUR:02d}:00"), "%H:%M").time() if rem0 else None),
 				)
 				# Schedule reminders
 				await medicine_scheduler.schedule_appointment_reminders(user.id, appt.id, when, rem1, rem3, user.timezone or config.DEFAULT_TIMEZONE, same_day=rem0)
@@ -296,6 +302,24 @@ class AppointmentsHandler:
 				return
 			except Exception:
 				await update.message.reply_text("פורמט שגוי. הזינו שעה כמו 09:30")
+				return
+
+		if ud.get('awaiting_same_day_time'):
+			ud.pop('awaiting_same_day_time', None)
+			try:
+				h, m = text.split(':')
+				hour = int(h)
+				minute = int(m)
+				if not (0 <= hour <= 23 and 0 <= minute <= 59):
+					raise ValueError()
+				ud['rem0_time'] = f"{hour:02d}:{minute:02d}"
+				await update.message.reply_text(
+					f"נקבעה שעה {ud['rem0_time']} לתזכורת ביום התור",
+					reply_markup=get_appointment_reminder_keyboard(ud.get('rem1', False), ud.get('rem3', False), ud.get('rem0', False))
+				)
+				return
+			except Exception:
+				await update.message.reply_text("פורמט שגוי. הזינו שעה כמו 08:00")
 				return
 
 

@@ -152,6 +152,7 @@ class Appointment(Base):
     remind_day_before: Mapped[bool] = mapped_column(Boolean, default=True)
     remind_3days_before: Mapped[bool] = mapped_column(Boolean, default=False)
     remind_same_day: Mapped[bool] = mapped_column(Boolean, default=True)
+    same_day_reminder_time: Mapped[Optional[time]] = mapped_column(Time, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
@@ -202,6 +203,8 @@ async def init_database():
             cols3 = [row[1] for row in res3.fetchall()]
             if "remind_same_day" not in cols3:
                 await conn.exec_driver_sql("ALTER TABLE appointments ADD COLUMN remind_same_day BOOLEAN DEFAULT 1")
+            if "same_day_reminder_time" not in cols3:
+                await conn.exec_driver_sql("ALTER TABLE appointments ADD COLUMN same_day_reminder_time TIME NULL")
         except Exception:
             pass
 
@@ -1154,7 +1157,7 @@ class DatabaseManagerMongo:
 		return s # type: ignore
 
 	@staticmethod
-	async def create_appointment(user_id: int, category: str, title: str, when_at: datetime, remind_day_before: bool = True, remind_3days_before: bool = False, remind_same_day: bool = True, notes: Optional[str] = None):
+	async def create_appointment(user_id: int, category: str, title: str, when_at: datetime, remind_day_before: bool = True, remind_3days_before: bool = False, remind_same_day: bool = True, same_day_reminder_time: Optional[time] = None, notes: Optional[str] = None):
 		await _init_mongo()
 		last = await _mongo_db.appointments.find().sort("_id", -1).limit(1).to_list(1)
 		next_id = (last[0]["_id"] + 1) if last else 1
@@ -1170,6 +1173,10 @@ class DatabaseManagerMongo:
 			"notes": notes,
 			"created_at": datetime.utcnow(),
 		}
+		# optional same-day reminder time stored as HH:MM string in Mongo
+		if isinstance(remind_same_day, bool) and remind_same_day and hasattr(config, 'APPOINTMENT_SAME_DAY_REMINDER_HOUR'):
+			default_hh = int(getattr(config, 'APPOINTMENT_SAME_DAY_REMINDER_HOUR', 8))
+			doc["same_day_reminder_time"] = f"{default_hh:02d}:00"
 		await _mongo_db.appointments.insert_one(doc)
 		# Return lightweight object
 		appt = Appointment()
@@ -1181,6 +1188,11 @@ class DatabaseManagerMongo:
 		appt.remind_day_before = bool(remind_day_before)
 		appt.remind_3days_before = bool(remind_3days_before)
 		appt.remind_same_day = bool(remind_same_day)
+		# parse same_day_reminder_time
+		val = doc.get("same_day_reminder_time")
+		if isinstance(val, str) and ":" in val:
+			hh, mm = map(int, val.split(":"))
+			appt.same_day_reminder_time = time(hour=hh, minute=mm)
 		return appt
 
 	@staticmethod
@@ -1198,20 +1210,16 @@ class DatabaseManagerMongo:
 		appt.remind_day_before = bool(d.get("remind_day_before", True))
 		appt.remind_3days_before = bool(d.get("remind_3days_before", False))
 		appt.remind_same_day = bool(d.get("remind_same_day", True))
+		# parse time
+		val = d.get("same_day_reminder_time")
+		if isinstance(val, str) and ":" in val:
+			hh, mm = map(int, val.split(":"))
+			appt.same_day_reminder_time = time(hour=hh, minute=mm)
 		appt.notes = d.get("notes")
 		return appt
 
 	@staticmethod
-	async def update_appointment(
-		appointment_id: int,
-		when_at: Optional[datetime] = None,
-		title: Optional[str] = None,
-		category: Optional[str] = None,
-		remind_day_before: Optional[bool] = None,
-		remind_3days_before: Optional[bool] = None,
-		remind_same_day: Optional[bool] = None,
-		notes: Optional[str] = None,
-	) -> Optional["Appointment"]:
+	async def update_appointment(appointment_id: int, when_at: datetime = None, title: str = None, category: str = None, remind_day_before: bool = None, remind_3days_before: bool = None, remind_same_day: bool = None, same_day_reminder_time: str = None, notes: str = None):
 		await _init_mongo()
 		updates = {}
 		if when_at is not None:
@@ -1226,6 +1234,8 @@ class DatabaseManagerMongo:
 			updates["remind_3days_before"] = bool(remind_3days_before)
 		if remind_same_day is not None:
 			updates["remind_same_day"] = bool(remind_same_day)
+		if same_day_reminder_time is not None:
+			updates["same_day_reminder_time"] = same_day_reminder_time
 		if notes is not None:
 			updates["notes"] = notes
 		if not updates:
@@ -1250,6 +1260,10 @@ class DatabaseManagerMongo:
 			appt.remind_day_before = bool(d.get("remind_day_before", True))
 			appt.remind_3days_before = bool(d.get("remind_3days_before", False))
 			appt.remind_same_day = bool(d.get("remind_same_day", True))
+			val = d.get("same_day_reminder_time")
+			if isinstance(val, str) and ":" in val:
+				hh, mm = map(int, val.split(":"))
+				appt.same_day_reminder_time = time(hour=hh, minute=mm)
 			result.append(appt)
 		return result
 
@@ -1270,6 +1284,10 @@ class DatabaseManagerMongo:
 			appt.remind_day_before = bool(d.get("remind_day_before", True))
 			appt.remind_3days_before = bool(d.get("remind_3days_before", False))
 			appt.remind_same_day = bool(d.get("remind_same_day", True))
+			val = d.get("same_day_reminder_time")
+			if isinstance(val, str) and ":" in val:
+				hh, mm = map(int, val.split(":"))
+				appt.same_day_reminder_time = time(hour=hh, minute=mm)
 			result.append(appt)
 		return result
 
