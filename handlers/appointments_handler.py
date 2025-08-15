@@ -271,7 +271,12 @@ class AppointmentsHandler:
 				if not date_str or not time_str:
 					await query.edit_message_text("אנא בחרו תאריך ושעה")
 					return
-				when = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+				# Validate time string strictly
+				try:
+					when = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+				except Exception:
+					await query.edit_message_text("אנא בחרו שעה תקינה לתור")
+					return
 				appt = await DatabaseManager.create_appointment(
 					user_id=user.id,
 					category=appt_type,

@@ -140,15 +140,17 @@ def get_appointment_reminder_keyboard(rem1: bool, rem3: bool, rem0: bool = False
     off = "⭕"
     keyboard = [
         [
-            InlineKeyboardButton(f"{on if rem0 else off} ביום התור (ב-{config.APPOINTMENT_SAME_DAY_REMINDER_HOUR:02d}:00)", callback_data="appt_rem0_toggle"),
-            InlineKeyboardButton(f"שנה שעה", callback_data="appt_rem0_time")
-        ],
-        [
             InlineKeyboardButton(f"{on if rem1 else off} יום לפני", callback_data="appt_rem1_toggle"),
             InlineKeyboardButton(f"{on if rem3 else off} 3 ימים לפני", callback_data="appt_rem3_toggle"),
         ],
         [
-            InlineKeyboardButton(f"{config.EMOJIS['success']} שמור תור", callback_data="appt_save"),
+            InlineKeyboardButton(f"{on if rem0 else off} ביום התור (ב-{config.APPOINTMENT_SAME_DAY_REMINDER_HOUR:02d}:00)", callback_data="appt_rem0_toggle"),
+            InlineKeyboardButton(f"שנה שעה", callback_data="appt_rem0_time")
+        ],
+        [
+            InlineKeyboardButton(f"{config.EMOJIS['success']} שמור תור", callback_data="appt_save")
+        ],
+        [
             InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="appt_back")
         ]
     ]
