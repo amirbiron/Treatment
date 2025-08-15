@@ -91,11 +91,11 @@ class ReminderHandler:
                 # Check for low stock
                 low_stock_warning = ""
                 if new_count <= medicine.low_stock_threshold:
-                    low_stock_warning = f"\n\n{config.EMOJIS['warning']} **מלאי נמוך!**\nנותרו {new_count} יחידות. כדאי להזמין עוד."
+                    low_stock_warning = f"\n\n{config.EMOJIS['warning']} <b>מלאי נמוך!</b>\nנותרו {new_count} יחידות. כדאי להזמין עוד."
                 
             else:
                 new_count = 0
-                low_stock_warning = f"\n\n{config.EMOJIS['error']} **המלאי אפס!** אנא עדכנו את המלאי."
+                low_stock_warning = f"\n\n{config.EMOJIS['error']} <b>המלאי אפס!</b> אנא עדכנו את המלאי."
             
             # Reset reminder attempts for this medicine
             reminder_key = f"{user_id}_{medicine_id}"
@@ -364,7 +364,7 @@ class ReminderHandler:
             
             await update.message.reply_text(
                 message,
-                parse_mode='HTML',
+                parse_mode='Markdown',
                 reply_markup=get_main_menu_keyboard()
             )
             
@@ -415,7 +415,7 @@ class ReminderHandler:
             
             await update.message.reply_text(
                 message,
-                parse_mode='HTML',
+                parse_mode='Markdown',
                 reply_markup=get_main_menu_keyboard()
             )
             

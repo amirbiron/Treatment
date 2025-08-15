@@ -186,6 +186,7 @@ class MedicineReminderBot:
             
             await update.message.reply_text(
                 message,
+                parse_mode='Markdown',
                 reply_markup=get_settings_keyboard()
             )
             
@@ -206,6 +207,7 @@ class MedicineReminderBot:
             
             await update.message.reply_text(
                 message,
+                parse_mode='Markdown',
                 reply_markup=get_cancel_keyboard()
             )
             
@@ -380,6 +382,43 @@ class MedicineReminderBot:
             data = query.data
             user_id = query.from_user.id
             
+            # Time selection buttons: if editing schedule via inline flow, handle here
+            if data.startswith("time_"):
+                if context.user_data.get('editing_schedule_for'):
+                    parts = data.split("_")
+                    if len(parts) >= 3:
+                        try:
+                            h = int(parts[1]); m = int(parts[2])
+                            from datetime import time as dtime
+                            new_time = dtime(hour=h, minute=m)
+                            medicine_id = int(context.user_data.get('editing_schedule_for'))
+                            # Replace schedules
+                            await DatabaseManager.replace_medicine_schedules(medicine_id, [new_time])
+                            # Reschedule reminders
+                            user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+                            await medicine_scheduler.cancel_medicine_reminders(user.id, medicine_id)
+                            await medicine_scheduler.schedule_medicine_reminder(
+                                user_id=user.id,
+                                medicine_id=medicine_id,
+                                reminder_time=new_time,
+                                timezone=user.timezone or config.DEFAULT_TIMEZONE
+                            )
+                            context.user_data.pop('editing_schedule_for', None)
+                            # Show success and medicine details
+                            from utils.keyboards import get_medicine_detail_keyboard
+                            med = await DatabaseManager.get_medicine_by_id(medicine_id)
+                            await query.edit_message_text(
+                                f"{config.EMOJIS['success']} השעה עודכנה ל- {new_time.strftime('%H:%M')}\n{config.EMOJIS['medicine']} {med.name}",
+                                reply_markup=get_medicine_detail_keyboard(medicine_id)
+                            )
+                            return
+                        except Exception as ex:
+                            logger.error(f"Failed to update schedule via time buttons: {ex}")
+                            await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
+                            return
+                # Otherwise, let the conversation handlers handle it
+                return
+            
             # Handle different callback types
             if data.startswith("dose_taken_") or data.startswith("dose_snooze_") or data.startswith("dose_skip_"):
                 # Handled by reminder handler callbacks (already registered)
@@ -388,9 +427,10 @@ class MedicineReminderBot:
                 from utils.keyboards import get_main_menu_keyboard
                 await query.edit_message_text(
                     config.WELCOME_MESSAGE,
+                    parse_mode='Markdown',
                     reply_markup=get_main_menu_keyboard()
                 )
-            elif data.startswith("medicine_") or data.startswith("medicines_") or data.startswith("inventory_"):
+            elif data.startswith("medicine_") or data.startswith("medicines_"):
                 # Route to internal medicine action handler which covers all medicine flows
                 await self._handle_medicine_action(query, context)
                 return
@@ -411,8 +451,12 @@ class MedicineReminderBot:
                 await self._handle_reminders_settings_controls(query)
                 return
             # Inventory main controls
-            elif data.startswith("inventory_") or data == "inventory_report":
+            elif data in ("inventory_add", "inventory_report"):
                 await self._handle_inventory_controls(query, context)
+                return
+            elif data.startswith("inventory_"):
+                from handlers.medicine_handler import medicine_handler
+                await medicine_handler.handle_inventory_update(update, context)
                 return
             elif data.startswith("caregiver_"):
                 # Routed by caregiver handler; do nothing here
@@ -699,6 +743,7 @@ class MedicineReminderBot:
                 )
                 await query.edit_message_text(
                     msg,
+                    parse_mode='Markdown',
                     reply_markup=get_reminders_settings_keyboard(settings.snooze_minutes, settings.max_attempts, settings.silent_mode)
                 )
                  
@@ -979,6 +1024,7 @@ class MedicineReminderBot:
                 from utils.keyboards import get_settings_keyboard
                 await query.edit_message_text(
                     f"{config.EMOJIS['settings']} *הגדרות אישיות*",
+                    parse_mode='Markdown',
                     reply_markup=get_settings_keyboard()
                 )
                 return
@@ -991,6 +1037,7 @@ class MedicineReminderBot:
             )
             await query.edit_message_text(
                 msg,
+                parse_mode='Markdown',
                 reply_markup=get_reminders_settings_keyboard(settings.snooze_minutes, settings.max_attempts, settings.silent_mode)
             )
         except Exception as exc:
