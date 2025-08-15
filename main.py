@@ -704,7 +704,7 @@ class MedicineReminderBot:
                             med_filter = int(data.split("_")[-1])
                         except Exception:
                             med_filter = None
-                    logs = await DatabaseManager.get_symptom_logs_in_range(user.id, start_date, end_date, med_filter)
+                    logs = await DatabaseManager.get_symptom_logs_in_range(user.id, start_date, end_date, medicine_id=med_filter)
                     if not logs:
                         await query.edit_message_text("אין רישומי תופעות לוואי ב-30 הימים האחרונים")
                         return
@@ -973,7 +973,11 @@ class MedicineReminderBot:
                     return
                 from datetime import date, timedelta
                 end_date = date.today(); start_date = end_date - timedelta(days=30)
-                logs = await DatabaseManager.get_symptom_logs_in_range(query.from_user.id, start_date, end_date, med_filter=medicine_id)
+                user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+                if not user:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
+                    return
+                logs = await DatabaseManager.get_symptom_logs_in_range(user.id, start_date, end_date, medicine_id=medicine_id)
                 if not logs:
                     await query.edit_message_text("אין היסטוריה 30 ימים לתרופה זו")
                     return
