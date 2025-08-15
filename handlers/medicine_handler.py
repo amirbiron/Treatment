@@ -559,13 +559,11 @@ class MedicineHandler:
         """Send error message to user"""
         try:
             if update.callback_query:
-                # Avoid attaching ReplyKeyboardMarkup via edit; send as plain edit then new message with reply keyboard
                 await update.callback_query.edit_message_text(
                     f"{config.EMOJIS['error']} {error_text}"
                 )
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="תפריט ראשי:",
+                await update.effective_message.reply_text(
+                    "תפריט ראשי:",
                     reply_markup=get_main_menu_keyboard()
                 )
             else:
