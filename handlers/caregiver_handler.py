@@ -383,32 +383,19 @@ class CaregiverHandler:
                 data = self.user_caregiver_data[user_id]
                 perm_desc = self.permission_levels.get(permissions, permissions)
                 
-<<<<<<< HEAD
                 caregiver_emoji = config.EMOJIS.get('caregiver', '👥')
                 success_emoji = config.EMOJIS.get('success', '✅')
-                message = f"""
-{success_emoji} <b>מטפל נוסף בהצלחה!</b>
-
-{caregiver_emoji} <b>פרטי המטפל:</b>
-• שם: {data.get('caregiver_name','')}
-• קשר: {data.get('relationship_type','')}
-• הרשאות: {perm_desc}
-• מזהה טלגרם: {data.get('caregiver_telegram_id','')}
-
-המטפל יקבל הודעה על ההצטרפות ויוכל לראות דוחות מיד.
-                """
-=======
                 phone_line = f"• מספר טלפון: {data.get('phone')}\n" if data.get('phone') else ""
                 email_line = f"• דואר אלקטרוני: {data.get('email')}\n" if data.get('email') else ""
                 message = (
-                    f"{config.EMOJIS['success']} <b>מטפל נוסף בהצלחה!</b>\n\n"
-                    f"{config.EMOJIS['caregiver']} <b>פרטי המטפל:</b>\n"
-                    f"• שם: {data['caregiver_name']}\n"
+                    f"{success_emoji} <b>מטפל נוסף בהצלחה!</b>\n\n"
+                    f"{caregiver_emoji} <b>פרטי המטפל:</b>\n"
+                    f"• שם: {data.get('caregiver_name','')}\n"
+                    f"• קשר: {data.get('relationship_type','')}\n"
                     f"• הרשאות: {perm_desc}\n"
                     f"{phone_line}{email_line}"
                     f"מטפל יקבל הודעה על ההצטרפות ויוכל לראות דוחות מיד."
                 )
->>>>>>> origin/main
                 
                 # Send notification to caregiver
                 await self._notify_new_caregiver(user_id, data)
