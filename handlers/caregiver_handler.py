@@ -4,6 +4,7 @@ Handles caregiver management: adding, removing, permissions, daily reports
 """
 
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -382,12 +383,15 @@ class CaregiverHandler:
                 data = self.user_caregiver_data[user_id]
                 perm_desc = self.permission_levels.get(permissions, permissions)
                 
+                caregiver_emoji = config.EMOJIS.get('caregiver', '👥')
+                success_emoji = config.EMOJIS.get('success', '✅')
                 phone_line = f"• מספר טלפון: {data.get('phone')}\n" if data.get('phone') else ""
                 email_line = f"• דואר אלקטרוני: {data.get('email')}\n" if data.get('email') else ""
                 message = (
-                    f"{config.EMOJIS['success']} <b>מטפל נוסף בהצלחה!</b>\n\n"
-                    f"{config.EMOJIS['caregiver']} <b>פרטי המטפל:</b>\n"
-                    f"• שם: {data['caregiver_name']}\n"
+                    f"{success_emoji} <b>מטפל נוסף בהצלחה!</b>\n\n"
+                    f"{caregiver_emoji} <b>פרטי המטפל:</b>\n"
+                    f"• שם: {data.get('caregiver_name','')}\n"
+                    f"• קשר: {data.get('relationship_type','')}\n"
                     f"• הרשאות: {perm_desc}\n"
                     f"{phone_line}{email_line}"
                     f"מטפל יקבל הודעה על ההצטרפות ויוכל לראות דוחות מיד."
@@ -396,16 +400,18 @@ class CaregiverHandler:
                 # Send notification to caregiver
                 await self._notify_new_caregiver(user_id, data)
                 
+                home_emoji = config.EMOJIS.get('home', '🏠')
+                caregiver_emoji = config.EMOJIS.get('caregiver', '👥')
                 keyboard = [
                     [
                         InlineKeyboardButton(
-                            f"{config.EMOJIS['caregiver']} נהל מטפלים",
+                            f"{caregiver_emoji} נהל מטפלים",
                             callback_data="caregiver_manage"
                         )
                     ],
                     [
                         InlineKeyboardButton(
-                            f"{config.EMOJIS['home']} תפריט ראשי",
+                            f"{home_emoji} תפריט ראשי",
                             callback_data="main_menu"
                         )
                     ]
@@ -536,9 +542,10 @@ class CaregiverHandler:
             """
             
             from main import bot  # Avoid circular import
-            if bot:
+            caregiver_chat_id = caregiver_data.get('caregiver_telegram_id')
+            if bot and caregiver_chat_id:
                 await bot.send_message(
-                    chat_id=caregiver_data['caregiver_telegram_id'],
+                    chat_id=caregiver_chat_id,
                     text=message,
                     parse_mode='HTML'
                 )
