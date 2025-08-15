@@ -423,7 +423,6 @@ class ReminderHandler:
                     shown += 1
                 if len(jobs) > shown:
                     message += f"\n{config.EMOJIS['info']} ועוד {len(jobs) - shown} תזכורות..."
-                from utils.keyboards import get_main_menu_keyboard
                 kb_rows.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזור לתפריט", callback_data="main_menu")])
                 kb = InlineKeyboardMarkup(kb_rows)
             await update.message.reply_text(

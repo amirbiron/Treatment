@@ -626,9 +626,10 @@ class DatabaseManager:
         medicine_id: int,
         name: Optional[str] = None,
         dosage: Optional[str] = None,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        pack_size: Optional[int] = None,
     ) -> Optional["Medicine"]:
-        """Update medicine fields (name/dosage/notes)."""
+        """Update medicine fields (name/dosage/notes/pack_size)."""
         async with async_session() as session:
             medicine = await session.get(Medicine, medicine_id)
             if not medicine:
@@ -639,6 +640,8 @@ class DatabaseManager:
                 medicine.dosage = dosage
             if notes is not None:
                 medicine.notes = notes
+            if pack_size is not None:
+                medicine.pack_size = int(pack_size)
             await session.commit()
             await session.refresh(medicine)
             return medicine
@@ -1038,6 +1041,38 @@ class DatabaseManagerMongo:
 	async def update_inventory(medicine_id: int, new_count: float):
 		await _init_mongo()
 		await _mongo_db.medicines.update_one({"_id": int(medicine_id)}, {"$set": {"inventory_count": float(new_count)}})
+
+	@staticmethod
+	async def set_medicine_active(medicine_id: int, is_active: bool) -> bool:
+		await _init_mongo()
+		res = await _mongo_db.medicines.update_one({"_id": int(medicine_id)}, {"$set": {"is_active": bool(is_active)}})
+		return res.modified_count >= 0
+
+	@staticmethod
+	async def update_medicine(
+		medicine_id: int,
+		name: Optional[str] = None,
+		dosage: Optional[str] = None,
+		notes: Optional[str] = None,
+		pack_size: Optional[int] = None,
+	) -> Optional["Medicine"]:
+		"""Mongo: update medicine fields."""
+		await _init_mongo()
+		updates = {}
+		if name is not None:
+			updates["name"] = name
+		if dosage is not None:
+			updates["dosage"] = dosage
+		if notes is not None:
+			updates["notes"] = notes
+		if pack_size is not None:
+			updates["pack_size"] = int(pack_size)
+		if not updates:
+			return await DatabaseManagerMongo.get_medicine_by_id(medicine_id)
+		res = await _mongo_db.medicines.update_one({"_id": int(medicine_id)}, {"$set": updates})
+		if res.matched_count == 0:
+			return None
+		return await DatabaseManagerMongo.get_medicine_by_id(medicine_id)
 
 	@staticmethod
 	async def log_dose_taken(medicine_id: int, scheduled_time: datetime, taken_at: datetime = None) -> DoseLog:
