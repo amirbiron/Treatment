@@ -1097,6 +1097,50 @@ class MedicineReminderBot:
                 f"{config.EMOJES['info']} עזרה": "help",
             }
             
+            # If user pressed a main menu button, navigate immediately and clear edit states
+            if text in mapping:
+                # Clear transient edit states to avoid misinterpreting navigation as edits
+                for k in (
+                    'editing_medicine_for', 'editing_field_for', 'editing_schedule_for',
+                    'updating_inventory_for', 'awaiting_symptom_text', 'editing_symptom_log',
+                    'suppress_menu_mapping'
+                ):
+                    user_data.pop(k, None)
+                action = mapping[text]
+                if action == "my_medicines" or action == "inventory":
+                    if action == "inventory":
+                        await self._open_inventory_center(update)
+                    else:
+                        await self.my_medicines_command(update, context)
+                    return
+                if action == "reminders":
+                    from handlers import reminder_handler
+                    await reminder_handler.show_next_reminders(update, context)
+                    return
+                if action == "settings":
+                    await self.settings_command(update, context)
+                    return
+                if action == "caregivers":
+                    from utils.keyboards import get_caregiver_keyboard
+                    await update.message.reply_text(
+                        "ניהול מטפלים:",
+                        reply_markup=get_caregiver_keyboard()
+                    )
+                    return
+                if action == "symptoms":
+                    await self.log_symptoms_command(update, context)
+                    return
+                if action == "reports":
+                    from handlers import reports_handler
+                    await reports_handler.show_reports_menu(update, context)
+                    return
+                if action == "appointments":
+                    await appointments_handler.show_menu(update, context)
+                    return
+                if action == "help":
+                    await self.help_command(update, context)
+                    return
+            
             # Handle mededit text inputs
             if 'editing_field_for' in user_data:
                 info = user_data.pop('editing_field_for')
