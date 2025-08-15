@@ -324,22 +324,46 @@ class MedicineReminderBot:
     async def log_symptoms_command(self, update: Update, context):
         """Open symptoms tracking menu"""
         try:
-            from utils.keyboards import get_symptoms_keyboard, get_symptoms_medicine_picker
-            user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
+            user = update.effective_user
             meds = await DatabaseManager.get_user_medicines(user.id) if user else []
+            # Support both message command and callback button
+            if getattr(update, "callback_query", None):
+                await update.callback_query.answer()
+                if meds:
+                    from utils.keyboards import get_symptoms_medicine_picker
+                    await update.callback_query.edit_message_text(
+                        "בחרו תרופה לשיוך מעקב תופעות:",
+                        reply_markup=get_symptoms_medicine_picker(meds)
+                    )
+                else:
+                    from utils.keyboards import get_symptoms_keyboard
+                    await update.callback_query.edit_message_text(
+                        "מעקב סימפטומים (ללא שיוך לתרופה - אין תרופות במערכת):",
+                        reply_markup=get_symptoms_keyboard()
+                    )
+                return
+            # Fallback to classic message reply
             if meds:
+                from utils.keyboards import get_symptoms_medicine_picker
                 await update.message.reply_text(
                     "בחרו תרופה לשיוך מעקב תופעות:",
                     reply_markup=get_symptoms_medicine_picker(meds)
                 )
             else:
+                from utils.keyboards import get_symptoms_keyboard
                 await update.message.reply_text(
                     "מעקב סימפטומים (ללא שיוך לתרופה - אין תרופות במערכת):",
                     reply_markup=get_symptoms_keyboard()
                 )
         except Exception as e:
             logger.error(f"Error in log_symptoms command: {e}")
-            await update.message.reply_text(config.ERROR_MESSAGES["general"])
+            try:
+                if getattr(update, "callback_query", None):
+                    await update.callback_query.edit_message_text(config.ERROR_MESSAGES["general"])
+                else:
+                    await update.message.reply_text(config.ERROR_MESSAGES["general"])
+            except Exception:
+                pass
     
     async def weekly_report_command(self, update: Update, context):
         """Handle /weekly_report command (stub)"""
@@ -393,7 +417,7 @@ class MedicineReminderBot:
             data = query.data
             user_id = query.from_user.id
             
-            if data.startswith("appt_") or data.startswith("time_"):
+            if data.startswith("appt_") or (data.startswith("time_") and (context.user_data.get('appt_state') and isinstance(context.user_data.get('appt_state'), dict) and context.user_data.get('appt_state').get('step') in ('edit_time_time','time')) and not context.user_data.get('editing_schedule_for')):
                 await appointments_handler.handle_callback(update, context)
                 return
 
@@ -462,6 +486,12 @@ class MedicineReminderBot:
                     config.WELCOME_MESSAGE,
                     parse_mode='Markdown'
                 )
+                # Clear transient edit flags to avoid stray state
+                context.user_data.pop('editing_field_for', None)
+                context.user_data.pop('editing_schedule_for', None)
+                context.user_data.pop('awaiting_symptom_text', None)
+                context.user_data.pop('editing_symptom_log', None)
+                context.user_data.pop('suppress_menu_mapping', None)
                 await self.application.bot.send_message(
                     chat_id=query.message.chat_id,
                     text="בחרו פעולה:",
@@ -487,6 +517,20 @@ class MedicineReminderBot:
                 await query.edit_message_text(
                     "בחרו שעה חדשה לנטילת התרופה או הזינו שעה (לדוגמה 08:30)",
                     reply_markup=get_time_selection_keyboard()
+                )
+                return
+            elif data == "rem_pick_medicine_for_time":
+                # From empty reminders screen: pick medicine then choose hour
+                user = await DatabaseManager.get_user_by_telegram_id(user_id)
+                meds = await DatabaseManager.get_user_medicines(user.id) if user else []
+                if not meds:
+                    await query.edit_message_text("אין תרופות זמינות להוספת שעות.")
+                    return
+                from utils.keyboards import get_medicines_keyboard
+                # Reuse medicines list; user clicks a medicine and then can choose שעות
+                await query.edit_message_text(
+                    "בחרו תרופה להוספת שעה:",
+                    reply_markup=get_medicines_keyboard(meds)
                 )
                 return
             elif data.startswith("rem_disable_"):
@@ -527,6 +571,7 @@ class MedicineReminderBot:
                 if action == "packsize":
                     context.user_data['editing_field_for'] = {"id": mid, "field": "packsize"}
                     await query.edit_message_text("הקלידו גודל חבילה (למשל 30):")
+                    context.user_data['suppress_menu_mapping'] = True
                     return
                 # For name/dosage/notes, prompt text input
                 context.user_data['editing_field_for'] = {"id": mid, "field": action}
@@ -536,6 +581,8 @@ class MedicineReminderBot:
                     "notes": "הקלידו הערות (טקסט חופשי):",
                 }.get(action, "הקלידו ערך חדש:")
                 await query.edit_message_text(prompt)
+                # Avoid main-menu text mapping hijacking next text
+                context.user_data['suppress_menu_mapping'] = True
                 return
             elif data.startswith("settings_") or data.startswith("tz_"):
                 await self._handle_settings_action(update, context)
@@ -873,9 +920,11 @@ class MedicineReminderBot:
                 if len(parts) == 3:
                     medicine_id = int(parts[2])
                     from utils.keyboards import get_inventory_update_keyboard
+                    med = await DatabaseManager.get_medicine_by_id(medicine_id)
+                    pack = med.pack_size if med and med.pack_size else 28
                     await query.edit_message_text(
                         f"בחרו עדכון מהיר למלאי או הזינו כמות מדויקת:",
-                        reply_markup=get_inventory_update_keyboard(medicine_id, getattr(await DatabaseManager.get_medicine_by_id(medicine_id), 'pack_size', None) or 28)
+                        reply_markup=get_inventory_update_keyboard(medicine_id, pack)
                     )
                     return
                 # Otherwise, forward inventory_* callbacks to handler
@@ -916,8 +965,23 @@ class MedicineReminderBot:
                 return
             
             if data.startswith("medicine_history_"):
-                from handlers.reports_handler import reports_handler
-                await reports_handler.generate_weekly_report(update, context)
+                # Show last 30 days history for this specific medicine
+                try:
+                    medicine_id = int(data.split("_")[-1])
+                except Exception:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
+                    return
+                from datetime import date, timedelta
+                end_date = date.today(); start_date = end_date - timedelta(days=30)
+                logs = await DatabaseManager.get_symptom_logs_in_range(query.from_user.id, start_date, end_date, med_filter=medicine_id)
+                if not logs:
+                    await query.edit_message_text("אין היסטוריה 30 ימים לתרופה זו")
+                    return
+                from utils.keyboards import get_symptom_logs_list_keyboard
+                await query.edit_message_text(
+                    f"היסטוריה (30 ימים) לתרופה {medicine_id}:",
+                    reply_markup=get_symptom_logs_list_keyboard(logs[-10:])
+                )
                 return
             # Add manage schedules and delete actions (via simple keywords)
             if data.startswith("medicine_toggle_"):
@@ -952,6 +1016,9 @@ class MedicineReminderBot:
                         "בחרו אזור זמן:",
                         reply_markup=InlineKeyboardMarkup(rows)
                     )
+            elif data == "tz_custom":
+                context.user_data['awaiting_timezone_text'] = True
+                await query.edit_message_text("הקלידו את אזור הזמן (למשל Asia/Jerusalem, Europe/Berlin או GMT+3)")
             elif data.startswith("tz_"):
                 # Apply selected timezone only for recognized values
                 tz = data[3:]
@@ -962,9 +1029,6 @@ class MedicineReminderBot:
                 user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
                 await DatabaseManager.update_user_timezone(user.id, tz)
                 await query.edit_message_text(f"{config.EMOJES['success']} עודכן אזור הזמן ל- {tz}")
-            elif data == "tz_custom":
-                context.user_data['awaiting_timezone_text'] = True
-                await query.edit_message_text("הקלידו את אזור הזמן (למשל Asia/Jerusalem)")
             elif data == "settings_reminders":
                 # Show full reminders settings UI
                 user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
@@ -996,8 +1060,8 @@ class MedicineReminderBot:
                 await query.edit_message_text("הגדרות לא נתמכות")
         except Exception as exc:
             logger.error(f"Error in _handle_settings_action: {exc}")
-            await query.edit_message_text(config.ERROR_MESSAGES["general"])
-        
+            await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
+
     async def handle_text_message(self, update: Update, context):
         """Handle regular text messages (for conversation flows)"""
         try:
@@ -1033,9 +1097,54 @@ class MedicineReminderBot:
                 f"{config.EMOJES['info']} עזרה": "help",
             }
             
+            # If user pressed a main menu button, navigate immediately and clear edit states
+            if text in mapping:
+                # Clear transient edit states to avoid misinterpreting navigation as edits
+                for k in (
+                    'editing_medicine_for', 'editing_field_for', 'editing_schedule_for',
+                    'updating_inventory_for', 'awaiting_symptom_text', 'editing_symptom_log',
+                    'suppress_menu_mapping'
+                ):
+                    user_data.pop(k, None)
+                action = mapping[text]
+                if action == "my_medicines" or action == "inventory":
+                    if action == "inventory":
+                        await self._open_inventory_center(update)
+                    else:
+                        await self.my_medicines_command(update, context)
+                    return
+                if action == "reminders":
+                    from handlers import reminder_handler
+                    await reminder_handler.show_next_reminders(update, context)
+                    return
+                if action == "settings":
+                    await self.settings_command(update, context)
+                    return
+                if action == "caregivers":
+                    from utils.keyboards import get_caregiver_keyboard
+                    await update.message.reply_text(
+                        "ניהול מטפלים:",
+                        reply_markup=get_caregiver_keyboard()
+                    )
+                    return
+                if action == "symptoms":
+                    await self.log_symptoms_command(update, context)
+                    return
+                if action == "reports":
+                    from handlers import reports_handler
+                    await reports_handler.show_reports_menu(update, context)
+                    return
+                if action == "appointments":
+                    await appointments_handler.show_menu(update, context)
+                    return
+                if action == "help":
+                    await self.help_command(update, context)
+                    return
+            
             # Handle mededit text inputs
             if 'editing_field_for' in user_data:
                 info = user_data.pop('editing_field_for')
+                user_data.pop('suppress_menu_mapping', None)
                 mid = int(info.get('id'))
                 field = info.get('field')
                 if field == 'name' and len(text) >= 2:
@@ -1183,7 +1292,10 @@ class MedicineReminderBot:
                     await self.my_medicines_command(update, context)
                     return
             
-            if text in mapping:
+            if user_data.get('suppress_menu_mapping'):
+                # ignore one-time menu mapping after edit prompt
+                user_data.pop('suppress_menu_mapping', None)
+            elif text in mapping:
                 action = mapping[text]
                 if action == "my_medicines" or action == "inventory":
                     # Inventory from main menu goes to a simple inventory center
@@ -1259,14 +1371,16 @@ class MedicineReminderBot:
                         return
                 # Save timezone if awaiting text
                 if user_data.get('awaiting_timezone_text'):
-                    zone = text.strip()
-                    if '/' not in zone or len(zone) < 3:
-                        await update.message.reply_text("אנא הזינו אזור זמן תקין, למשל Asia/Jerusalem")
+                    from utils.helpers import normalize_timezone
+                    zone = (text or '').strip()
+                    ok, normalized, display = normalize_timezone(zone)
+                    if not ok or not normalized:
+                        await update.message.reply_text("אנא הזינו אזור זמן תקין (למשל Asia/Jerusalem, Europe/Berlin או GMT+3)")
                         return
                     user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
-                    await DatabaseManager.update_user_timezone(user.id, zone)
+                    await DatabaseManager.update_user_timezone(user.id, normalized)
                     user_data.pop('awaiting_timezone_text', None)
-                    await update.message.reply_text(f"{config.EMOJES['success']} עודכן אזור הזמן ל- {zone}")
+                    await update.message.reply_text(f"{config.EMOJES['success']} עודכן אזור הזמן ל- {display}")
                     return
                 # Edit symptom log text if awaiting
                 if user_data.get('editing_symptom_log'):
@@ -1445,7 +1559,7 @@ class MedicineReminderBot:
             try:
                 await self._serve_forever_event.wait()
             except asyncio.CancelledError:
-                logger.info("Webhook run cancelled - shutting down")
+                logger.debug("Webhook run cancelled - shutting down")
             finally:
                 try:
                     await runner.cleanup()
@@ -1507,7 +1621,7 @@ class MedicineReminderBot:
             logger.info("Bot shutdown completed")
             
         except asyncio.CancelledError:
-            logger.info("Shutdown cancelled by event loop")
+            logger.debug("Shutdown cancelled by event loop")
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")
 
@@ -1516,24 +1630,31 @@ async def main():
     """Main entry point"""
     bot = MedicineReminderBot()
     
-    # Setup signal handlers for graceful shutdown
-    def signal_handler(signum, frame):
-        logger.info(f"Received signal {signum}")
-        asyncio.create_task(bot.shutdown())
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    # Use event-based signal handling to reduce CancelledError noise on shutdown
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    try:
+        loop.add_signal_handler(signal.SIGINT, stop_event.set)
+        loop.add_signal_handler(signal.SIGTERM, stop_event.set)
+    except NotImplementedError:
+        # Fallback for environments without add_signal_handler
+        signal.signal(signal.SIGINT, lambda *_: asyncio.create_task(bot.shutdown()))
+        signal.signal(signal.SIGTERM, lambda *_: asyncio.create_task(bot.shutdown()))
     
     try:
         # Initialize bot
         await bot.initialize()
         
-        # Run bot based on environment
+        # Start run task according to environment
         if config.is_production():
-            await bot.run_webhook()
+            run_task = asyncio.create_task(bot.run_webhook())
         else:
-            await bot.run_polling()
-            
+            run_task = asyncio.create_task(bot.run_polling())
+        
+        # Wait for either stop signal or task completion
+        stop_task = asyncio.create_task(stop_event.wait())
+        await asyncio.wait({run_task, stop_task}, return_when=asyncio.FIRST_COMPLETED)
+        
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:
@@ -1541,6 +1662,11 @@ async def main():
         raise
     finally:
         await bot.shutdown()
+        # Ensure run task is finished/cleaned
+        try:
+            await asyncio.wait_for(run_task, timeout=10)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

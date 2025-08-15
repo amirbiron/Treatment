@@ -41,7 +41,7 @@ class AppointmentsHandler:
 		data = query.data
 		ud: Dict = context.user_data.setdefault('appt_state', {})
 
-		if data == 'appt_cancel':
+		if data == 'appt_cancel' or data == 'time_cancel':
 			context.user_data.pop('appt_state', None)
 			await query.edit_message_text("בוטל", reply_markup=get_main_menu_keyboard())
 			return
@@ -206,14 +206,15 @@ class AppointmentsHandler:
 				minute = int(parts[2])
 				ud['time'] = f"{hour:02d}:{minute:02d}"
 				ud['step'] = 'reminders'
-				rem1 = config.APPOINTMENT_REMIND_DAY_BEFORE
-				rem3 = config.APPOINTMENT_REMIND_3_DAYS_BEFORE
-				rem0 = config.APPOINTMENT_REMIND_SAME_DAY
+				# Defaults: all off until user selects
+				rem1 = False
+				rem3 = False
+				rem0 = False
 				ud['rem1'] = rem1
 				ud['rem3'] = rem3
 				ud['rem0'] = rem0
 				await query.edit_message_text(
-					"בחירת תזכורות:",
+					"בחרו תזכורות ללפני התור ו/או ביום התור (לחיצה על הכפתור מפעילה/מכבה)",
 					reply_markup=get_appointment_reminder_keyboard(rem1, rem3, rem0)
 				)
 				return
@@ -270,7 +271,12 @@ class AppointmentsHandler:
 				if not date_str or not time_str:
 					await query.edit_message_text("אנא בחרו תאריך ושעה")
 					return
-				when = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+				# Validate time string strictly
+				try:
+					when = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+				except Exception:
+					await query.edit_message_text("אנא בחרו שעה תקינה לתור")
+					return
 				appt = await DatabaseManager.create_appointment(
 					user_id=user.id,
 					category=appt_type,
@@ -317,13 +323,14 @@ class AppointmentsHandler:
 					raise ValueError()
 				ud['time'] = f"{hour:02d}:{minute:02d}"
 				ud['step'] = 'reminders'
-				rem1 = config.APPOINTMENT_REMIND_DAY_BEFORE
-				rem3 = config.APPOINTMENT_REMIND_3_DAYS_BEFORE
+				# Defaults: all off until user selects
+				rem1 = False
+				rem3 = False
 				ud['rem1'] = rem1
 				ud['rem3'] = rem3
 				await update.message.reply_text(
-					"בחירת תזכורות:",
-					reply_markup=get_appointment_reminder_keyboard(rem1, rem3, config.APPOINTMENT_REMIND_SAME_DAY)
+					"בחרו תזכורות ללפני התור ו/או ביום התור (לחיצה על הכפתור מפעילה/מכבה)",
+					reply_markup=get_appointment_reminder_keyboard(rem1, rem3, False)
 				)
 				return
 			except Exception:

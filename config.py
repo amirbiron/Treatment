@@ -148,6 +148,7 @@ class Config:
         "doctor": "👨‍⚕️",
         "symptoms": "🤒",
         "clock": "🕒",
+        "home": "🏠",
     }
 
     # Backward-compat alias for occasional typos

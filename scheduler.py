@@ -75,6 +75,9 @@ class MedicineScheduler:
             # Load and schedule upcoming appointments
             await self._schedule_upcoming_appointments()
             
+            # NEW: Re-schedule all medicine reminders for all active users at startup
+            await self._reschedule_all_medicine_reminders()
+            
         except Exception as e:
             logger.error(f"Failed to start scheduler: {e}")
             raise
@@ -464,6 +467,35 @@ class MedicineScheduler:
                 await self.schedule_appointment_reminders(appt.user_id, appt.id, appt.when_at, appt.remind_day_before, appt.remind_3days_before, tz, same_day=getattr(appt, 'remind_same_day', True))
         except Exception as exc:
             logger.error(f"Failed scheduling existing appointments: {exc}")
+
+    async def _reschedule_all_medicine_reminders(self):
+        """Ensure all active medicines with schedules are scheduled after startup."""
+        try:
+            from pytz import timezone as _tz  # optional, not strictly needed for UTC triggers
+            uploaded = 0
+            users = await DatabaseManager.get_all_active_users()
+            for user in users:
+                try:
+                    medicines = await DatabaseManager.get_user_medicines(user.id, active_only=True)
+                    for med in medicines:
+                        schedules = await DatabaseManager.get_medicine_schedules(med.id)
+                        for sch in schedules:
+                            # Guard: avoid duplicate if already scheduled
+                            job_id = f"medicine_reminder_{user.id}_{med.id}_{sch.time_to_take.strftime('%H%M')}"
+                            if self.scheduler.get_job(job_id):
+                                continue
+                            await self.schedule_medicine_reminder(
+                                user_id=user.id,
+                                medicine_id=med.id,
+                                reminder_time=sch.time_to_take,
+                                timezone=user.timezone or config.DEFAULT_TIMEZONE
+                            )
+                            uploaded += 1
+                except Exception as inner_exc:
+                    logger.warning(f"Failed rescheduling for user {getattr(user, 'id', '?')}: {inner_exc}")
+            logger.info(f"Rescheduled {uploaded} medicine reminders after startup")
+        except Exception as exc:
+            logger.error(f"Error in _reschedule_all_medicine_reminders: {exc}")
 
 
 # Global scheduler instance

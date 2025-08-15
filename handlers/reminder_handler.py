@@ -390,9 +390,19 @@ class ReminderHandler:
                 message = f"""
 {config.EMOJIS['info']} **אין תזכורות מתוזמנות**
 
-לחצו על "התרופות שלי" כדי להוסיף תרופות ולקבוע תזכורות.
+הוסיפו שעה לנטילת תרופה קיימת או הוסיפו תרופה חדשה.
                 """
-                kb = get_main_menu_keyboard()
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                # Build quick actions
+                user = await DatabaseManager.get_user_by_telegram_id(user_id)
+                meds = await DatabaseManager.get_user_medicines(user.id) if user else []
+                rows = []
+                if meds:
+                    rows.append([InlineKeyboardButton("הוסף שעה לתרופה", callback_data="rem_pick_medicine_for_time")])
+                rows.append([InlineKeyboardButton(f"{config.EMOJIS['medicine']} הוסף תרופה", callback_data="medicine_add")])
+                rows.append([InlineKeyboardButton(f"{config.EMOJIS['reminder']} הגדרות תזכורות", callback_data="settings_reminders")])
+                rows.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="main_menu")])
+                kb = InlineKeyboardMarkup(rows)
             else:
                 message = f"{config.EMOJIS['clock']} **התזכורות הבאות:**\n\n"
                 from telegram import InlineKeyboardMarkup, InlineKeyboardButton

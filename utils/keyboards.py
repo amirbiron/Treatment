@@ -134,21 +134,23 @@ def get_calendar_keyboard(year: int, month: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_appointment_reminder_keyboard(rem1: bool, rem3: bool, rem0: bool = True) -> InlineKeyboardMarkup:
-    """Toggle reminders and confirm"""
+def get_appointment_reminder_keyboard(rem1: bool, rem3: bool, rem0: bool = False) -> InlineKeyboardMarkup:
+    """Toggle reminders and confirm. Tap to toggle each option on/off."""
     on = "✅"
     off = "⭕"
     keyboard = [
-        [
-            InlineKeyboardButton(f"{on if rem0 else off} ביום התור (ב-{config.APPOINTMENT_SAME_DAY_REMINDER_HOUR:02d}:00)", callback_data="appt_rem0_toggle"),
-            InlineKeyboardButton(f"שנה שעה", callback_data="appt_rem0_time")
-        ],
         [
             InlineKeyboardButton(f"{on if rem1 else off} יום לפני", callback_data="appt_rem1_toggle"),
             InlineKeyboardButton(f"{on if rem3 else off} 3 ימים לפני", callback_data="appt_rem3_toggle"),
         ],
         [
-            InlineKeyboardButton(f"{config.EMOJIS['success']} שמור תור", callback_data="appt_save"),
+            InlineKeyboardButton(f"{on if rem0 else off} ביום התור (ב-{config.APPOINTMENT_SAME_DAY_REMINDER_HOUR:02d}:00)", callback_data="appt_rem0_toggle"),
+            InlineKeyboardButton(f"שנה שעה", callback_data="appt_rem0_time")
+        ],
+        [
+            InlineKeyboardButton(f"{config.EMOJIS['success']} שמור תור", callback_data="appt_save")
+        ],
+        [
             InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="appt_back")
         ]
     ]
@@ -201,23 +203,37 @@ def get_medicines_keyboard(medicines: List, offset: int = 0) -> InlineKeyboardMa
                 callback_data=f"medicine_view_{medicine.id}"
             )
         ])
+        # Quick actions row per medicine
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{config.EMOJIS['clock']} שעות",
+                callback_data=f"medicine_schedule_{medicine.id}"
+            ),
+            InlineKeyboardButton(
+                f"{config.EMOJIS['inventory']} מלאי",
+                callback_data=f"medicine_inventory_{medicine.id}"
+            ),
+            InlineKeyboardButton(
+                f"{config.EMOJIS['settings']} פרטים",
+                callback_data=f"medicine_edit_{medicine.id}"
+            ),
+            InlineKeyboardButton(
+                f"{config.EMOJIS['report']} היסטוריה",
+                callback_data=f"medicine_history_{medicine.id}"
+            ),
+        ])
     
-    # Action buttons
+    # Global action buttons
     action_row = [
         InlineKeyboardButton(
             f"{config.EMOJIS['medicine']} הוסף תרופה",
             callback_data="medicine_add"
+        ),
+        InlineKeyboardButton(
+            f"{config.EMOJIS['settings']} ניהול",
+            callback_data="medicine_manage"
         )
     ]
-    
-    if medicines:
-        action_row.append(
-            InlineKeyboardButton(
-                f"{config.EMOJIS['settings']} ערוך תרופות",
-                callback_data="medicine_manage"
-            )
-        )
-    
     keyboard.append(action_row)
     
     # Navigation buttons
