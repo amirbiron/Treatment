@@ -417,7 +417,7 @@ class MedicineReminderBot:
             data = query.data
             user_id = query.from_user.id
             
-            if data.startswith("appt_") or data.startswith("time_"):
+            if data.startswith("appt_") or (data.startswith("time_") and context.user_data.get('appt_state')):
                 await appointments_handler.handle_callback(update, context)
                 return
 
@@ -486,6 +486,12 @@ class MedicineReminderBot:
                     config.WELCOME_MESSAGE,
                     parse_mode='Markdown'
                 )
+                # Clear transient edit flags to avoid stray state
+                context.user_data.pop('editing_field_for', None)
+                context.user_data.pop('editing_schedule_for', None)
+                context.user_data.pop('awaiting_symptom_text', None)
+                context.user_data.pop('editing_symptom_log', None)
+                context.user_data.pop('suppress_menu_mapping', None)
                 await self.application.bot.send_message(
                     chat_id=query.message.chat_id,
                     text="בחרו פעולה:",
@@ -551,6 +557,7 @@ class MedicineReminderBot:
                 if action == "packsize":
                     context.user_data['editing_field_for'] = {"id": mid, "field": "packsize"}
                     await query.edit_message_text("הקלידו גודל חבילה (למשל 30):")
+                    context.user_data['suppress_menu_mapping'] = True
                     return
                 # For name/dosage/notes, prompt text input
                 context.user_data['editing_field_for'] = {"id": mid, "field": action}
@@ -560,6 +567,8 @@ class MedicineReminderBot:
                     "notes": "הקלידו הערות (טקסט חופשי):",
                 }.get(action, "הקלידו ערך חדש:")
                 await query.edit_message_text(prompt)
+                # Avoid main-menu text mapping hijacking next text
+                context.user_data['suppress_menu_mapping'] = True
                 return
             elif data.startswith("settings_") or data.startswith("tz_"):
                 await self._handle_settings_action(update, context)
@@ -1060,6 +1069,7 @@ class MedicineReminderBot:
             # Handle mededit text inputs
             if 'editing_field_for' in user_data:
                 info = user_data.pop('editing_field_for')
+                user_data.pop('suppress_menu_mapping', None)
                 mid = int(info.get('id'))
                 field = info.get('field')
                 if field == 'name' and len(text) >= 2:
@@ -1207,7 +1217,10 @@ class MedicineReminderBot:
                     await self.my_medicines_command(update, context)
                     return
             
-            if text in mapping:
+            if user_data.get('suppress_menu_mapping'):
+                # ignore one-time menu mapping after edit prompt
+                user_data.pop('suppress_menu_mapping', None)
+            elif text in mapping:
                 action = mapping[text]
                 if action == "my_medicines" or action == "inventory":
                     # Inventory from main menu goes to a simple inventory center
