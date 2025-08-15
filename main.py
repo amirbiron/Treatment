@@ -417,7 +417,7 @@ class MedicineReminderBot:
             data = query.data
             user_id = query.from_user.id
             
-            if data.startswith("appt_") or (data.startswith("time_") and context.user_data.get('appt_state')):
+            if data.startswith("appt_") or (data.startswith("time_") and context.user_data.get('appt_state') and not context.user_data.get('editing_schedule_for')):
                 await appointments_handler.handle_callback(update, context)
                 return
 
