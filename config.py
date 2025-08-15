@@ -23,6 +23,9 @@ class Config:
     
     # Database Configuration
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./medicine_bot.db")
+    DB_BACKEND: str = os.getenv("DB_BACKEND", "sqlite").lower()  # 'sqlite' or 'mongo'
+    MONGODB_URI: str = os.getenv("MONGODB_URI", "")
+    MONGODB_DB: str = os.getenv("MONGODB_DB", "medicine_bot")
     
     # Debug and Logging
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
@@ -153,6 +156,9 @@ class Config:
             
         if cls.MAX_REMINDER_ATTEMPTS < 1:
             errors.append("MAX_REMINDER_ATTEMPTS must be positive")
+        # Mongo validation
+        if cls.DB_BACKEND == 'mongo' and not cls.MONGODB_URI:
+            errors.append("MONGODB_URI is required when DB_BACKEND=mongo")
             
         return errors
     

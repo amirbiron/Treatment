@@ -9,6 +9,7 @@ from typing import List, Optional
 from sqlalchemy import String, Integer, Boolean, DateTime, Time, Text, ForeignKey, Float, select, func
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from config import config
 
 
 class Base(AsyncAttrs, DeclarativeBase):
@@ -655,3 +656,422 @@ class DatabaseManager:
             await session.commit()
             await session.refresh(settings)
             return settings
+
+# ==============================
+# MongoDB Backend (Motor)
+# ==============================
+try:
+	from motor.motor_asyncio import AsyncIOMotorClient
+	_mongo_available = True
+except Exception:
+	_mongo_available = False
+
+_mongo_client = None
+_mongo_db = None
+
+async def _init_mongo():
+	global _mongo_client, _mongo_db
+	if _mongo_client is None:
+		_mongo_client = AsyncIOMotorClient(config.MONGODB_URI)
+		_mongo_db = _mongo_client[config.MONGODB_DB]
+		# Create indexes (idempotent)
+		await _mongo_db.users.create_index("telegram_id", unique=True)
+		await _mongo_db.medicines.create_index([("user_id", 1)])
+		await _mongo_db.medicine_schedules.create_index([("medicine_id", 1)])
+		await _mongo_db.dose_logs.create_index([("medicine_id", 1), ("scheduled_time", 1)])
+		await _mongo_db.symptom_logs.create_index([("user_id", 1), ("log_date", 1)])
+		await _mongo_db.caregivers.create_index([("user_id", 1)])
+
+# Wrap SQLAlchemy models into dict converters for Mongo
+
+def _user_doc(u: User) -> dict:
+	return {
+		"id": u.id,
+		"telegram_id": u.telegram_id,
+		"username": u.username,
+		"first_name": u.first_name,
+		"last_name": u.last_name,
+		"is_active": u.is_active,
+		"timezone": u.timezone,
+		"created_at": u.created_at,
+	}
+
+# Database utility functions (overridden for Mongo when enabled)
+class DatabaseManagerMongo:
+	@staticmethod
+	async def get_user_by_telegram_id(telegram_id: int) -> Optional[User]:
+		await _init_mongo()
+		doc = await _mongo_db.users.find_one({"telegram_id": telegram_id})
+		if not doc:
+			return None
+		# Minimal adapter object
+		user = User()
+		user.id = doc.get("_id") or doc.get("id")
+		user.telegram_id = doc.get("telegram_id")
+		user.username = doc.get("username")
+		user.first_name = doc.get("first_name")
+		user.last_name = doc.get("last_name")
+		user.is_active = doc.get("is_active", True)
+		user.timezone = doc.get("timezone", "UTC")
+		user.created_at = doc.get("created_at") or datetime.utcnow()
+		return user
+
+	@staticmethod
+	async def get_user_by_id(user_id: int) -> Optional[User]:
+		await _init_mongo()
+		doc = await _mongo_db.users.find_one({"_id": user_id})
+		if not doc:
+			return None
+		user = await DatabaseManagerMongo.get_user_by_telegram_id(doc.get("telegram_id", 0))
+		return user
+
+	@staticmethod
+	async def create_user(telegram_id: int, username: str, first_name: str, last_name: str = None) -> User:
+		await _init_mongo()
+		# Generate simple numeric _id
+		existing = await _mongo_db.users.find_one({"telegram_id": telegram_id})
+		if existing:
+			await _mongo_db.users.update_one({"telegram_id": telegram_id}, {"$set": {
+				"username": username,
+				"first_name": first_name,
+				"last_name": last_name,
+				"is_active": True,
+				"timezone": "UTC",
+			}})
+			doc = await _mongo_db.users.find_one({"telegram_id": telegram_id})
+			user = await DatabaseManagerMongo.get_user_by_telegram_id(telegram_id)
+			return user
+		else:
+			# Compute next _id
+			last = await _mongo_db.users.find().sort("_id", -1).limit(1).to_list(1)
+			next_id = (last[0]["_id"] + 1) if last else 1
+			doc = {
+				"_id": next_id,
+				"telegram_id": telegram_id,
+				"username": username,
+				"first_name": first_name,
+				"last_name": last_name,
+				"is_active": True,
+				"timezone": "UTC",
+				"created_at": datetime.utcnow(),
+			}
+			await _mongo_db.users.insert_one(doc)
+			return await DatabaseManagerMongo.get_user_by_telegram_id(telegram_id)
+
+	@staticmethod
+	async def get_user_medicines(user_id: int, active_only: bool = True) -> List[Medicine]:
+		await _init_mongo()
+		q = {"user_id": user_id}
+		if active_only:
+			q["is_active"] = True
+			
+		rows = await _mongo_db.medicines.find(q).to_list(1000)
+		result = []
+		for d in rows:
+			m = Medicine()
+			m.id = d.get("_id")
+			m.user_id = d.get("user_id")
+			m.name = d.get("name")
+			m.dosage = d.get("dosage")
+			m.inventory_count = float(d.get("inventory_count", 0))
+			m.low_stock_threshold = float(d.get("low_stock_threshold", 5))
+			m.is_active = bool(d.get("is_active", True))
+			m.notes = d.get("notes")
+			m.created_at = d.get("created_at") or datetime.utcnow()
+			result.append(m)
+		return result
+
+	@staticmethod
+	async def get_medicine_by_id(medicine_id: int) -> Optional[Medicine]:
+		await _init_mongo()
+		d = await _mongo_db.medicines.find_one({"_id": int(medicine_id)})
+		if not d:
+			return None
+		m = Medicine()
+		m.id = d.get("_id")
+		m.user_id = d.get("user_id")
+		m.name = d.get("name")
+		m.dosage = d.get("dosage")
+		m.inventory_count = float(d.get("inventory_count", 0))
+		m.low_stock_threshold = float(d.get("low_stock_threshold", 5))
+		m.is_active = bool(d.get("is_active", True))
+		m.notes = d.get("notes")
+		m.created_at = d.get("created_at") or datetime.utcnow()
+		return m
+
+	@staticmethod
+	async def get_medicine_schedules(medicine_id: int) -> List[MedicineSchedule]:
+		await _init_mongo()
+		rows = await _mongo_db.medicine_schedules.find({"medicine_id": int(medicine_id), "is_active": True}).to_list(100)
+		result = []
+		for d in rows:
+			s = MedicineSchedule()
+			s.id = d.get("_id")
+			s.medicine_id = d.get("medicine_id")
+			# store as HH:MM
+			st = d.get("time_to_take")
+			if isinstance(st, str):
+				hh, mm = map(int, st.split(":"))
+				st = time(hour=hh, minute=mm)
+			s.time_to_take = st
+			s.is_active = d.get("is_active", True)
+			result.append(s)
+		return result
+
+	@staticmethod
+	async def create_medicine(user_id: int, name: str, dosage: str, inventory_count: float = 0.0, low_stock_threshold: float = 5.0, notes: Optional[str] = None) -> Medicine:
+		await _init_mongo()
+		last = await _mongo_db.medicines.find().sort("_id", -1).limit(1).to_list(1)
+		next_id = (last[0]["_id"] + 1) if last else 1
+		doc = {
+			"_id": next_id,
+			"user_id": user_id,
+			"name": name,
+			"dosage": dosage,
+			"inventory_count": float(inventory_count),
+			"low_stock_threshold": float(low_stock_threshold),
+			"is_active": True,
+			"notes": notes,
+			"created_at": datetime.utcnow(),
+		}
+		await _mongo_db.medicines.insert_one(doc)
+		m = await DatabaseManagerMongo.get_medicine_by_id(next_id)
+		return m
+
+	@staticmethod
+	async def create_medicine_schedule(medicine_id: int, time_to_take: time, reminder_minutes_before: int = 0, is_active: bool = True) -> MedicineSchedule:
+		await _init_mongo()
+		last = await _mongo_db.medicine_schedules.find().sort("_id", -1).limit(1).to_list(1)
+		next_id = (last[0]["_id"] + 1) if last else 1
+		doc = {
+			"_id": next_id,
+			"medicine_id": int(medicine_id),
+			"time_to_take": time_to_take.strftime('%H:%M'),
+			"is_active": bool(is_active),
+			"reminder_minutes_before": int(reminder_minutes_before),
+			"created_at": datetime.utcnow(),
+		}
+		await _mongo_db.medicine_schedules.insert_one(doc)
+		s = MedicineSchedule()
+		s.id = next_id
+		s.medicine_id = medicine_id
+		s.time_to_take = time_to_take
+		s.is_active = is_active
+		return s
+
+	@staticmethod
+	async def get_recent_doses(medicine_id: int, hours: int = None, days: int = None) -> List[DoseLog]:
+		await _init_mongo()
+		assert hours is not None or days is not None
+		since = None
+		if hours is not None:
+			since = datetime.utcnow() - timedelta(hours=hours)
+		if days is not None:
+			since = datetime.utcnow() - timedelta(days=days)
+		rows = await _mongo_db.dose_logs.find({"medicine_id": int(medicine_id), "scheduled_time": {"$gte": since}}).sort("scheduled_time", -1).to_list(100)
+		result = []
+		for d in rows:
+			log = DoseLog()
+			log.id = d.get("_id")
+			log.medicine_id = d.get("medicine_id")
+			log.scheduled_time = d.get("scheduled_time")
+			log.taken_at = d.get("taken_at")
+			log.status = d.get("status", "pending")
+			log.notes = d.get("notes")
+			log.created_at = d.get("created_at")
+			result.append(log)
+		return result
+
+	@staticmethod
+	async def update_inventory(medicine_id: int, new_count: float):
+		await _init_mongo()
+		await _mongo_db.medicines.update_one({"_id": int(medicine_id)}, {"$set": {"inventory_count": float(new_count)}})
+
+	@staticmethod
+	async def log_dose_taken(medicine_id: int, scheduled_time: datetime, taken_at: datetime = None) -> DoseLog:
+		await _init_mongo()
+		if taken_at is None:
+			taken_at = datetime.utcnow()
+		last = await _mongo_db.dose_logs.find().sort("_id", -1).limit(1).to_list(1)
+		next_id = (last[0]["_id"] + 1) if last else 1
+		doc = {
+			"_id": next_id,
+			"medicine_id": int(medicine_id),
+			"scheduled_time": scheduled_time,
+			"taken_at": taken_at,
+			"status": "taken",
+			"created_at": datetime.utcnow(),
+		}
+		await _mongo_db.dose_logs.insert_one(doc)
+		log = DoseLog(); log.id = next_id; log.medicine_id = medicine_id; log.scheduled_time = scheduled_time; log.taken_at = taken_at; log.status = "taken"; log.created_at = doc["created_at"]
+		return log
+
+	@staticmethod
+	async def log_dose_skipped(medicine_id: int, scheduled_time: datetime, reason: Optional[str] = None) -> DoseLog:
+		await _init_mongo()
+		last = await _mongo_db.dose_logs.find().sort("_id", -1).limit(1).to_list(1)
+		next_id = (last[0]["_id"] + 1) if last else 1
+		doc = {
+			"_id": next_id,
+			"medicine_id": int(medicine_id),
+			"scheduled_time": scheduled_time,
+			"taken_at": None,
+			"status": "skipped",
+			"notes": reason,
+			"created_at": datetime.utcnow(),
+		}
+		await _mongo_db.dose_logs.insert_one(doc)
+		log = DoseLog(); log.id = next_id; log.medicine_id = medicine_id; log.scheduled_time = scheduled_time; log.status = "skipped"; log.notes = reason; log.created_at = doc["created_at"]
+		return log
+
+	@staticmethod
+	async def log_dose_missed(medicine_id: int, scheduled_time: datetime) -> DoseLog:
+		await _init_mongo()
+		last = await _mongo_db.dose_logs.find().sort("_id", -1).limit(1).to_list(1)
+		next_id = (last[0]["_id"] + 1) if last else 1
+		doc = {
+			"_id": next_id,
+			"medicine_id": int(medicine_id),
+			"scheduled_time": scheduled_time,
+			"taken_at": None,
+			"status": "missed",
+			"created_at": datetime.utcnow(),
+		}
+		await _mongo_db.dose_logs.insert_one(doc)
+		log = DoseLog(); log.id = next_id; log.medicine_id = medicine_id; log.scheduled_time = scheduled_time; log.status = "missed"; log.created_at = doc["created_at"]
+		return log
+
+	@staticmethod
+	async def get_missed_doses(user_id: int, days: int = 7) -> List[DoseLog]:
+		await _init_mongo()
+		since = datetime.utcnow() - timedelta(days=days)
+		# Find medicines of user
+		med_ids = [m["_id"] async for m in _mongo_db.medicines.find({"user_id": user_id}, {"_id": 1})]
+		rows = await _mongo_db.dose_logs.find({"medicine_id": {"$in": med_ids}, "status": "missed", "scheduled_time": {"$gte": since}}).sort("scheduled_time", -1).to_list(200)
+		result = []
+		for d in rows:
+			log = DoseLog(); log.id = d.get("_id"); log.medicine_id = d.get("medicine_id"); log.scheduled_time = d.get("scheduled_time"); log.status = d.get("status"); result.append(log)
+		return result
+
+	@staticmethod
+	async def get_user_caregivers(user_id: int, active_only: bool = True) -> List[Caregiver]:
+		await _init_mongo()
+		q = {"user_id": user_id}
+		if active_only:
+			q["is_active"] = True
+		rows = await _mongo_db.caregivers.find(q).to_list(100)
+		result = []
+		for d in rows:
+			cg = Caregiver(); cg.id = d.get("_id"); cg.user_id = d.get("user_id"); cg.caregiver_telegram_id = d.get("caregiver_telegram_id"); cg.caregiver_name = d.get("caregiver_name"); cg.relationship_type = d.get("relationship_type"); cg.permissions = d.get("permissions"); cg.is_active = d.get("is_active", True); result.append(cg)
+		return result
+
+	@staticmethod
+	async def create_caregiver(user_id: int, caregiver_telegram_id: int, caregiver_name: str, relationship: str, permissions: str = "view") -> Caregiver:
+		await _init_mongo()
+		last = await _mongo_db.caregivers.find().sort("_id", -1).limit(1).to_list(1)
+		next_id = (last[0]["_id"] + 1) if last else 1
+		doc = {"_id": next_id, "user_id": user_id, "caregiver_telegram_id": caregiver_telegram_id, "caregiver_name": caregiver_name, "relationship_type": relationship, "permissions": permissions, "is_active": True, "created_at": datetime.utcnow()}
+		await _mongo_db.caregivers.insert_one(doc)
+		cg = Caregiver(); cg.id = next_id; cg.user_id = user_id; cg.caregiver_telegram_id = caregiver_telegram_id; cg.caregiver_name = caregiver_name; cg.relationship_type = relationship; cg.permissions = permissions; cg.is_active = True; return cg
+
+	@staticmethod
+	async def update_caregiver(
+		caregiver_id: int,
+		caregiver_name: Optional[str] = None,
+		relationship_type: Optional[str] = None,
+		permissions: Optional[str] = None,
+	) -> Optional[Caregiver]:
+		await _init_mongo()
+		updates = {}
+		if caregiver_name is not None:
+			updates["caregiver_name"] = caregiver_name
+		if relationship_type is not None:
+			updates["relationship_type"] = relationship_type
+		if permissions is not None:
+			updates["permissions"] = permissions
+		if not updates:
+			return await DatabaseManagerMongo.get_caregiver_by_id(caregiver_id)
+		res = await _mongo_db.caregivers.update_one({"_id": int(caregiver_id)}, {"$set": updates})
+		if res.modified_count == 0:
+			return None
+		return await DatabaseManagerMongo.get_caregiver_by_id(caregiver_id)
+
+	@staticmethod
+	async def set_caregiver_active(caregiver_id: int, is_active: bool) -> bool:
+		await _init_mongo()
+		res = await _mongo_db.caregivers.update_one({"_id": int(caregiver_id)}, {"$set": {"is_active": bool(is_active)}})
+		return res.modified_count >= 0
+
+	@staticmethod
+	async def get_all_active_users() -> List[User]:
+		await _init_mongo()
+		rows = await _mongo_db.users.find({"is_active": True}).to_list(10000)
+		result = []
+		for d in rows:
+			u = User(); u.id = d.get("_id"); u.telegram_id = d.get("telegram_id"); u.username = d.get("username"); u.first_name = d.get("first_name"); u.last_name = d.get("last_name"); u.is_active = d.get("is_active", True); u.timezone = d.get("timezone", "UTC"); result.append(u)
+		return result
+
+	@staticmethod
+	async def get_all_active_caregivers() -> List[Caregiver]:
+		await _init_mongo()
+		rows = await _mongo_db.caregivers.find({"is_active": True}).to_list(10000)
+		result = []
+		for d in rows:
+			cg = Caregiver(); cg.id = d.get("_id"); cg.user_id = d.get("user_id"); cg.caregiver_telegram_id = d.get("caregiver_telegram_id"); cg.caregiver_name = d.get("caregiver_name"); cg.relationship_type = d.get("relationship_type"); cg.permissions = d.get("permissions"); cg.is_active = d.get("is_active", True); result.append(cg)
+		return result
+
+	@staticmethod
+	async def get_low_stock_medicines() -> List[Medicine]:
+		await _init_mongo()
+		rows = await _mongo_db.medicines.find({
+			"is_active": True,
+			"inventory_count": {"$lte": {"$sum": "$low_stock_threshold"}}
+		}).to_list(1000)
+		result = []
+		for d in rows:
+			m = Medicine()
+			m.id = d.get("_id")
+			m.user_id = d.get("user_id")
+			m.name = d.get("name")
+			m.dosage = d.get("dosage")
+			m.inventory_count = float(d.get("inventory_count", 0))
+			m.low_stock_threshold = float(d.get("low_stock_threshold", 5))
+			m.is_active = bool(d.get("is_active", True))
+			m.notes = d.get("notes")
+			m.created_at = d.get("created_at") or datetime.utcnow()
+			result.append(m)
+		return result
+
+	@staticmethod
+	async def get_medicine_doses_in_range(medicine_id: int, start_date, end_date) -> List[DoseLog]:
+		await _init_mongo()
+		rows = await _mongo_db.dose_logs.find({
+			"medicine_id": int(medicine_id),
+			"scheduled_time": {"$gte": datetime.combine(start_date, datetime.min.time()), "$lte": datetime.combine(end_date, datetime.max.time())}
+		}).sort("scheduled_time", 1).to_list(1000)
+		result = []
+		for d in rows:
+			log = DoseLog(); log.id = d.get("_id"); log.medicine_id = d.get("medicine_id"); log.scheduled_time = d.get("scheduled_time"); result.append(log)
+		return result
+
+	@staticmethod
+	async def create_symptom_log(user_id: int, log_date: datetime, symptoms: str = None, side_effects: str = None, mood_score: int = None, notes: str = None) -> "SymptomLog":
+		await _init_mongo()
+		last = await _mongo_db.symptom_logs.find().sort("_id", -1).limit(1).to_list(1)
+		next_id = (last[0]["_id"] + 1) if last else 1
+		doc = {"_id": next_id, "user_id": int(user_id), "log_date": log_date, "symptoms": symptoms, "side_effects": side_effects, "mood_score": mood_score, "notes": notes}
+		await _mongo_db.symptom_logs.insert_one(doc)
+		class _S: pass
+		s = _S(); s.id = next_id; s.user_id = user_id; s.log_date = log_date; s.symptoms = symptoms; s.side_effects = side_effects; s.mood_score = mood_score; s.notes = notes
+		return s # type: ignore
+
+
+# Select backend at runtime
+if config.DB_BACKEND == 'mongo':
+	if not _mongo_available:
+		raise RuntimeError("motor is required for MongoDB backend")
+	# Expose mongo versions of DatabaseManager functions
+	DatabaseManager = DatabaseManagerMongo  # type: ignore
+else:
+	# Keep SQLAlchemy-based DatabaseManager
+	pass

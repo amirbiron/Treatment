@@ -132,17 +132,16 @@ class CaregiverHandler:
             # Initialize caregiver data
             self.user_caregiver_data[user_id] = {
                 'user_id': user.id,
-                'step': 'telegram_id'
+                'step': 'name'
             }
             
             message = f"""
   {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
   
-  🔹 <b>שלב 1/4:</b> פרטי יצירת קשר
+  🔹 <b>שלב 1/3:</b> שם המטפל
   
-  אם יש למטפל טלגרם – שלחו את מזהה הטלגרם (מספר). אם אין – ניתן לדלג ולהזין שם ומספר טלפון בשלב הבא.
-  
-  דוגמה למזהה: 123456789
+  אנא הזינו את שם המטפל:
+  (לדוגמה: ד"ר כהן, אמא, אחות שרה)
             """
             
             if update.callback_query:
@@ -159,7 +158,7 @@ class CaregiverHandler:
                     reply_markup=get_cancel_keyboard()
                 )
             
-            return CAREGIVER_TELEGRAM_ID
+            return CAREGIVER_NAME
             
         except Exception as e:
             logger.error(f"Error starting add caregiver: {e}")

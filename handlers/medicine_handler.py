@@ -696,7 +696,7 @@ class MedicineHandler:
             return ConversationHandler.END
 
     async def edit_medicine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle request to edit medicine details by switching to text-based edit mode."""
+        """Handle request to edit medicine details by switching to button-based menu."""
         try:
             query = update.callback_query
             await query.answer()
@@ -714,16 +714,19 @@ class MedicineHandler:
                     f"{config.EMOJIS['error']} התרופה לא נמצאה"
                 )
                 return ConversationHandler.END
-            # Put user into edit mode
+            # Put user into edit context
             context.user_data['editing_medicine_for'] = medicine_id
-            message = (
-                "עריכת פרטי תרופה:\n"
-                "• שלחו שם חדש כדי לשנות שם\n"
-                "• הקלידו: מינון <טקסט> כדי לשנות מינון\n"
-                "• הקלידו: הערות <טקסט> כדי לעדכן הערות\n"
-                "• הקלידו: השבת או הפעל כדי לשנות סטטוס"
+            # Build buttons menu
+            buttons = [
+                [InlineKeyboardButton("שנה שם", callback_data=f"mededit_name_{medicine_id}"), InlineKeyboardButton("שנה מינון", callback_data=f"mededit_dosage_{medicine_id}")],
+                [InlineKeyboardButton("עדכן הערות", callback_data=f"mededit_notes_{medicine_id}"), InlineKeyboardButton("שנה שעות", callback_data=f"medicine_schedule_{medicine_id}")],
+                [InlineKeyboardButton("הפעל/השבת", callback_data=f"mededit_toggle_{medicine_id}")],
+                [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data=f"medicine_view_{medicine_id}")]
+            ]
+            await query.edit_message_text(
+                f"עריכת תרופה: {medicine.name}\nבחרו פעולה:",
+                reply_markup=InlineKeyboardMarkup(buttons)
             )
-            await query.edit_message_text(message)
             return ConversationHandler.END
         except Exception as e:
             logger.error(f"Error handling edit medicine: {e}")

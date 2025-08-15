@@ -186,6 +186,7 @@ class MedicineReminderBot:
             
             await update.message.reply_text(
                 message,
+                parse_mode='Markdown',
                 reply_markup=get_settings_keyboard()
             )
             
@@ -206,6 +207,7 @@ class MedicineReminderBot:
             
             await update.message.reply_text(
                 message,
+                parse_mode='Markdown',
                 reply_markup=get_cancel_keyboard()
             )
             
@@ -380,6 +382,43 @@ class MedicineReminderBot:
             data = query.data
             user_id = query.from_user.id
             
+            # Time selection buttons: if editing schedule via inline flow, handle here
+            if data.startswith("time_"):
+                if context.user_data.get('editing_schedule_for'):
+                    parts = data.split("_")
+                    if len(parts) >= 3:
+                        try:
+                            h = int(parts[1]); m = int(parts[2])
+                            from datetime import time as dtime
+                            new_time = dtime(hour=h, minute=m)
+                            medicine_id = int(context.user_data.get('editing_schedule_for'))
+                            # Replace schedules
+                            await DatabaseManager.replace_medicine_schedules(medicine_id, [new_time])
+                            # Reschedule reminders
+                            user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+                            await medicine_scheduler.cancel_medicine_reminders(user.id, medicine_id)
+                            await medicine_scheduler.schedule_medicine_reminder(
+                                user_id=user.id,
+                                medicine_id=medicine_id,
+                                reminder_time=new_time,
+                                timezone=user.timezone or config.DEFAULT_TIMEZONE
+                            )
+                            context.user_data.pop('editing_schedule_for', None)
+                            # Show success and medicine details
+                            from utils.keyboards import get_medicine_detail_keyboard
+                            med = await DatabaseManager.get_medicine_by_id(medicine_id)
+                            await query.edit_message_text(
+                                f"{config.EMOJIS['success']} השעה עודכנה ל- {new_time.strftime('%H:%M')}\n{config.EMOJIS['medicine']} {med.name}",
+                                reply_markup=get_medicine_detail_keyboard(medicine_id)
+                            )
+                            return
+                        except Exception as ex:
+                            logger.error(f"Failed to update schedule via time buttons: {ex}")
+                            await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
+                            return
+                # Otherwise, let the conversation handlers handle it
+                return
+            
             # Handle different callback types
             if data.startswith("dose_taken_") or data.startswith("dose_snooze_") or data.startswith("dose_skip_"):
                 # Handled by reminder handler callbacks (already registered)
@@ -388,11 +427,40 @@ class MedicineReminderBot:
                 from utils.keyboards import get_main_menu_keyboard
                 await query.edit_message_text(
                     config.WELCOME_MESSAGE,
+                    parse_mode='Markdown',
                     reply_markup=get_main_menu_keyboard()
                 )
-            elif data.startswith("medicine_") or data.startswith("medicines_") or data.startswith("inventory_"):
+            elif data.startswith("medicine_") or data.startswith("medicines_"):
                 # Route to internal medicine action handler which covers all medicine flows
                 await self._handle_medicine_action(query, context)
+                return
+            elif data.startswith("mededit_"):
+                # mededit_name_<id>, mededit_dosage_<id>, mededit_notes_<id>, mededit_toggle_<id>
+                parts = data.split("_")
+                action = parts[1] if len(parts) > 1 else ""
+                mid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+                if not mid:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                    return
+                if action == "toggle":
+                    # Toggle active state
+                    med = await DatabaseManager.get_medicine_by_id(mid)
+                    await DatabaseManager.set_medicine_active(mid, not med.is_active)
+                    from utils.keyboards import get_medicine_detail_keyboard
+                    med2 = await DatabaseManager.get_medicine_by_id(mid)
+                    await query.edit_message_text(
+                        f"{config.EMOJIS['success']} הסטטוס עודכן ל{'פעילה' if med2.is_active else 'מושבתת'}",
+                        reply_markup=get_medicine_detail_keyboard(mid)
+                    )
+                    return
+                # For name/dosage/notes, prompt text input
+                context.user_data['editing_field_for'] = {"id": mid, "field": action}
+                prompt = {
+                    "name": "הקלידו שם חדש לתרופה:",
+                    "dosage": "הקלידו מינון חדש:",
+                    "notes": "הקלידו הערות (טקסט חופשי):",
+                }.get(action, "הקלידו ערך חדש:")
+                await query.edit_message_text(prompt)
                 return
             elif data.startswith("settings_"):
                 await self._handle_settings_action(query, context)
@@ -411,8 +479,12 @@ class MedicineReminderBot:
                 await self._handle_reminders_settings_controls(query)
                 return
             # Inventory main controls
-            elif data.startswith("inventory_") or data == "inventory_report":
+            elif data in ("inventory_add", "inventory_report"):
                 await self._handle_inventory_controls(query, context)
+                return
+            elif data.startswith("inventory_"):
+                from handlers.medicine_handler import medicine_handler
+                await medicine_handler.handle_inventory_update(update, context)
                 return
             elif data.startswith("caregiver_"):
                 # Routed by caregiver handler; do nothing here
@@ -694,11 +766,12 @@ class MedicineReminderBot:
                 msg = (
                     f"{config.EMOJIS['reminder']} הגדרות תזכורות\n\n"
                     f"דחיית תזכורת: {settings.snooze_minutes} דקות\n"
-                    f"מספר ניסיונות תזכורת: {settings.max_attempts}\n"
+                    f"מספר ניסיונות תזכורת: {settings.max_attemptים}\n"
                     f"מצב שקט: {'מופעל' if settings.silent_mode else 'כבוי'}\n"
                 )
                 await query.edit_message_text(
                     msg,
+                    parse_mode='Markdown',
                     reply_markup=get_reminders_settings_keyboard(settings.snooze_minutes, settings.max_attempts, settings.silent_mode)
                 )
                  
@@ -734,16 +807,40 @@ class MedicineReminderBot:
             )
             
             buttons = {
-                f"{config.EMOJIS['medicine']} התרופות שלי": "my_medicines",
-                f"{config.EMOJIS['reminder']} תזכורות": "reminders",
-                f"{config.EMOJIS['inventory']} מלאי": "inventory",
-                f"{config.EMOJIS['symptoms']} תופעות לוואי": "symptoms",
-                f"{config.EMOJIS['report']} דוחות": "reports",
-                f"{config.EMOJIS['caregiver']} מטפלים": "caregivers",
-                f"{config.EMOJIS['settings']} הגדרות": "settings",
-                f"{config.EMOJIS['info']} עזרה": "help",
+                f"{config.EMOJES['medicine']} התרופות שלי": "my_medicines",
+                f"{config.EMOJES['reminder']} תזכורות": "reminders",
+                f"{config.EMOJES['inventory']} מלאי": "inventory",
+                f"{config.EMOJES['symptoms']} תופעות לוואי": "symptoms",
+                f"{config.EMOJES['report']} דוחות": "reports",
+                f"{config.EMOJES['caregiver']} מטפלים": "caregivers",
+                f"{config.EMOJES['settings']} הגדרות": "settings",
+                f"{config.EMOJES['info']} עזרה": "help",
             }
             
+            # Handle mededit text inputs
+            if 'editing_field_for' in user_data:
+                info = user_data.pop('editing_field_for')
+                mid = int(info.get('id'))
+                field = info.get('field')
+                if field == 'name' and len(text) >= 2:
+                    await DatabaseManager.update_medicine(mid, name=text)
+                    await update.message.reply_text(f"{config.EMOJES['success']} שם התרופה עודכן")
+                    await self.my_medicines_command(update, context)
+                    return
+                if field == 'dosage' and len(text) >= 1:
+                    await DatabaseManager.update_medicine(mid, dosage=text)
+                    await update.message.reply_text(f"{config.EMOJES['success']} המינון עודכן")
+                    await self.my_medicines_command(update, context)
+                    return
+                if field == 'notes':
+                    await DatabaseManager.update_medicine(mid, notes=text)
+                    await update.message.reply_text(f"{config.EMOJES['success']} ההערות עודכנו")
+                    await self.my_medicines_command(update, context)
+                    return
+                # Fallback
+                await update.message.reply_text(config.ERROR_MESSAGES['invalid_input'])
+                return
+
             # Inventory update inline flow via text
             if 'updating_inventory_for' in user_data:
                 medicine_id = user_data.get('updating_inventory_for')
@@ -754,7 +851,7 @@ class MedicineReminderBot:
                     return
                 await DatabaseManager.update_inventory(int(medicine_id), new_count)
                 user_data.pop('updating_inventory_for', None)
-                await update.message.reply_text(f"{config.EMOJIS['success']} המלאי עודכן")
+                await update.message.reply_text(f"{config.EMOJES['success']} המלאי עודכן")
                 await self.my_medicines_command(update, context)
                 return
             # Schedule edit flow via text (time input HH:MM)
@@ -786,12 +883,12 @@ class MedicineReminderBot:
                     timezone=user.timezone or config.DEFAULT_TIMEZONE
                 )
                 user_data.pop('editing_schedule_for', None)
-                await update.message.reply_text(f"{config.EMOJIS['success']} השעה עודכנה ל- {new_time.strftime('%H:%M')}")
+                await update.message.reply_text(f"{config.EMOJES['success']} השעה עודכנה ל- {new_time.strftime('%H:%M')}")
                 # Show medicine details
                 med = await DatabaseManager.get_medicine_by_id(medicine_id)
                 from utils.keyboards import get_medicine_detail_keyboard
                 await update.message.reply_text(
-                    f"{config.EMOJIS['medicine']} {med.name}",
+                    f"{config.EMOJES['medicine']} {med.name}",
                     reply_markup=get_medicine_detail_keyboard(medicine_id)
                 )
                 return
@@ -820,7 +917,7 @@ class MedicineReminderBot:
                     await medicine_scheduler.cancel_medicine_reminders(user.id, mid)
                     for t in new_times:
                         await medicine_scheduler.schedule_medicine_reminder(user.id, mid, t, user.timezone or config.DEFAULT_TIMEZONE)
-                    await update.message.reply_text(f"{config.EMOJIS['success']} שעות הוחלפו")
+                    await update.message.reply_text(f"{config.EMOJES['success']} שעות הוחלפו")
                     user_data.pop('editing_medicine_for', None)
                     await self.my_medicines_command(update, context)
                     return
@@ -830,37 +927,37 @@ class MedicineReminderBot:
                     await medicine_scheduler.cancel_medicine_reminders(user.id, mid)
                     ok = await DatabaseManager.delete_medicine(mid)
                     if ok:
-                        await update.message.reply_text(f"{config.EMOJIS['success']} התרופה נמחקה")
+                        await update.message.reply_text(f"{config.EMOJES['success']} התרופה נמחקה")
                     else:
-                        await update.message.reply_text(f"{config.EMOJIS['error']} שגיאה במחיקה")
+                        await update.message.reply_text(f"{config.EMOJES['error']} שגיאה במחיקה")
                     user_data.pop('editing_medicine_for', None)
                     await self.my_medicines_command(update, context)
                     return
                 if lower.startswith('מינון '):
                     new_dosage = text.split(' ', 1)[1].strip()
                     await DatabaseManager.update_medicine(mid, dosage=new_dosage)
-                    await update.message.reply_text(f"{config.EMOJIS['success']} המינון עודכן")
+                    await update.message.reply_text(f"{config.EMOJES['success']} המינון עודכן")
                     user_data.pop('editing_medicine_for', None)
                     await self.my_medicines_command(update, context)
                     return
                 if lower.startswith('הערות '):
                     new_notes = text.split(' ', 1)[1].strip()
                     await DatabaseManager.update_medicine(mid, notes=new_notes)
-                    await update.message.reply_text(f"{config.EMOJIS['success']} ההערות עודכנו")
+                    await update.message.reply_text(f"{config.EMOJES['success']} ההערות עודכנו")
                     user_data.pop('editing_medicine_for', None)
                     await self.my_medicines_command(update, context)
                     return
                 if lower in ('השבת', 'הפעל'):
                     is_active = (lower == 'הפעל')
                     await DatabaseManager.set_medicine_active(mid, is_active)
-                    await update.message.reply_text(f"{config.EMOJIS['success']} הסטטוס עודכן")
+                    await update.message.reply_text(f"{config.EMOJES['success']} הסטטוס עודכן")
                     user_data.pop('editing_medicine_for', None)
                     await self.my_medicines_command(update, context)
                     return
                 # Otherwise treat as rename
                 if len(text.strip()) >= 2:
                     await DatabaseManager.update_medicine(mid, name=text.strip())
-                    await update.message.reply_text(f"{config.EMOJIS['success']} שם התרופה עודכן")
+                    await update.message.reply_text(f"{config.EMOJES['success']} שם התרופה עודכן")
                     user_data.pop('editing_medicine_for', None)
                     await self.my_medicines_command(update, context)
                     return
@@ -923,7 +1020,7 @@ class MedicineReminderBot:
                         user_data.pop('awaiting_symptom_text', None)
                         from utils.keyboards import get_main_menu_keyboard
                         await update.message.reply_text(
-                            f"{config.EMOJIS['success']} נרשם. תודה!",
+                            f"{config.EMOJES['success']} נרשם. תודה!",
                             reply_markup=get_main_menu_keyboard()
                         )
                         return
@@ -941,7 +1038,7 @@ class MedicineReminderBot:
                     user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
                     await DatabaseManager.update_user_timezone(user.id, zone)
                     user_data.pop('awaiting_timezone_text', None)
-                    await update.message.reply_text(f"{config.EMOJIS['success']} עודכן אזור הזמן ל- {zone}")
+                    await update.message.reply_text(f"{config.EMOJES['success']} עודכן אזור הזמן ל- {zone}")
                     return
                 await update.message.reply_text(
                     "השתמשו בתפריט או בפקודות. /help לעזרה"
@@ -978,19 +1075,21 @@ class MedicineReminderBot:
             elif data == "settings_menu":
                 from utils.keyboards import get_settings_keyboard
                 await query.edit_message_text(
-                    f"{config.EMOJIS['settings']} *הגדרות אישיות*",
+                    f"{config.EMOJES['settings']} *הגדרות אישיות*",
+                    parse_mode='Markdown',
                     reply_markup=get_settings_keyboard()
                 )
                 return
             # Refresh UI
             msg = (
-                f"{config.EMOJIS['reminder']} הגדרות תזכורות\n\n"
+                f"{config.EMOJES['reminder']} הגדרות תזכורות\n\n"
                 f"דחיית תזכורת: {settings.snooze_minutes} דקות\n"
                 f"מספר ניסיונות תזכורת: {settings.max_attempts}\n"
                 f"מצב שקט: {'מופעל' if settings.silent_mode else 'כבוי'}\n"
             )
             await query.edit_message_text(
                 msg,
+                parse_mode='Markdown',
                 reply_markup=get_reminders_settings_keyboard(settings.snooze_minutes, settings.max_attempts, settings.silent_mode)
             )
         except Exception as exc:
@@ -1004,14 +1103,14 @@ class MedicineReminderBot:
             user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
             meds = await DatabaseManager.get_user_medicines(user.id)
             low = [m for m in meds if m.inventory_count <= m.low_stock_threshold]
-            msg = f"{config.EMOJIS['inventory']} מרכז המלאי\n\n"
+            msg = f"{config.EMOJES['inventory']} מרכז המלאי\n\n"
             if not meds:
-                msg += "אין תרופות במערכת. הוסיפו תרופה מהתרופות שלי."
+                msg += "אין תרופות במערכת. הוסיפו תרופה דרך 'התרופות שלי'."
             else:
-                msg += f"סה""כ תרופות: {len(meds)} | נמוך: {len(low)}\n"
+                msg += f"סה\"כ תרופות: {len(meds)} | נמוך: {len(low)}\n"
                 for m in meds[:10]:
-                    warn = f" {config.EMOJIS['warning']}" if m.inventory_count <= m.low_stock_threshold else ""
-                    msg += f"• {m.name} — {m.inventory_count}{warn}\n"
+                    warn = f" {config.EMOJES['warning']}" if m.inventory_count <= m.low_stock_threshold else ""
+                    msg += f"• {m.name} — {m.inventory_count} {warn}\n"
                 if len(meds) > 10:
                     msg += f"ועוד {len(meds)-10}...\n"
             await update.message.reply_text(msg, reply_markup=get_inventory_main_keyboard())
