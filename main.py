@@ -326,15 +326,15 @@ class MedicineReminderBot:
             from utils.keyboards import get_symptoms_keyboard, get_symptoms_medicine_picker
             user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
             meds = await DatabaseManager.get_user_medicines(user.id) if user else []
-            await update.message.reply_text(
-                "מעקב סימפטומים:",
-                reply_markup=get_symptoms_keyboard()
-            )
-            # Offer picking a medicine as well
             if meds:
                 await update.message.reply_text(
-                    "בחרו תרופה לשיוך דיווח התופעות:",
+                    "בחרו תרופה לשיוך מעקב תופעות:",
                     reply_markup=get_symptoms_medicine_picker(meds)
+                )
+            else:
+                await update.message.reply_text(
+                    "מעקב סימפטומים (ללא שיוך לתרופה - אין תרופות במערכת):",
+                    reply_markup=get_symptoms_keyboard()
                 )
         except Exception as e:
             logger.error(f"Error in log_symptoms command: {e}")
@@ -529,20 +529,30 @@ class MedicineReminderBot:
                     try:
                         med_id = int(data.split("_")[-1])
                     except Exception:
-                        await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                        await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
                         return
                     med = await DatabaseManager.get_medicine_by_id(med_id)
                     if not med:
                         await query.edit_message_text(config.ERROR_MESSAGES["medicine_not_found"]) 
                         return
-                    context.user_data['awaiting_symptom_text'] = True
                     context.user_data['symptoms_for_medicine'] = med_id
+                    from utils.keyboards import get_symptoms_keyboard
                     await query.edit_message_text(
-                        f"{config.EMOJIS['symptoms']} רשמו תופעות לוואי עבור {med.name}:",
-                        reply_markup=get_main_menu_keyboard()
+                        f"מעקב תופעות עבור {med.name}:",
+                        reply_markup=get_symptoms_keyboard()
                     )
                     return
                 if data == "symptoms_log":
+                    # Require medicine selection first; if not selected, show picker
+                    user = await DatabaseManager.get_user_by_telegram_id(user_id)
+                    meds = await DatabaseManager.get_user_medicines(user.id) if user else []
+                    if not context.user_data.get('symptoms_for_medicine') and meds:
+                        from utils.keyboards import get_symptoms_medicine_picker
+                        await query.edit_message_text(
+                            "בחרו תרופה לפני רישום תופעות:",
+                            reply_markup=get_symptoms_medicine_picker(meds)
+                        )
+                        return
                     await query.edit_message_text(
                         "שלחו עכשיו הודעה עם תיאור תופעות הלוואי שברצונכם לרשום.",
                     )
@@ -1088,11 +1098,13 @@ class MedicineReminderBot:
                         from datetime import datetime as dt
                         # If tied to a specific medicine from quick action, include name prefix
                         med_prefix = None
-                        med_id = user_data.pop('symptoms_for_medicine', None)
+                        med_id = user_data.get('symptoms_for_medicine')
+                        entry_text = text
                         if med_id:
                             med = await DatabaseManager.get_medicine_by_id(int(med_id))
                             med_prefix = med.name if med else None
-                        entry_text = f"{med_prefix}: {text}" if med_prefix else text
+                        if med_prefix:
+                            entry_text = f"[{med_prefix}] {entry_text}"
                         await DatabaseManager.create_symptom_log(
                             user_id=user.id,
                             log_date=dt.utcnow(),
@@ -1100,6 +1112,7 @@ class MedicineReminderBot:
                             medicine_id=int(med_id) if med_id else None
                         )
                         user_data.pop('awaiting_symptom_text', None)
+                        user_data.pop('symptoms_for_medicine', None)
                         from utils.keyboards import get_main_menu_keyboard
                         await update.message.reply_text(
                             f"{config.EMOJIS['success']} נרשם. תודה!",
