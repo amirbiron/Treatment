@@ -693,6 +693,7 @@ async def _init_mongo():
 		await _mongo_db.medicine_schedules.create_index([("medicine_id", 1)])
 		await _mongo_db.dose_logs.create_index([("medicine_id", 1), ("scheduled_time", 1)])
 		await _mongo_db.symptom_logs.create_index([("user_id", 1), ("log_date", 1)])
+		await _mongo_db.symptom_logs.create_index([("medicine_id", 1)])
 		await _mongo_db.caregivers.create_index([("user_id", 1)])
 
 # Wrap SQLAlchemy models into dict converters for Mongo
@@ -1068,14 +1069,16 @@ class DatabaseManagerMongo:
 		return result
 
 	@staticmethod
-	async def create_symptom_log(user_id: int, log_date: datetime, symptoms: str = None, side_effects: str = None, mood_score: int = None, notes: str = None) -> "SymptomLog":
+	async def create_symptom_log(user_id: int, log_date: datetime, symptoms: str = None, side_effects: str = None, mood_score: int = None, notes: str = None, medicine_id: Optional[int] = None) -> "SymptomLog":
 		await _init_mongo()
 		last = await _mongo_db.symptom_logs.find().sort("_id", -1).limit(1).to_list(1)
 		next_id = (last[0]["_id"] + 1) if last else 1
 		doc = {"_id": next_id, "user_id": int(user_id), "log_date": log_date, "symptoms": symptoms, "side_effects": side_effects, "mood_score": mood_score, "notes": notes}
+		if medicine_id is not None:
+			doc["medicine_id"] = int(medicine_id)
 		await _mongo_db.symptom_logs.insert_one(doc)
 		class _S: pass
-		s = _S(); s.id = next_id; s.user_id = user_id; s.log_date = log_date; s.symptoms = symptoms; s.side_effects = side_effects; s.mood_score = mood_score; s.notes = notes
+		s = _S(); s.id = next_id; s.user_id = user_id; s.log_date = log_date; s.symptoms = symptoms; s.side_effects = side_effects; s.mood_score = mood_score; s.notes = notes; s.medicine_id = medicine_id
 		return s # type: ignore
 
 
