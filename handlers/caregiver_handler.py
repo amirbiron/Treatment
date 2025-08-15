@@ -696,8 +696,10 @@ class CaregiverHandler:
             
             if update.callback_query:
                 await update.callback_query.answer()
-                await update.callback_query.edit_message_text(
-                    message,
+                await update.callback_query.edit_message_text(message)
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="תפריט ראשי:",
                     reply_markup=get_main_menu_keyboard()
                 )
             else:
@@ -717,7 +719,11 @@ class CaregiverHandler:
         try:
             if update.callback_query:
                 await update.callback_query.edit_message_text(
-                    f"{config.EMOJIS['error']} {error_text}",
+                    f"{config.EMOJIS['error']} {error_text}"
+                )
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="תפריט ראשי:",
                     reply_markup=get_main_menu_keyboard()
                 )
             else:
