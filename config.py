@@ -146,6 +146,8 @@ class Config:
         "back": "⬅️",
         "next": "➡️",
         "doctor": "👨‍⚕️",
+        "symptoms": "🤒",
+        "clock": "🕒",
     }
 
     # Backward-compat alias for occasional typos
