@@ -809,6 +809,33 @@ class DatabaseManagerMongo:
 		return user
 
 	@staticmethod
+	async def get_doses_for_date(user_id: int, day_date) -> List[DoseLog]:
+		"""Return all dose logs for the given user's medicines on a specific date (Mongo)."""
+		await _init_mongo()
+		# Collect medicine ids for the user
+		med_rows = await _mongo_db.medicines.find({"user_id": int(user_id)}).to_list(10000)
+		med_ids = [int(d.get("_id")) for d in med_rows if d.get("_id") is not None]
+		if not med_ids:
+			return []
+		day_start = datetime.combine(day_date, datetime.min.time())
+		day_end = datetime.combine(day_date, datetime.max.time())
+		rows = await _mongo_db.dose_logs.find({
+			"medicine_id": {"$in": med_ids},
+			"scheduled_time": {"$gte": day_start, "$lte": day_end}
+		}).sort("scheduled_time", 1).to_list(10000)
+		result: List[DoseLog] = []
+		for d in rows:
+			log = DoseLog()
+			log.id = d.get("_id")
+			log.medicine_id = d.get("medicine_id")
+			log.scheduled_time = d.get("scheduled_time")
+			log.taken_at = d.get("taken_at")
+			log.status = d.get("status", "pending")
+			log.notes = d.get("notes")
+			result.append(log)
+		return result
+
+	@staticmethod
 	async def update_user_timezone(user_id: int, timezone: str) -> bool:
 		await _init_mongo()
 		res = await _mongo_db.users.update_one({"_id": int(user_id)}, {"$set": {"timezone": timezone}})
