@@ -906,9 +906,11 @@ class MedicineReminderBot:
                 if len(parts) == 3:
                     medicine_id = int(parts[2])
                     from utils.keyboards import get_inventory_update_keyboard
+                    med = await DatabaseManager.get_medicine_by_id(medicine_id)
+                    pack = med.pack_size if med and med.pack_size else 28
                     await query.edit_message_text(
                         f"בחרו עדכון מהיר למלאי או הזינו כמות מדויקת:",
-                        reply_markup=get_inventory_update_keyboard(medicine_id, getattr(await DatabaseManager.get_medicine_by_id(medicine_id), 'pack_size', None) or 28)
+                        reply_markup=get_inventory_update_keyboard(medicine_id, pack)
                     )
                     return
                 # Otherwise, forward inventory_* callbacks to handler
