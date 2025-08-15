@@ -61,6 +61,7 @@ class MedicineHandler:
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_medicine_dosage)
                 ],
                 MEDICINE_SCHEDULE: [
+                    CallbackQueryHandler(self.cancel_operation, pattern="^time_cancel$"),
                     CallbackQueryHandler(self.handle_time_selection, pattern="^time_"),
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_custom_time)
                 ],
@@ -277,7 +278,7 @@ class MedicineHandler:
 {config.EMOJIS['medicine']} <b>{medicine_name}</b>
 💊 מינון: {dosage}
 ⏰ שעות נטילה: {schedules_text}
-📦 מלאי התחלתי: 0 יחידות (ניתן לעדכן דרך "עדכן מלאי")
+📦 מלאי התחלתי: 0 כדורים (ניתן לעדכן דרך "עדכן מלאי")
 
 התזכורות הופעלו אוטומטית!
                     """
@@ -339,7 +340,7 @@ class MedicineHandler:
 {config.EMOJIS['medicine']} <b>{medicine_name}</b>
 💊 מינון: {dosage}
 ⏰ שעות נטילה: {schedules_text}
-📦 מלאי התחלתי: 0 יחידות (ניתן לעדכן דרך "עדכן מלאי")
+📦 מלאי התחלתי: 0 כדורים (ניתן לעדכן דרך "עדכן מלאי")
 
 התזכורות הופעלו אוטומטית!
                 """
@@ -495,7 +496,7 @@ class MedicineHandler:
 
 💊 <b>מינון:</b> {medicine.dosage}
 ⏰ <b>שעות נטילה:</b> {', '.join(schedule_times) if schedule_times else 'לא מוגדר'}
-📦 <b>מלאי:</b> {medicine.inventory_count} יחידות
+📦 <b>מלאי:</b> {medicine.inventory_count} כדורים
 📊 <b>השבוע:</b> נלקח {taken_count}/{total_count} פעמים
 📅 <b>נוצר:</b> {medicine.created_at.strftime('%d/%m/%Y')}
 🟢 <b>פעיל:</b> {'כן' if medicine.is_active else 'לא'}
@@ -583,9 +584,9 @@ class MedicineHandler:
                 message = f"""
 {config.EMOJIS['inventory']} <b>עדכון מלאי: {medicine.name}</b>
 
-מלאי נוכחי: {medicine.inventory_count} יחידות
+מלאי נוכחי: {medicine.inventory_count} כדורים
 
-אנא הזינו את הכמות החדשה:
+אנא הזינו את הכמות החדשה (במספר כדורים):
                 """
                 
                 await query.edit_message_text(
@@ -623,7 +624,7 @@ class MedicineHandler:
 {config.EMOJIS['success']} <b>מלאי עודכן!</b>
 
 {config.EMOJIS['medicine']} {medicine.name}
-📦 מלאי חדש: {new_count} יחידות{status_msg}
+📦 מלאי חדש: {int(new_count)} כדורים{status_msg}
                 """
                 
                 await query.edit_message_text(
@@ -674,7 +675,7 @@ class MedicineHandler:
 {config.EMOJIS['success']} <b>מלאי עודכן בהצלחה!</b>
 
 {config.EMOJIS['medicine']} {medicine.name}
-📦 מלאי חדש: {new_count} יחידות{status_msg}
+📦 מלאי חדש: {int(new_count)} כדורים{status_msg}
             """
             
             await update.message.reply_text(
@@ -720,6 +721,7 @@ class MedicineHandler:
             buttons = [
                 [InlineKeyboardButton("שנה שם", callback_data=f"mededit_name_{medicine_id}"), InlineKeyboardButton("שנה מינון", callback_data=f"mededit_dosage_{medicine_id}")],
                 [InlineKeyboardButton("עדכן הערות", callback_data=f"mededit_notes_{medicine_id}"), InlineKeyboardButton("שנה שעות", callback_data=f"medicine_schedule_{medicine_id}")],
+                [InlineKeyboardButton("שנה גודל חבילה", callback_data=f"mededit_packsize_{medicine_id}")],
                 [InlineKeyboardButton("הפעל/השבת", callback_data=f"mededit_toggle_{medicine_id}")],
                 [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data=f"medicine_view_{medicine_id}")]
             ]

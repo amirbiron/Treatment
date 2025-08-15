@@ -77,6 +77,8 @@ from .keyboards import (
 	get_settings_keyboard,
 	get_caregiver_keyboard,
 	get_symptoms_keyboard,
+	get_symptoms_medicine_picker,
+	get_symptoms_history_picker,
 	get_reports_keyboard,
 	
 	# Utility keyboards
@@ -118,7 +120,7 @@ __all__ += [
 	# From keyboards
 	"get_main_menu_keyboard", "get_reminder_keyboard", "get_medicines_keyboard",
 	"get_medicine_detail_keyboard", "get_settings_keyboard", "get_caregiver_keyboard",
-	"get_symptoms_keyboard", "get_reports_keyboard", "get_time_selection_keyboard",
+	"get_symptoms_keyboard", "get_symptoms_medicine_picker", "get_reports_keyboard", "get_time_selection_keyboard",
 	"get_inventory_update_keyboard", "get_confirmation_keyboard", "get_cancel_keyboard",
 	"get_pagination_keyboard", "get_emergency_keyboard", "create_quick_reply_keyboard",
 	"hide_keyboard"

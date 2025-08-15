@@ -740,7 +740,7 @@ class ReportsHandler:
             if len(mood_scores) > 1:
                 recent_mood = sum(mood_scores[-3:]) / len(mood_scores[-3:])
                 early_mood = sum(mood_scores[:3]) / len(mood_scores[:3])
-                trend = "עולה" if recent_mood > early_mood else "יורדת" if recent_mood < early_mood else "יציבה"
+                trend = "עולה" if recent_mood > early_mood + 5 else "מתדרדרת" if recent_mood < early_mood - 5 else "יציבה"
                 report += f"\n📈 **מגמת מצב רוח:** {trend}"
             
             return report
@@ -787,12 +787,12 @@ class ReportsHandler:
             if low_stock:
                 report += f"\n⚠️ **מלאי נמוך (מומלץ להזמין):**\n"
                 for medicine in low_stock:
-                    report += f"• {medicine.name}: {medicine.inventory_count} יחידות\n"
+                    report += f"• {medicine.name}: {medicine.inventory_count} כדורים\n"
             
             if good_stock:
                 report += f"\n✅ **מלאי תקין:**\n"
                 for medicine in good_stock[:5]:  # Show first 5
-                    report += f"• {medicine.name}: {medicine.inventory_count} יחידות\n"
+                    report += f"• {medicine.name}: {medicine.inventory_count} כדורים\n"
                 
                 if len(good_stock) > 5:
                     report += f"ועוד {len(good_stock) - 5} תרופות...\n"

@@ -419,18 +419,19 @@ def get_time_selection_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_inventory_update_keyboard(medicine_id: int) -> InlineKeyboardMarkup:
-    """Keyboard for quick inventory updates"""
+def get_inventory_update_keyboard(medicine_id: int, pack_size: int = None) -> InlineKeyboardMarkup:
+    """Keyboard for quick inventory updates (by packs)."""
+    pack = pack_size or 28
     keyboard = [
         [
-            InlineKeyboardButton("+1", callback_data=f"inventory_{medicine_id}_+1"),
-            InlineKeyboardButton("+5", callback_data=f"inventory_{medicine_id}_+5"),
-            InlineKeyboardButton("+10", callback_data=f"inventory_{medicine_id}_+10")
+            InlineKeyboardButton(f"+1 חבילה (+{pack})", callback_data=f"inventory_{medicine_id}_+{pack}"),
+            InlineKeyboardButton(f"+2 חבילות (+{pack*2})", callback_data=f"inventory_{medicine_id}_+{pack*2}"),
+            InlineKeyboardButton(f"+3 חבילות (+{pack*3})", callback_data=f"inventory_{medicine_id}_+{pack*3}")
         ],
         [
-            InlineKeyboardButton("-1", callback_data=f"inventory_{medicine_id}_-1"),
-            InlineKeyboardButton("-5", callback_data=f"inventory_{medicine_id}_-5"),
-            InlineKeyboardButton("-10", callback_data=f"inventory_{medicine_id}_-10")
+            InlineKeyboardButton(f"-1 חבילה (-{pack})", callback_data=f"inventory_{medicine_id}_-{pack}"),
+            InlineKeyboardButton(f"-2 חבילות (-{pack*2})", callback_data=f"inventory_{medicine_id}_-{pack*2}"),
+            InlineKeyboardButton(f"-3 חבילות (-{pack*3})", callback_data=f"inventory_{medicine_id}_-{pack*3}")
         ],
         [
             InlineKeyboardButton(
@@ -579,4 +580,69 @@ def get_emergency_keyboard() -> InlineKeyboardMarkup:
         ]
     ]
     
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_symptoms_medicine_picker(medicines: List) -> InlineKeyboardMarkup:
+    """Build a keyboard to select a medicine for symptoms logging."""
+    keyboard = []
+    # Show up to 8 medicines; each as a row button
+    for med in medicines[:8]:
+        name = getattr(med, 'name', 'תרופה')
+        mid = getattr(med, 'id', None)
+        if mid is None:
+            continue
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{config.EMOJIS['medicine']} {name}",
+                callback_data=f"symptoms_log_med_{mid}"
+            )
+        ])
+    # Fallback when no medicines
+    if not medicines:
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{config.EMOJIS['info']} אין תרופות רשומות",
+                callback_data="main_menu"
+            )
+        ])
+    # Back button
+    keyboard.append([
+        InlineKeyboardButton(
+            f"{config.EMOJIS['back']} חזור",
+            callback_data="main_menu"
+        )
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_symptoms_history_picker(medicines: List) -> InlineKeyboardMarkup:
+    """Build a keyboard to filter symptoms history by medicine or show all."""
+    keyboard = []
+    # All option
+    keyboard.append([
+        InlineKeyboardButton(
+            f"{config.EMOJIS['report']} כל התרופות",
+            callback_data="symptoms_history_all"
+        )
+    ])
+    # Per-medicine options (limit to 8 for brevity)
+    for med in medicines[:8]:
+        name = getattr(med, 'name', 'תרופה')
+        mid = getattr(med, 'id', None)
+        if mid is None:
+            continue
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{config.EMOJIS['medicine']} {name}",
+                callback_data=f"symptoms_history_med_{mid}"
+            )
+        ])
+    # Back
+    keyboard.append([
+        InlineKeyboardButton(
+            f"{config.EMOJIS['back']} חזור",
+            callback_data="main_menu"
+        )
+    ])
     return InlineKeyboardMarkup(keyboard)

@@ -321,11 +321,19 @@ class MedicineReminderBot:
     async def log_symptoms_command(self, update: Update, context):
         """Open symptoms tracking menu"""
         try:
-            from utils.keyboards import get_symptoms_keyboard
+            from utils.keyboards import get_symptoms_keyboard, get_symptoms_medicine_picker
+            user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
+            meds = await DatabaseManager.get_user_medicines(user.id) if user else []
             await update.message.reply_text(
                 "מעקב סימפטומים:",
                 reply_markup=get_symptoms_keyboard()
             )
+            # Offer picking a medicine as well
+            if meds:
+                await update.message.reply_text(
+                    "בחרו תרופה לשיוך דיווח התופעות:",
+                    reply_markup=get_symptoms_medicine_picker(meds)
+                )
         except Exception as e:
             logger.error(f"Error in log_symptoms command: {e}")
             await update.message.reply_text(config.ERROR_MESSAGES["general"])
@@ -382,43 +390,57 @@ class MedicineReminderBot:
             data = query.data
             user_id = query.from_user.id
             
-            # Time selection buttons: if editing schedule via inline flow, handle here
-            if data.startswith("time_"):
-                if context.user_data.get('editing_schedule_for'):
-                    parts = data.split("_")
-                    if len(parts) >= 3:
-                        try:
-                            h = int(parts[1]); m = int(parts[2])
-                            from datetime import time as dtime
-                            new_time = dtime(hour=h, minute=m)
-                            medicine_id = int(context.user_data.get('editing_schedule_for'))
-                            # Replace schedules
-                            await DatabaseManager.replace_medicine_schedules(medicine_id, [new_time])
-                            # Reschedule reminders
-                            user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
-                            await medicine_scheduler.cancel_medicine_reminders(user.id, medicine_id)
-                            await medicine_scheduler.schedule_medicine_reminder(
-                                user_id=user.id,
-                                medicine_id=medicine_id,
-                                reminder_time=new_time,
-                                timezone=user.timezone or config.DEFAULT_TIMEZONE
-                            )
-                            context.user_data.pop('editing_schedule_for', None)
-                            # Show success and medicine details
-                            from utils.keyboards import get_medicine_detail_keyboard
-                            med = await DatabaseManager.get_medicine_by_id(medicine_id)
-                            await query.edit_message_text(
-                                f"{config.EMOJIS['success']} השעה עודכנה ל- {new_time.strftime('%H:%M')}\n{config.EMOJIS['medicine']} {med.name}",
-                                reply_markup=get_medicine_detail_keyboard(medicine_id)
-                            )
-                            return
-                        except Exception as ex:
-                            logger.error(f"Failed to update schedule via time buttons: {ex}")
-                            await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
-                            return
-                # Otherwise, let the conversation handlers handle it
+            # Time selection buttons: handle preset hour and custom entry
+            if data in ("cancel", "time_cancel"):
+                from utils.keyboards import get_main_menu_keyboard
+                context.user_data.pop('editing_schedule_for', None)
+                await query.edit_message_text(
+                    f"{config.EMOJIS['info']} הפעולה בוטלה",
+                    reply_markup=get_main_menu_keyboard()
+                )
                 return
-            
+            if data == "time_custom":
+                await query.edit_message_text("הקלידו שעה בפורמט HH:MM (למשל 08:30)")
+                return
+            if data.startswith("time_"):
+                parts = data.split("_")
+                if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
+                    try:
+                        if not context.user_data.get('editing_schedule_for'):
+                            await query.edit_message_text("שגיאה: אין תרופה נבחרת. חזרו ל'שנה שעות' ונסו שוב.")
+                            return
+                        h = int(parts[1]); m = int(parts[2])
+                        from datetime import time as dtime
+                        new_time = dtime(hour=h, minute=m)
+                        medicine_id = int(context.user_data.get('editing_schedule_for'))
+                        # Replace schedules
+                        await DatabaseManager.replace_medicine_schedules(medicine_id, [new_time])
+                        # Reschedule reminders
+                        user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+                        await medicine_scheduler.cancel_medicine_reminders(user.id, medicine_id)
+                        await medicine_scheduler.schedule_medicine_reminder(
+                            user_id=user.id,
+                            medicine_id=medicine_id,
+                            reminder_time=new_time,
+                            timezone=user.timezone or config.DEFAULT_TIMEZONE
+                        )
+                        context.user_data.pop('editing_schedule_for', None)
+                        # Show success and medicine details
+                        from utils.keyboards import get_medicine_detail_keyboard
+                        med = await DatabaseManager.get_medicine_by_id(medicine_id)
+                        await query.edit_message_text(
+                            f"{config.EMOJIS['success']} השעה עודכנה ל- {new_time.strftime('%H:%M')}\n{config.EMOJIS['medicine']} {med.name}",
+                            reply_markup=get_medicine_detail_keyboard(medicine_id)
+                        )
+                        return
+                    except Exception as ex:
+                        logger.error(f"Failed to update schedule via time buttons: {ex}")
+                        await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
+                        return
+                else:
+                    await query.edit_message_text("שעה לא תקינה")
+                    return
+
             # Handle different callback types
             if data.startswith("dose_taken_") or data.startswith("dose_snooze_") or data.startswith("dose_skip_"):
                 # Handled by reminder handler callbacks (already registered)
@@ -453,6 +475,10 @@ class MedicineReminderBot:
                         reply_markup=get_medicine_detail_keyboard(mid)
                     )
                     return
+                if action == "packsize":
+                    context.user_data['editing_field_for'] = {"id": mid, "field": "packsize"}
+                    await query.edit_message_text("הקלידו גודל חבילה (למשל 30):")
+                    return
                 # For name/dosage/notes, prompt text input
                 context.user_data['editing_field_for'] = {"id": mid, "field": action}
                 prompt = {
@@ -466,13 +492,6 @@ class MedicineReminderBot:
                 await self._handle_settings_action(query, context)
             elif data.startswith("report_") or data.startswith("report_action_") or data.startswith("export_report_"):
                 # Routed by reports handler; do nothing here (already registered)
-                return
-            elif data in ("cancel", "time_cancel"):
-                from utils.keyboards import get_main_menu_keyboard
-                await query.edit_message_text(
-                    f"{config.EMOJIS['info']} הפעולה בוטלה",
-                    reply_markup=get_main_menu_keyboard()
-                )
                 return
             # Reminders settings controls
             elif data.startswith("rsnoop_") or data.startswith("rattempts_") or data == "rsilent_toggle" or data == "settings_menu":
@@ -491,6 +510,24 @@ class MedicineReminderBot:
                 return
             elif data.startswith("symptoms_"):
                 # Minimal inline handling for symptoms
+                if data.startswith("symptoms_log_med_"):
+                    # bind next text to a specific medicine id
+                    try:
+                        med_id = int(data.split("_")[-1])
+                    except Exception:
+                        await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                        return
+                    med = await DatabaseManager.get_medicine_by_id(med_id)
+                    if not med:
+                        await query.edit_message_text(config.ERROR_MESSAGES["medicine_not_found"]) 
+                        return
+                    context.user_data['awaiting_symptom_text'] = True
+                    context.user_data['symptoms_for_medicine'] = med_id
+                    await query.edit_message_text(
+                        f"{config.EMOJIS['symptoms']} רשמו תופעות לוואי עבור {med.name}:",
+                        reply_markup=get_main_menu_keyboard()
+                    )
+                    return
                 if data == "symptoms_log":
                     await query.edit_message_text(
                         "שלחו עכשיו הודעה עם תיאור תופעות הלוואי שברצונכם לרשום.",
@@ -498,17 +535,37 @@ class MedicineReminderBot:
                     context.user_data['awaiting_symptom_text'] = True
                     return
                 if data == "symptoms_history":
+                    from utils.keyboards import get_symptoms_history_picker
+                    user = await DatabaseManager.get_user_by_telegram_id(user_id)
+                    meds = await DatabaseManager.get_user_medicines(user.id) if user else []
+                    await query.edit_message_text(
+                        "בחרו סינון להיסטוריית תופעות לוואי:",
+                        reply_markup=get_symptoms_history_picker(meds)
+                    )
+                    return
+                if data == "symptoms_history_all" or data.startswith("symptoms_history_med_"):
                     from datetime import date, timedelta
                     user = await DatabaseManager.get_user_by_telegram_id(user_id)
                     end_date = date.today(); start_date = end_date - timedelta(days=30)
-                    logs = await DatabaseManager.get_symptom_logs_in_range(user.id, start_date, end_date)
+                    med_filter = None
+                    if data.startswith("symptoms_history_med_"):
+                        try:
+                            med_filter = int(data.split("_")[-1])
+                        except Exception:
+                            med_filter = None
+                    logs = await DatabaseManager.get_symptom_logs_in_range(user.id, start_date, end_date, med_filter)
                     if not logs:
                         await query.edit_message_text("אין רישומי תופעות לוואי ב-30 הימים האחרונים")
                         return
                     preview = []
                     for log in logs[-10:]:
                         ts = log.log_date.strftime('%d/%m %H:%M')
-                        row = f"{ts} - {log.symptoms or log.side_effects or '—'}"
+                        med_name = None
+                        if getattr(log, 'medicine_id', None):
+                            m = await DatabaseManager.get_medicine_by_id(int(log.medicine_id))
+                            med_name = m.name if m else None
+                        body = (log.symptoms or log.side_effects or '—')
+                        row = f"{ts} - {med_name}: {body}" if med_name else f"{ts} - {body}"
                         preview.append(row)
                     await query.edit_message_text("\n".join(preview))
                     return
@@ -684,7 +741,7 @@ class MedicineReminderBot:
                     from utils.keyboards import get_inventory_update_keyboard
                     await query.edit_message_text(
                         f"בחרו עדכון מהיר למלאי או הזינו כמות מדויקת:",
-                        reply_markup=get_inventory_update_keyboard(medicine_id)
+                        reply_markup=get_inventory_update_keyboard(medicine_id, getattr(await DatabaseManager.get_medicine_by_id(medicine_id), 'pack_size', None) or 28)
                     )
                     return
                 # Otherwise, forward inventory_* callbacks to handler
@@ -835,6 +892,11 @@ class MedicineReminderBot:
                 if field == 'notes':
                     await DatabaseManager.update_medicine(mid, notes=text)
                     await update.message.reply_text(f"{config.EMOJIS['success']} ההערות עודכנו")
+                    await self.my_medicines_command(update, context)
+                    return
+                if field == 'packsize' and text.isdigit():
+                    await DatabaseManager.update_medicine(mid, pack_size=int(text))
+                    await update.message.reply_text(f"{config.EMOJIS['success']} גודל החבילה עודכן")
                     await self.my_medicines_command(update, context)
                     return
                 # Fallback
@@ -1015,7 +1077,8 @@ class MedicineReminderBot:
                         await DatabaseManager.create_symptom_log(
                             user_id=user.id,
                             log_date=dt.utcnow(),
-                            symptoms=entry_text
+                            symptoms=entry_text,
+                            medicine_id=int(med_id) if med_id else None
                         )
                         user_data.pop('awaiting_symptom_text', None)
                         from utils.keyboards import get_main_menu_keyboard

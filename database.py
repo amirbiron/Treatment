@@ -46,6 +46,7 @@ class Medicine(Base):
     dosage: Mapped[str] = mapped_column(String(100))
     inventory_count: Mapped[float] = mapped_column(Float, default=0.0)
     low_stock_threshold: Mapped[float] = mapped_column(Float, default=5.0)
+    pack_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # pills per package
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -99,6 +100,9 @@ class SymptomLog(Base):
     side_effects: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Optional link to a specific medicine
+    medicine_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("medicines.id"), nullable=True)
+    medicine: Mapped[Optional["Medicine"]] = relationship("Medicine")
     
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="symptom_logs")
@@ -157,6 +161,22 @@ async def init_database():
     """Initialize the database and create all tables"""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Lightweight migration: add medicine_id to symptom_logs if missing (SQLite safe)
+        try:
+            res = await conn.exec_driver_sql("PRAGMA table_info(symptom_logs)")
+            cols = [row[1] for row in res.fetchall()]
+            if "medicine_id" not in cols:
+                await conn.exec_driver_sql("ALTER TABLE symptom_logs ADD COLUMN medicine_id INTEGER NULL")
+        except Exception:
+            pass
+        # Add pack_size to medicines if missing
+        try:
+            res2 = await conn.exec_driver_sql("PRAGMA table_info(medicines)")
+            cols2 = [row[1] for row in res2.fetchall()]
+            if "pack_size" not in cols2:
+                await conn.exec_driver_sql("ALTER TABLE medicines ADD COLUMN pack_size INTEGER NULL")
+        except Exception:
+            pass
 
 
 async def get_session():
@@ -234,7 +254,8 @@ class DatabaseManager:
         dosage: str,
         inventory_count: float = 0.0,
         low_stock_threshold: float = 5.0,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        pack_size: Optional[int] = None
     ) -> Medicine:
         """Create a new medicine for a user."""
         async with async_session() as session:
@@ -245,6 +266,7 @@ class DatabaseManager:
                 inventory_count=inventory_count,
                 low_stock_threshold=low_stock_threshold,
                 notes=notes,
+                pack_size=pack_size,
                 is_active=True
             )
             session.add(medicine)
@@ -477,16 +499,19 @@ class DatabaseManager:
             return list(result.scalars().all())
 
     @staticmethod
-    async def get_symptom_logs_in_range(user_id: int, start_date, end_date) -> List["SymptomLog"]:
+    async def get_symptom_logs_in_range(user_id: int, start_date, end_date, medicine_id: Optional[int] = None) -> List["SymptomLog"]:
         """Get symptom logs for a user within a date range (inclusive)."""
         async with async_session() as session:
+            conditions = [
+                SymptomLog.user_id == user_id,
+                SymptomLog.log_date >= datetime.combine(start_date, datetime.min.time()),
+                SymptomLog.log_date <= datetime.combine(end_date, datetime.max.time())
+            ]
+            if medicine_id is not None:
+                conditions.append(SymptomLog.medicine_id == medicine_id)
             result = await session.execute(
                 select(SymptomLog)
-                .where(
-                    SymptomLog.user_id == user_id,
-                    SymptomLog.log_date >= datetime.combine(start_date, datetime.min.time()),
-                    SymptomLog.log_date <= datetime.combine(end_date, datetime.max.time())
-                )
+                .where(*conditions)
                 .order_by(SymptomLog.log_date.asc())
             )
             return list(result.scalars().all())
@@ -516,7 +541,8 @@ class DatabaseManager:
         symptoms: str = None,
         side_effects: str = None,
         mood_score: int = None,
-        notes: str = None
+        notes: str = None,
+        medicine_id: Optional[int] = None
     ) -> "SymptomLog":
         """Create a new symptom/side-effects log entry."""
         async with async_session() as session:
@@ -526,7 +552,8 @@ class DatabaseManager:
                 symptoms=symptoms,
                 side_effects=side_effects,
                 mood_score=mood_score,
-                notes=notes
+                notes=notes,
+                medicine_id=medicine_id
             )
             session.add(log)
             await session.commit()
@@ -680,6 +707,7 @@ async def _init_mongo():
 		await _mongo_db.medicine_schedules.create_index([("medicine_id", 1)])
 		await _mongo_db.dose_logs.create_index([("medicine_id", 1), ("scheduled_time", 1)])
 		await _mongo_db.symptom_logs.create_index([("user_id", 1), ("log_date", 1)])
+		await _mongo_db.symptom_logs.create_index([("medicine_id", 1)])
 		await _mongo_db.caregivers.create_index([("user_id", 1)])
 
 # Wrap SQLAlchemy models into dict converters for Mongo
@@ -775,6 +803,7 @@ class DatabaseManagerMongo:
 			m.dosage = d.get("dosage")
 			m.inventory_count = float(d.get("inventory_count", 0))
 			m.low_stock_threshold = float(d.get("low_stock_threshold", 5))
+			m.pack_size = int(d.get("pack_size")) if d.get("pack_size") is not None else None
 			m.is_active = bool(d.get("is_active", True))
 			m.notes = d.get("notes")
 			m.created_at = d.get("created_at") or datetime.utcnow()
@@ -794,6 +823,7 @@ class DatabaseManagerMongo:
 		m.dosage = d.get("dosage")
 		m.inventory_count = float(d.get("inventory_count", 0))
 		m.low_stock_threshold = float(d.get("low_stock_threshold", 5))
+		m.pack_size = int(d.get("pack_size")) if d.get("pack_size") is not None else None
 		m.is_active = bool(d.get("is_active", True))
 		m.notes = d.get("notes")
 		m.created_at = d.get("created_at") or datetime.utcnow()
@@ -1036,6 +1066,7 @@ class DatabaseManagerMongo:
 			m.dosage = d.get("dosage")
 			m.inventory_count = float(d.get("inventory_count", 0))
 			m.low_stock_threshold = float(d.get("low_stock_threshold", 5))
+			m.pack_size = int(d.get("pack_size")) if d.get("pack_size") is not None else None
 			m.is_active = bool(d.get("is_active", True))
 			m.notes = d.get("notes")
 			m.created_at = d.get("created_at") or datetime.utcnow()
@@ -1055,14 +1086,43 @@ class DatabaseManagerMongo:
 		return result
 
 	@staticmethod
-	async def create_symptom_log(user_id: int, log_date: datetime, symptoms: str = None, side_effects: str = None, mood_score: int = None, notes: str = None) -> "SymptomLog":
+	async def get_symptom_logs_in_range(user_id: int, start_date, end_date, medicine_id: Optional[int] = None) -> List["SymptomLog"]:
+		await _init_mongo()
+		start_dt = datetime.combine(start_date, datetime.min.time())
+		end_dt = datetime.combine(end_date, datetime.max.time())
+		query = {
+			"user_id": int(user_id),
+			"log_date": {"$gte": start_dt, "$lte": end_dt}
+		}
+		if medicine_id is not None:
+			query["medicine_id"] = int(medicine_id)
+		rows = await _mongo_db.symptom_logs.find(query).sort("log_date", 1).to_list(10000)
+		result = []
+		class _Sym: pass
+		for d in rows:
+			obj = _Sym()
+			obj.id = d.get("_id")
+			obj.user_id = d.get("user_id")
+			obj.log_date = d.get("log_date")
+			obj.symptoms = d.get("symptoms")
+			obj.side_effects = d.get("side_effects")
+			obj.mood_score = d.get("mood_score")
+			obj.notes = d.get("notes")
+			obj.medicine_id = d.get("medicine_id")
+			result.append(obj)
+		return result
+
+	@staticmethod
+	async def create_symptom_log(user_id: int, log_date: datetime, symptoms: str = None, side_effects: str = None, mood_score: int = None, notes: str = None, medicine_id: Optional[int] = None) -> "SymptomLog":
 		await _init_mongo()
 		last = await _mongo_db.symptom_logs.find().sort("_id", -1).limit(1).to_list(1)
 		next_id = (last[0]["_id"] + 1) if last else 1
 		doc = {"_id": next_id, "user_id": int(user_id), "log_date": log_date, "symptoms": symptoms, "side_effects": side_effects, "mood_score": mood_score, "notes": notes}
+		if medicine_id is not None:
+			doc["medicine_id"] = int(medicine_id)
 		await _mongo_db.symptom_logs.insert_one(doc)
 		class _S: pass
-		s = _S(); s.id = next_id; s.user_id = user_id; s.log_date = log_date; s.symptoms = symptoms; s.side_effects = side_effects; s.mood_score = mood_score; s.notes = notes
+		s = _S(); s.id = next_id; s.user_id = user_id; s.log_date = log_date; s.symptoms = symptoms; s.side_effects = side_effects; s.mood_score = mood_score; s.notes = notes; s.medicine_id = medicine_id
 		return s # type: ignore
 
 
