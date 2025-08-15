@@ -594,7 +594,7 @@ class ReportsHandler:
                 await update.callback_query.answer()
                 await update.callback_query.edit_message_text(
                     f"{config.EMOJIS['info']} יצוא דוחות לקובץ יהיה זמין בקרוב",
-                    reply_markup=get_main_menu_keyboard()
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{config.EMOJIS['home']} תפריט ראשי", callback_data="main_menu")]])
                 )
             else:
                 await update.message.reply_text(
@@ -969,16 +969,12 @@ class ReportsHandler:
             if hasattr(update, "data") and hasattr(update, "edit_message_text"):
                 await update.edit_message_text(
                     f"{config.EMOJIS['error']} {error_text}",
-                    reply_markup=get_main_menu_keyboard()
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{config.EMOJIS['home']} תפריט ראשי", callback_data="main_menu")]])
                 )
             elif getattr(update, "callback_query", None):
                 await update.callback_query.edit_message_text(
-                    f"{config.EMOJIS['error']} {error_text}"
-                )
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="תפריט ראשי:",
-                    reply_markup=get_main_menu_keyboard()
+                    f"{config.EMOJIS['error']} {error_text}",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{config.EMOJIS['home']} תפריט ראשי", callback_data="main_menu")]])
                 )
             else:
                 await update.message.reply_text(
