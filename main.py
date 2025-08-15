@@ -903,35 +903,35 @@ class MedicineReminderBot:
             if 'adding_medicine' in user_data:
                 await self._handle_add_medicine_flow(update, context)
             else:
-                                 # Save symptom text if awaiting
-                 if user_data.get('awaiting_symptom_text'):
-                     try:
-                         user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
-                         from datetime import datetime as dt
-                         # If tied to a specific medicine from quick action, include name prefix
-                         med_prefix = None
-                         med_id = user_data.pop('symptoms_for_medicine', None)
-                         if med_id:
-                             med = await DatabaseManager.get_medicine_by_id(int(med_id))
-                             med_prefix = med.name if med else None
-                         entry_text = f"{med_prefix}: {text}" if med_prefix else text
-                         await DatabaseManager.create_symptom_log(
-                             user_id=user.id,
-                             log_date=dt.utcnow(),
-                             symptoms=entry_text
-                         )
-                         user_data.pop('awaiting_symptom_text', None)
-                         from utils.keyboards import get_main_menu_keyboard
-                         await update.message.reply_text(
-                             f"{config.EMOJIS['success']} נרשם. תודה!",
-                             reply_markup=get_main_menu_keyboard()
-                         )
-                         return
-                     except Exception as exc:
-                         logger.error(f"Error saving symptom: {exc}")
-                         await update.message.reply_text(config.ERROR_MESSAGES['general'])
-                         user_data.pop('awaiting_symptom_text', None)
-                         return
+                # Save symptom text if awaiting
+                if user_data.get('awaiting_symptom_text'):
+                    try:
+                        user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
+                        from datetime import datetime as dt
+                        # If tied to a specific medicine from quick action, include name prefix
+                        med_prefix = None
+                        med_id = user_data.pop('symptoms_for_medicine', None)
+                        if med_id:
+                            med = await DatabaseManager.get_medicine_by_id(int(med_id))
+                            med_prefix = med.name if med else None
+                        entry_text = f"{med_prefix}: {text}" if med_prefix else text
+                        await DatabaseManager.create_symptom_log(
+                            user_id=user.id,
+                            log_date=dt.utcnow(),
+                            symptoms=entry_text
+                        )
+                        user_data.pop('awaiting_symptom_text', None)
+                        from utils.keyboards import get_main_menu_keyboard
+                        await update.message.reply_text(
+                            f"{config.EMOJIS['success']} נרשם. תודה!",
+                            reply_markup=get_main_menu_keyboard()
+                        )
+                        return
+                    except Exception as exc:
+                        logger.error(f"Error saving symptom: {exc}")
+                        await update.message.reply_text(config.ERROR_MESSAGES['general'])
+                        user_data.pop('awaiting_symptom_text', None)
+                        return
                 # Save timezone if awaiting text
                 if user_data.get('awaiting_timezone_text'):
                     zone = text.strip()
