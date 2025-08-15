@@ -488,16 +488,19 @@ class DatabaseManager:
             return list(result.scalars().all())
 
     @staticmethod
-    async def get_symptom_logs_in_range(user_id: int, start_date, end_date) -> List["SymptomLog"]:
+    async def get_symptom_logs_in_range(user_id: int, start_date, end_date, medicine_id: Optional[int] = None) -> List["SymptomLog"]:
         """Get symptom logs for a user within a date range (inclusive)."""
         async with async_session() as session:
+            conditions = [
+                SymptomLog.user_id == user_id,
+                SymptomLog.log_date >= datetime.combine(start_date, datetime.min.time()),
+                SymptomLog.log_date <= datetime.combine(end_date, datetime.max.time())
+            ]
+            if medicine_id is not None:
+                conditions.append(SymptomLog.medicine_id == medicine_id)
             result = await session.execute(
                 select(SymptomLog)
-                .where(
-                    SymptomLog.user_id == user_id,
-                    SymptomLog.log_date >= datetime.combine(start_date, datetime.min.time()),
-                    SymptomLog.log_date <= datetime.combine(end_date, datetime.max.time())
-                )
+                .where(*conditions)
                 .order_by(SymptomLog.log_date.asc())
             )
             return list(result.scalars().all())
@@ -1069,14 +1072,17 @@ class DatabaseManagerMongo:
 		return result
 
 	@staticmethod
-	async def get_symptom_logs_in_range(user_id: int, start_date, end_date) -> List["SymptomLog"]:
+	async def get_symptom_logs_in_range(user_id: int, start_date, end_date, medicine_id: Optional[int] = None) -> List["SymptomLog"]:
 		await _init_mongo()
 		start_dt = datetime.combine(start_date, datetime.min.time())
 		end_dt = datetime.combine(end_date, datetime.max.time())
-		rows = await _mongo_db.symptom_logs.find({
+		query = {
 			"user_id": int(user_id),
 			"log_date": {"$gte": start_dt, "$lte": end_dt}
-		}).sort("log_date", 1).to_list(10000)
+		}
+		if medicine_id is not None:
+			query["medicine_id"] = int(medicine_id)
+		rows = await _mongo_db.symptom_logs.find(query).sort("log_date", 1).to_list(10000)
 		result = []
 		class _Sym: pass
 		for d in rows:

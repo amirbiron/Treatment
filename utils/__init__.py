@@ -78,6 +78,7 @@ from .keyboards import (
 	get_caregiver_keyboard,
 	get_symptoms_keyboard,
 	get_symptoms_medicine_picker,
+	get_symptoms_history_picker,
 	get_reports_keyboard,
 	
 	# Utility keyboards

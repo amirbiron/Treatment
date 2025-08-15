@@ -613,3 +613,35 @@ def get_symptoms_medicine_picker(medicines: List) -> InlineKeyboardMarkup:
         )
     ])
     return InlineKeyboardMarkup(keyboard)
+
+
+def get_symptoms_history_picker(medicines: List) -> InlineKeyboardMarkup:
+    """Build a keyboard to filter symptoms history by medicine or show all."""
+    keyboard = []
+    # All option
+    keyboard.append([
+        InlineKeyboardButton(
+            f"{config.EMOJIS['report']} כל התרופות",
+            callback_data="symptoms_history_all"
+        )
+    ])
+    # Per-medicine options (limit to 8 for brevity)
+    for med in medicines[:8]:
+        name = getattr(med, 'name', 'תרופה')
+        mid = getattr(med, 'id', None)
+        if mid is None:
+            continue
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{config.EMOJIS['medicine']} {name}",
+                callback_data=f"symptoms_history_med_{mid}"
+            )
+        ])
+    # Back
+    keyboard.append([
+        InlineKeyboardButton(
+            f"{config.EMOJIS['back']} חזור",
+            callback_data="main_menu"
+        )
+    ])
+    return InlineKeyboardMarkup(keyboard)

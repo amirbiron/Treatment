@@ -531,10 +531,25 @@ class MedicineReminderBot:
                     context.user_data['awaiting_symptom_text'] = True
                     return
                 if data == "symptoms_history":
+                    from utils.keyboards import get_symptoms_history_picker
+                    user = await DatabaseManager.get_user_by_telegram_id(user_id)
+                    meds = await DatabaseManager.get_user_medicines(user.id) if user else []
+                    await query.edit_message_text(
+                        "בחרו סינון להיסטוריית תופעות לוואי:",
+                        reply_markup=get_symptoms_history_picker(meds)
+                    )
+                    return
+                if data == "symptoms_history_all" or data.startswith("symptoms_history_med_"):
                     from datetime import date, timedelta
                     user = await DatabaseManager.get_user_by_telegram_id(user_id)
                     end_date = date.today(); start_date = end_date - timedelta(days=30)
-                    logs = await DatabaseManager.get_symptom_logs_in_range(user.id, start_date, end_date)
+                    med_filter = None
+                    if data.startswith("symptoms_history_med_"):
+                        try:
+                            med_filter = int(data.split("_")[-1])
+                        except Exception:
+                            med_filter = None
+                    logs = await DatabaseManager.get_symptom_logs_in_range(user.id, start_date, end_date, med_filter)
                     if not logs:
                         await query.edit_message_text("אין רישומי תופעות לוואי ב-30 הימים האחרונים")
                         return
@@ -546,10 +561,7 @@ class MedicineReminderBot:
                             m = await DatabaseManager.get_medicine_by_id(int(log.medicine_id))
                             med_name = m.name if m else None
                         body = (log.symptoms or log.side_effects or '—')
-                        if med_name:
-                            row = f"{ts} - {med_name}: {body}"
-                        else:
-                            row = f"{ts} - {body}"
+                        row = f"{ts} - {med_name}: {body}" if med_name else f"{ts} - {body}"
                         preview.append(row)
                     await query.edit_message_text("\n".join(preview))
                     return
