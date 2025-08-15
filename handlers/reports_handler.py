@@ -116,6 +116,14 @@ class ReportsHandler:
                 await self._send_error_message(update, "משתמש לא נמצא")
                 return
             
+            # Show loading indication
+            loading_msg = None
+            if getattr(update, 'callback_query', None):
+                await update.callback_query.answer()
+                loading_msg = await update.callback_query.message.reply_text("⏳ טוען דוח…")
+            elif getattr(update, 'message', None):
+                loading_msg = await update.message.reply_text("⏳ טוען דוח…")
+            
             # Calculate date range (last 7 days)
             end_date = date.today()
             start_date = end_date - timedelta(days=7)
@@ -136,7 +144,6 @@ class ReportsHandler:
 {config.EMOJIS['info']} ניתן לשתף דוח זה ידנית עם הרופא/המטפל בלחיצה על "שלח לרופא".
             """
             
-            # Send to user
             keyboard = [
                 [
                     InlineKeyboardButton(
@@ -156,19 +163,26 @@ class ReportsHandler:
                 ]
             ]
             
-            if update.callback_query:
-                await update.callback_query.answer()
-                await update.callback_query.edit_message_text(
+            # Replace loading with final content
+            if loading_msg:
+                await loading_msg.edit_text(
                     message,
                     parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-            elif getattr(update, 'message', None):
-                await update.message.reply_text(
-                    message,
-                    parse_mode='HTML',
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+            else:
+                if update.callback_query:
+                    await update.callback_query.edit_message_text(
+                        message,
+                        parse_mode='HTML',
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                elif getattr(update, 'message', None):
+                    await update.message.reply_text(
+                        message,
+                        parse_mode='HTML',
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             
             # Send to caregivers
             await self._send_report_to_caregivers(user.id, "דוח שבועי", full_report)
@@ -323,7 +337,6 @@ class ReportsHandler:
             data = ""
             # Support both Update and CallbackQuery objects
             if hasattr(update, "data") and hasattr(update, "edit_message_text"):
-                # Got a CallbackQuery instead of Update
                 callback_query = update
                 data = callback_query.data or ""
                 await callback_query.answer()
@@ -334,12 +347,18 @@ class ReportsHandler:
             else:
                 data = ""
             
-            # If triggered via command, show the reports menu
             if not data or data == "generate_report":
                 await self.show_reports_menu(update, context)
                 return ConversationHandler.END
             
-            # Route based on selection
+            # For heavy reports show loading animation
+            loading_msg = None
+            if data in ("report_full", "report_weekly"):
+                if callback_query:
+                    loading_msg = await callback_query.message.reply_text("⏳ טוען דוח…")
+                elif getattr(update, 'message', None):
+                    loading_msg = await update.message.reply_text("⏳ טוען דוח…")
+            
             if data == "report_weekly":
                 await self.generate_weekly_report(update, context)
                 return ConversationHandler.END
@@ -367,25 +386,6 @@ class ReportsHandler:
                 else:
                     await update.message.reply_text(adv_msg, parse_mode='HTML', reply_markup=adv_kb)
                 return ConversationHandler.END
-            if data == "report_detailed":
-                # Placeholder detailed report
-                message = f"{config.EMOJIS['info']} דוח מפורט יהיה זמין בקרוב"
-                if callback_query:
-                    await callback_query.edit_message_text(message)
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text="תפריט ראשי:",
-                        reply_markup=get_main_menu_keyboard()
-                    )
-                else:
-                    await update.callback_query.edit_message_text(message)
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text="תפריט ראשי:",
-                        reply_markup=get_main_menu_keyboard()
-                    )
-                return ConversationHandler.END
-            
             # Default date range for custom single reports: last 30 days
             end_date = date.today()
             start_date = end_date - timedelta(days=30)
@@ -412,7 +412,6 @@ class ReportsHandler:
                 trends = await self._generate_trends_report(user.id, start_date, end_date)
                 report_content = self._combine_reports([adherence, symptoms, trends])
             else:
-                # Unknown selection -> show menu
                 await self.show_reports_menu(update, context)
                 return ConversationHandler.END
             
@@ -440,18 +439,25 @@ class ReportsHandler:
                     )
                 ]
             ]
-            if callback_query:
-                await callback_query.edit_message_text(
+            if loading_msg:
+                await loading_msg.edit_text(
                     message,
                     parse_mode='HTML',
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             else:
-                await update.callback_query.edit_message_text(
-                    message,
-                    parse_mode='HTML',
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                if callback_query:
+                    await callback_query.edit_message_text(
+                        message,
+                        parse_mode='HTML',
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
+                else:
+                    await update.callback_query.edit_message_text(
+                        message,
+                        parse_mode='HTML',
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             return ConversationHandler.END
         except Exception as e:
             logger.error(f"Error in start_custom_report: {e}")
