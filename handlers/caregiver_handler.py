@@ -394,7 +394,6 @@ class CaregiverHandler:
                     f"• קשר: {data.get('relationship_type','')}\n"
                     f"• הרשאות: {perm_desc}\n"
                     f"{phone_line}{email_line}"
-                    f"מטפל יקבל הודעה על ההצטרפות ויוכל לראות דוחות מיד."
                 )
                 
                 # Send notification to caregiver
