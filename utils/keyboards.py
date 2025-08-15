@@ -562,7 +562,7 @@ def get_time_selection_keyboard() -> InlineKeyboardMarkup:
 
 def get_inventory_update_keyboard(medicine_id: int, pack_size: int = None) -> InlineKeyboardMarkup:
     """Keyboard for quick inventory updates (by packs)."""
-    pack = pack_size or 28
+    pack = int(pack_size) if pack_size else 28
     keyboard = [
         [
             InlineKeyboardButton(f"+1 חבילה (+{pack})", callback_data=f"inventory_{medicine_id}_+{pack}"),
@@ -570,9 +570,9 @@ def get_inventory_update_keyboard(medicine_id: int, pack_size: int = None) -> In
             InlineKeyboardButton(f"+3 חבילות (+{pack*3})", callback_data=f"inventory_{medicine_id}_+{pack*3}")
         ],
         [
-            InlineKeyboardButton(f"+30", callback_data=f"inventory_{medicine_id}_+30"),
-            InlineKeyboardButton(f"+60", callback_data=f"inventory_{medicine_id}_+60"),
-            InlineKeyboardButton(f"+90", callback_data=f"inventory_{medicine_id}_+90")
+            InlineKeyboardButton(f"+{pack}", callback_data=f"inventory_{medicine_id}_+{pack}"),
+            InlineKeyboardButton(f"+{pack*2}", callback_data=f"inventory_{medicine_id}_+{pack*2}"),
+            InlineKeyboardButton(f"+{pack*3}", callback_data=f"inventory_{medicine_id}_+{pack*3}")
         ],
         [
             InlineKeyboardButton(f"-1 חבילה (-{pack})", callback_data=f"inventory_{medicine_id}_-{pack}"),
@@ -738,9 +738,19 @@ def get_symptoms_medicine_picker(medicines: List) -> InlineKeyboardMarkup:
         mid = getattr(med, 'id', None)
         if mid is None:
             continue
+        # Choose icon by simple heuristics on the name; fallback to pill
+        lower_name = str(name).lower()
+        if any(tok in lower_name for tok in ["קפס", "caps", "cap", "gel"]):
+            icon = "💊"  # capsule
+        elif any(tok in lower_name for tok in ["טבל", "tab", "tablet"]):
+            icon = "🟦"  # tablet/caplet (approximation)
+        elif any(tok in lower_name for tok in ["קנאביס", "cannabis", "cbd", "thc"]):
+            icon = "🌿"  # cannabis
+        else:
+            icon = config.EMOJIS['medicine']
         keyboard.append([
             InlineKeyboardButton(
-                f"{config.EMOJIS['medicine']} {name}",
+                f"{icon} {name}",
                 callback_data=f"symptoms_log_med_{mid}"
             )
         ])
