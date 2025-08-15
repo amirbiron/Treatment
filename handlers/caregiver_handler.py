@@ -486,9 +486,9 @@ class CaregiverHandler:
                 data = self.user_caregiver_data[user_id]
                 perm_desc = self.permission_levels.get(permissions, permissions)
                 
-                            caregiver_emoji = config.EMOJIS.get('caregiver', '👥')
-            success_emoji = config.EMOJIS.get('success', '✅')
-            message = f"""
+                caregiver_emoji = config.EMOJIS.get('caregiver', '👥')
+                success_emoji = config.EMOJIS.get('success', '✅')
+                message = f"""
 {success_emoji} <b>מטפל נוסף בהצלחה!</b>
 
 {caregiver_emoji} <b>פרטי המטפל:</b>
@@ -498,8 +498,8 @@ class CaregiverHandler:
 • מזהה טלגרם: {data.get('caregiver_telegram_id','')}
 
 המטפל יקבל הודעה על ההצטרפות ויוכל לראות דוחות מיד.
-            """
-
+                """
+                
                 # Send notification to caregiver
                 await self._notify_new_caregiver(user_id, data)
                 
