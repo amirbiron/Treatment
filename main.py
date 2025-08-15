@@ -554,6 +554,20 @@ class MedicineReminderBot:
                 elif parts[-1] == "cancel":
                     await query.edit_message_text("בוטל")
                     return
+            elif data.startswith("meddel_"):
+                parts = data.split("_")
+                if parts[-1] == "confirm":
+                    medicine_id = int(parts[-2])
+                    user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+                    await medicine_scheduler.cancel_medicine_reminders(user.id, medicine_id)
+                    ok = await DatabaseManager.delete_medicine(medicine_id)
+                    await query.edit_message_text(
+                        f"{config.EMOJIS['success']} התרופה נמחקה" if ok else f"{config.EMOJIS['error']} התרופה לא נמצאה"
+                    )
+                    return
+                elif parts[-1] == "cancel":
+                    await query.edit_message_text("בוטל")
+                    return
             # Reminders settings controls
             elif data.startswith("rsnoop_") or data.startswith("rattempts_") or data == "rsilent_toggle" or data == "settings_menu":
                 await self._handle_reminders_settings_controls(query)
@@ -750,14 +764,22 @@ class MedicineReminderBot:
             user = query.from_user
             
             # Back to medicines list
-            if data == "medicines_list" or data == "medicine_manage":
+            if data == "medicines_list" or data == "medicine_manage" or data.startswith("medicines_page_"):
                 db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
                 medicines = await DatabaseManager.get_user_medicines(db_user.id) if db_user else []
+                offset = 0
+                if data.startswith("medicines_page_"):
+                    try:
+                        offset = int(data.split("_")[-1])
+                    except Exception:
+                        offset = 0
                 if not medicines:
                     message = f"{config.EMOJIS['info']} <b>אין תרופות רשומות</b>\n\nלחצו על /add_medicine כדי להוסיף תרופה ראשונה."
                 else:
                     message = f"{config.EMOJIS['medicine']} <b>התרופות שלכם:</b>\n\n"
-                    for medicine in medicines:
+                    slice_start = max(0, offset)
+                    slice_end = slice_start + config.MAX_MEDICINES_PER_PAGE
+                    for medicine in medicines[slice_start:slice_end]:
                         status_emoji = config.EMOJIS['success'] if medicine.is_active else config.EMOJIS['error']
                         inventory_warning = ""
                         if medicine.inventory_count <= medicine.low_stock_threshold:
@@ -769,7 +791,7 @@ class MedicineReminderBot:
                     await query.edit_message_text(
                         message,
                         parse_mode='HTML',
-                        reply_markup=get_medicines_keyboard(medicines if medicines else [])
+                        reply_markup=get_medicines_keyboard(medicines if medicines else [], offset=offset)
                     )
                 except Exception as exc:
                     if 'Message is not modified' in str(exc):
@@ -783,7 +805,7 @@ class MedicineReminderBot:
                             chat_id=query.message.chat_id,
                             text=message,
                             parse_mode='HTML',
-                            reply_markup=get_medicines_keyboard(medicines if medicines else [])
+                            reply_markup=get_medicines_keyboard(medicines if medicines else [], offset=offset)
                         )
                 return
             
@@ -850,6 +872,14 @@ class MedicineReminderBot:
                 await query.edit_message_text(
                     "בחרו שעה חדשה לנטילת התרופה או הזינו שעה (לדוגמה 08:30)",
                     reply_markup=get_time_selection_keyboard()
+                )
+                return
+            if data.startswith("medicine_delete_"):
+                medicine_id = int(data.split("_")[2])
+                from utils.keyboards import get_confirmation_keyboard
+                await query.edit_message_text(
+                    "האם למחוק את התרופה?",
+                    reply_markup=get_confirmation_keyboard("meddel", medicine_id)
                 )
                 return
             

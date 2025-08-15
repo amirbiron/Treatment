@@ -181,12 +181,16 @@ def get_reminder_keyboard(medicine_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_medicines_keyboard(medicines: List) -> InlineKeyboardMarkup:
+def get_medicines_keyboard(medicines: List, offset: int = 0) -> InlineKeyboardMarkup:
     """Keyboard for displaying user's medicines"""
     keyboard = []
     
     # Add medicine buttons (max 5 per page)
-    for i, medicine in enumerate(medicines[:config.MAX_MEDICINES_PER_PAGE]):
+    page_size = config.MAX_MEDICINES_PER_PAGE
+    slice_start = max(0, int(offset))
+    slice_end = slice_start + page_size
+    page_items = medicines[slice_start:slice_end]
+    for i, medicine in enumerate(page_items):
         status_emoji = config.EMOJIS['success'] if medicine.is_active else config.EMOJIS['error']
         # Removed warning emoji from button label for clarity
         
@@ -216,15 +220,25 @@ def get_medicines_keyboard(medicines: List) -> InlineKeyboardMarkup:
     
     keyboard.append(action_row)
     
-    # Navigation buttons if more than 5 medicines
-    if len(medicines) > config.MAX_MEDICINES_PER_PAGE:
-        nav_row = []
+    # Navigation buttons
+    nav_row = []
+    if slice_start > 0:
+        prev_offset = max(0, slice_start - page_size)
         nav_row.append(
             InlineKeyboardButton(
-                f"{config.EMOJIS['next']} עוד תרופות",
-                callback_data="medicine_next_page"
+                f"‹ הקודם",
+                callback_data=f"medicines_page_{prev_offset}"
             )
         )
+    if slice_end < len(medicines):
+        next_offset = slice_start + page_size
+        nav_row.append(
+            InlineKeyboardButton(
+                f"הבא ›",
+                callback_data=f"medicines_page_{next_offset}"
+            )
+        )
+    if nav_row:
         keyboard.append(nav_row)
     
     # Back to main menu
@@ -269,6 +283,12 @@ def get_medicine_detail_keyboard(medicine_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 f"{config.EMOJIS['error']} השבת/הפעל",
                 callback_data=f"medicine_toggle_{medicine_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                f"{config.EMOJIS['error']} מחק תרופה",
+                callback_data=f"medicine_delete_{medicine_id}"
             )
         ],
         [
