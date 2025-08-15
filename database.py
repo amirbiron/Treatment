@@ -130,10 +130,13 @@ class Caregiver(Base):
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
-    caregiver_telegram_id: Mapped[int] = mapped_column(Integer)
+    caregiver_telegram_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     caregiver_name: Mapped[str] = mapped_column(String(100))
     relationship_type: Mapped[str] = mapped_column("relationship", String(50))  # family, doctor, nurse, etc.
     permissions: Mapped[str] = mapped_column(String(200), default="view")  # view, manage, admin
+    email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    preferred_channel: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # 'email' | 'phone' | 'telegram'
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
@@ -206,6 +209,18 @@ async def init_database():
                 await conn.exec_driver_sql("ALTER TABLE appointments ADD COLUMN remind_same_day BOOLEAN DEFAULT 1")
             if "same_day_reminder_time" not in cols3:
                 await conn.exec_driver_sql("ALTER TABLE appointments ADD COLUMN same_day_reminder_time TIME NULL")
+        except Exception:
+            pass
+        # Add caregiver contact fields if missing
+        try:
+            res4 = await conn.exec_driver_sql("PRAGMA table_info(caregivers)")
+            cols4 = [row[1] for row in res4.fetchall()]
+            if "email" not in cols4:
+                await conn.exec_driver_sql("ALTER TABLE caregivers ADD COLUMN email VARCHAR(200) NULL")
+            if "phone" not in cols4:
+                await conn.exec_driver_sql("ALTER TABLE caregivers ADD COLUMN phone VARCHAR(50) NULL")
+            if "preferred_channel" not in cols4:
+                await conn.exec_driver_sql("ALTER TABLE caregivers ADD COLUMN preferred_channel VARCHAR(20) NULL")
         except Exception:
             pass
 
@@ -429,10 +444,13 @@ class DatabaseManager:
     @staticmethod
     async def create_caregiver(
         user_id: int,
-        caregiver_telegram_id: int,
-        caregiver_name: str,
-        relationship: str,
-        permissions: str = "view"
+        caregiver_telegram_id: Optional[int] = None,
+        caregiver_name: str = "",
+        relationship: str = "",
+        permissions: str = "view",
+        email: Optional[str] = None,
+        phone: Optional[str] = None,
+        preferred_channel: Optional[str] = None,
     ) -> Caregiver:
         """Create a new caregiver (maps relationship to relationship_type)"""
         async with async_session() as session:
@@ -442,6 +460,9 @@ class DatabaseManager:
                 caregiver_name=caregiver_name,
                 relationship_type=relationship,
                 permissions=permissions,
+                email=email,
+                phone=phone,
+                preferred_channel=preferred_channel,
                 is_active=True
             )
             session.add(caregiver)
@@ -461,6 +482,9 @@ class DatabaseManager:
         caregiver_name: Optional[str] = None,
         relationship_type: Optional[str] = None,
         permissions: Optional[str] = None,
+        email: Optional[str] = None,
+        phone: Optional[str] = None,
+        preferred_channel: Optional[str] = None,
     ) -> Optional[Caregiver]:
         """Update caregiver fields (name/relationship_type/permissions)."""
         async with async_session() as session:
@@ -473,6 +497,12 @@ class DatabaseManager:
                 caregiver.relationship_type = relationship_type
             if permissions is not None:
                 caregiver.permissions = permissions
+            if email is not None:
+                caregiver.email = email
+            if phone is not None:
+                caregiver.phone = phone
+            if preferred_channel is not None:
+                caregiver.preferred_channel = preferred_channel
             await session.commit()
             await session.refresh(caregiver)
             return caregiver
@@ -740,6 +770,8 @@ async def _init_mongo():
 		await _mongo_db.symptom_logs.create_index([("user_id", 1), ("log_date", 1)])
 		await _mongo_db.symptom_logs.create_index([("medicine_id", 1)])
 		await _mongo_db.caregivers.create_index([("user_id", 1)])
+		await _mongo_db.caregivers.create_index([("email", 1)])
+		await _mongo_db.caregivers.create_index([("phone", 1)])
 		await _mongo_db.appointments.create_index([("user_id", 1), ("when_at", 1)])
 
 # Wrap SQLAlchemy models into dict converters for Mongo
@@ -1034,13 +1066,32 @@ class DatabaseManagerMongo:
 		return result
 
 	@staticmethod
-	async def create_caregiver(user_id: int, caregiver_telegram_id: int, caregiver_name: str, relationship: str, permissions: str = "view") -> Caregiver:
+	async def create_caregiver(user_id: int, caregiver_telegram_id: Optional[int] = None, caregiver_name: str = "", relationship: str = "", permissions: str = "view", email: Optional[str] = None, phone: Optional[str] = None, preferred_channel: Optional[str] = None) -> Caregiver:
 		await _init_mongo()
 		last = await _mongo_db.caregivers.find().sort("_id", -1).limit(1).to_list(1)
 		next_id = (last[0]["_id"] + 1) if last else 1
-		doc = {"_id": next_id, "user_id": user_id, "caregiver_telegram_id": caregiver_telegram_id, "caregiver_name": caregiver_name, "relationship_type": relationship, "permissions": permissions, "is_active": True, "created_at": datetime.utcnow()}
+		doc = {"_id": next_id, "user_id": user_id, "caregiver_telegram_id": caregiver_telegram_id, "caregiver_name": caregiver_name, "relationship": relationship, "permissions": permissions, "is_active": True, "created_at": datetime.utcnow()}
+		if email is not None:
+			doc["email"] = email
+		if phone is not None:
+			doc["phone"] = phone
+		if preferred_channel is not None:
+			doc["preferred_channel"] = preferred_channel
 		await _mongo_db.caregivers.insert_one(doc)
-		cg = Caregiver(); cg.id = next_id; cg.user_id = user_id; cg.caregiver_telegram_id = caregiver_telegram_id; cg.caregiver_name = caregiver_name; cg.relationship_type = relationship; cg.permissions = permissions; cg.is_active = True; return cg
+		# Minimal return object
+		cg = Caregiver()
+		cg.id = next_id
+		cg.user_id = user_id
+		cg.caregiver_telegram_id = caregiver_telegram_id
+		cg.caregiver_name = caregiver_name
+		cg.relationship_type = relationship
+		cg.permissions = permissions
+		cg.email = email
+		cg.phone = phone
+		cg.preferred_channel = preferred_channel
+		cg.is_active = True
+		cg.created_at = datetime.utcnow()
+		return cg
 
 	@staticmethod
 	async def update_caregiver(
@@ -1048,15 +1099,24 @@ class DatabaseManagerMongo:
 		caregiver_name: Optional[str] = None,
 		relationship_type: Optional[str] = None,
 		permissions: Optional[str] = None,
+		email: Optional[str] = None,
+		phone: Optional[str] = None,
+		preferred_channel: Optional[str] = None,
 	) -> Optional[Caregiver]:
 		await _init_mongo()
 		updates = {}
 		if caregiver_name is not None:
 			updates["caregiver_name"] = caregiver_name
 		if relationship_type is not None:
-			updates["relationship_type"] = relationship_type
+			updates["relationship"] = relationship_type
 		if permissions is not None:
 			updates["permissions"] = permissions
+		if email is not None:
+			updates["email"] = email
+		if phone is not None:
+			updates["phone"] = phone
+		if preferred_channel is not None:
+			updates["preferred_channel"] = preferred_channel
 		if not updates:
 			return await DatabaseManagerMongo.get_caregiver_by_id(caregiver_id)
 		res = await _mongo_db.caregivers.update_one({"_id": int(caregiver_id)}, {"$set": updates})
