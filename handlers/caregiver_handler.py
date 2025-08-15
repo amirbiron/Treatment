@@ -878,9 +878,9 @@ class CaregiverHandler:
                 email=data.get('email'),
                 phone=data.get('phone')
             )
-            # Clear and show success, return to edit screen
+            # Clear and go back to caregivers list at the current page
             context.user_data.pop('edit_all', None)
-            await self.edit_caregiver(update, context)
+            await self.view_caregivers(update, context)
             return ConversationHandler.END
         except Exception as e:
             logger.error(f"Error in _edit_all_set_perms: {e}")
