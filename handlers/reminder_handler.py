@@ -392,35 +392,44 @@ class ReminderHandler:
 
 לחצו על "התרופות שלי" כדי להוסיף תרופות ולקבוע תזכורות.
                 """
+                kb = get_main_menu_keyboard()
             else:
                 message = f"{config.EMOJIS['clock']} **התזכורות הבאות:**\n\n"
-                
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                kb_rows = []
                 # Sort jobs by next run time
                 sorted_jobs = sorted(
                     [job for job in jobs if job['next_run']],
                     key=lambda x: x['next_run']
                 )
-                
-                for job in sorted_jobs[:10]:  # Show max 10 upcoming reminders
+                shown = 0
+                for job in sorted_jobs:
+                    if shown >= 6:
+                        break
                     next_run = job['next_run']
                     time_str = next_run.strftime('%H:%M')
                     date_str = next_run.strftime('%d/%m')
-                    
-                    # Extract medicine name from job name
+                    medicine_id = job.get('medicine_id') or 0
                     medicine_name = job['name'].split(' for user ')[0].replace('Medicine reminder', '').strip()
-                    
                     if next_run.date() == datetime.now().date():
                         message += f"⏰ **היום {time_str}** - {medicine_name}\n"
                     else:
                         message += f"📅 **{date_str} {time_str}** - {medicine_name}\n"
-                
-                if len(jobs) > 10:
-                    message += f"\n{config.EMOJIS['info']} ועוד {len(jobs) - 10} תזכורות..."
-            
+                    if medicine_id:
+                        kb_rows.append([
+                            InlineKeyboardButton("שנה שעה", callback_data=f"rem_edit_{medicine_id}"),
+                            InlineKeyboardButton("בטל תזכורת", callback_data=f"rem_disable_{medicine_id}")
+                        ])
+                    shown += 1
+                if len(jobs) > shown:
+                    message += f"\n{config.EMOJIS['info']} ועוד {len(jobs) - shown} תזכורות..."
+                from utils.keyboards import get_main_menu_keyboard
+                kb_rows.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזור לתפריט", callback_data="main_menu")])
+                kb = InlineKeyboardMarkup(kb_rows)
             await update.message.reply_text(
                 message,
                 parse_mode='Markdown',
-                reply_markup=get_main_menu_keyboard()
+                reply_markup=kb
             )
             
         except Exception as e:

@@ -470,6 +470,38 @@ class MedicineReminderBot:
                 # Route to internal medicine action handler which covers all medicine flows
                 await self._handle_medicine_action(query, context)
                 return
+            elif data == "medicine_next_page":
+                # TODO: implement paging; for now just re-render list (simple UX)
+                await self._handle_medicine_action(query, context)
+                return
+            elif data.startswith("rem_edit_"):
+                # Open time selection for a medicine
+                try:
+                    medicine_id = int(data.split("_")[-1])
+                except Exception:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
+                    return
+                from utils.keyboards import get_time_selection_keyboard
+                context.user_data['editing_schedule_for'] = medicine_id
+                await query.edit_message_text(
+                    "בחרו שעה חדשה לנטילת התרופה או הזינו שעה (לדוגמה 08:30)",
+                    reply_markup=get_time_selection_keyboard()
+                )
+                return
+            elif data.startswith("rem_disable_"):
+                # Disable reminder by deactivating medicine
+                try:
+                    medicine_id = int(data.split("_")[-1])
+                except Exception:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
+                    return
+                med = await DatabaseManager.get_medicine_by_id(medicine_id)
+                if not med:
+                    await query.edit_message_text(config.ERROR_MESSAGES["medicine_not_found"]) 
+                    return
+                await DatabaseManager.set_medicine_active(medicine_id, False)
+                await query.edit_message_text(f"{config.EMOJIS['success']} התזכורת בוטלה לתרופה {med.name}")
+                return
             elif data == "symptoms_menu":
                 await self.log_symptoms_command(update, context)
                 return
