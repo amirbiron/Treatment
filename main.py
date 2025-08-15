@@ -398,6 +398,13 @@ class MedicineReminderBot:
             elif data.startswith("report_") or data.startswith("report_action_") or data.startswith("export_report_"):
                 # Routed by reports handler; do nothing here (already registered)
                 return
+            elif data in ("cancel", "time_cancel"):
+                from utils.keyboards import get_main_menu_keyboard
+                await query.edit_message_text(
+                    f"{config.EMOJIS['info']} הפעולה בוטלה",
+                    reply_markup=get_main_menu_keyboard()
+                )
+                return
             elif data.startswith("caregiver_"):
                 # Routed by caregiver handler; do nothing here
                 return
@@ -426,8 +433,12 @@ class MedicineReminderBot:
                     return
                 return
             else:
-                await query.edit_message_text("פעולה לא מזוהה")
-                
+                # Ignore unknown callbacks silently to reduce confusion
+                try:
+                    await query.answer()
+                except Exception:
+                    pass
+                 
         except Exception as e:
             logger.error(f"Error in button callback: {e}")
             await query.edit_message_text(config.ERROR_MESSAGES["general"])
@@ -582,12 +593,22 @@ class MedicineReminderBot:
             
             # Inventory/schedule/edit/history/toggle actions - improved
             if data.startswith("medicine_inventory_"):
-                medicine_id = int(data.split("_")[2])
-                from utils.keyboards import get_inventory_update_keyboard
-                await query.edit_message_text(
-                    f"בחרו עדכון מהיר למלאי או הזינו כמות מדויקת:",
-                    reply_markup=get_inventory_update_keyboard(medicine_id)
-                )
+                # delegate detailed inventory handling (including +1/-1/custom) to handler
+                if re := __import__('re'):
+                    pass
+                # If user clicked entry button, show keyboard
+                parts = data.split("_")
+                if len(parts) == 3:
+                    medicine_id = int(parts[2])
+                    from utils.keyboards import get_inventory_update_keyboard
+                    await query.edit_message_text(
+                        f"בחרו עדכון מהיר למלאי או הזינו כמות מדויקת:",
+                        reply_markup=get_inventory_update_keyboard(medicine_id)
+                    )
+                    return
+                # Otherwise, forward inventory_* callbacks to handler
+                from handlers.medicine_handler import medicine_handler
+                await medicine_handler.handle_inventory_update(update, context)
                 return
             
             if data.startswith("medicine_schedule_"):
@@ -730,10 +751,12 @@ class MedicineReminderBot:
                 except Exception:
                     await update.message.reply_text("שעה לא תקינה")
                     return
-                # Persist schedule (append a new time)
-                await DatabaseManager.create_medicine_schedule(medicine_id, new_time)
+                # Replace or add a schedule time (avoid duplicates)
+                times = [new_time]
+                await DatabaseManager.replace_medicine_schedules(medicine_id, times)
                 # Re-schedule reminders for this time
                 user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
+                await medicine_scheduler.cancel_medicine_reminders(user.id, medicine_id)
                 await medicine_scheduler.schedule_medicine_reminder(
                     user_id=user.id,
                     medicine_id=medicine_id,
@@ -741,7 +764,7 @@ class MedicineReminderBot:
                     timezone=user.timezone or config.DEFAULT_TIMEZONE
                 )
                 user_data.pop('editing_schedule_for', None)
-                await update.message.reply_text(f"{config.EMOJIS['success']} נוספה שעת נטילה: {new_time.strftime('%H:%M')}")
+                await update.message.reply_text(f"{config.EMOJIS['success']} השעה עודכנה ל- {new_time.strftime('%H:%M')}")
                 # Show medicine details
                 med = await DatabaseManager.get_medicine_by_id(medicine_id)
                 from utils.keyboards import get_medicine_detail_keyboard
@@ -854,28 +877,35 @@ class MedicineReminderBot:
             if 'adding_medicine' in user_data:
                 await self._handle_add_medicine_flow(update, context)
             else:
-                                # Save symptom text if awaiting
-                if user_data.get('awaiting_symptom_text'):
-                    try:
-                        user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
-                        from datetime import datetime as dt
-                        await DatabaseManager.create_symptom_log(
-                            user_id=user.id,
-                            log_date=dt.utcnow(),
-                            symptoms=text
-                        )
-                        user_data.pop('awaiting_symptom_text', None)
-                        from utils.keyboards import get_main_menu_keyboard
-                        await update.message.reply_text(
-                            f"{config.EMOJIS['success']} נרשם. תודה!",
-                            reply_markup=get_main_menu_keyboard()
-                        )
-                        return
-                    except Exception as exc:
-                        logger.error(f"Error saving symptom: {exc}")
-                        await update.message.reply_text(config.ERROR_MESSAGES['general'])
-                        user_data.pop('awaiting_symptom_text', None)
-                        return
+                                 # Save symptom text if awaiting
+                 if user_data.get('awaiting_symptom_text'):
+                     try:
+                         user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
+                         from datetime import datetime as dt
+                         # If tied to a specific medicine from quick action, include name prefix
+                         med_prefix = None
+                         med_id = user_data.pop('symptoms_for_medicine', None)
+                         if med_id:
+                             med = await DatabaseManager.get_medicine_by_id(int(med_id))
+                             med_prefix = med.name if med else None
+                         entry_text = f"{med_prefix}: {text}" if med_prefix else text
+                         await DatabaseManager.create_symptom_log(
+                             user_id=user.id,
+                             log_date=dt.utcnow(),
+                             symptoms=entry_text
+                         )
+                         user_data.pop('awaiting_symptom_text', None)
+                         from utils.keyboards import get_main_menu_keyboard
+                         await update.message.reply_text(
+                             f"{config.EMOJIS['success']} נרשם. תודה!",
+                             reply_markup=get_main_menu_keyboard()
+                         )
+                         return
+                     except Exception as exc:
+                         logger.error(f"Error saving symptom: {exc}")
+                         await update.message.reply_text(config.ERROR_MESSAGES['general'])
+                         user_data.pop('awaiting_symptom_text', None)
+                         return
                 # Save timezone if awaiting text
                 if user_data.get('awaiting_timezone_text'):
                     zone = text.strip()

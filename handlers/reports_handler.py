@@ -126,12 +126,12 @@ class ReportsHandler:
             full_report = self._combine_reports([report, symptoms_report])
             
             message = f"""
-{config.EMOJIS['report']} <b>דוח שבועי</b>
+{config.EMOJES['report']} <b>דוח שבועי</b>
 📅 {format_date_hebrew(start_date)} - {format_date_hebrew(end_date)}
 
 {full_report}
 
-{config.EMOJIS['info']} דוח זה נשלח אוטומטית למטפלים שלכם.
+{config.EMOJES['info']} דוח זה נשלח אוטומטית למטפלים שלכם.
             """
             
             # Send to user
@@ -148,7 +148,7 @@ class ReportsHandler:
                 ],
                 [
                     InlineKeyboardButton(
-                        f"{config.EMOJIS['home']} תפריט ראשי",
+                        f"{config.EMOJES['home']} תפריט ראשי",
                         callback_data="main_menu"
                     )
                 ]
@@ -204,12 +204,12 @@ class ReportsHandler:
             ])
             
             message = f"""
-{config.EMOJIS['report']} <b>דוח חודשי מקיף</b>
+{config.EMOJES['report']} <b>דוח חודשי מקיף</b>
 📅 {format_date_hebrew(start_date)} - {format_date_hebrew(end_date)}
 
 {full_report}
 
-{config.EMOJIS['info']} דוח זה מתאים להצגה לרופא או למטפל.
+{config.EMOJES['info']} דוח זה מתאים להצגה לרופא או למטפל.
             """
             
             keyboard = [
@@ -231,7 +231,7 @@ class ReportsHandler:
                 ],
                 [
                     InlineKeyboardButton(
-                        f"{config.EMOJIS['home']} תפריט ראשי",
+                        f"{config.EMOJES['home']} תפריט ראשי",
                         callback_data="main_menu"
                     )
                 ]
@@ -259,7 +259,7 @@ class ReportsHandler:
         """Show reports menu"""
         try:
             message = f"""
-{config.EMOJIS['report']} <b>מרכז הדוחות</b>
+{config.EMOJES['report']} <b>מרכז הדוחות</b>
 
 בחרו את סוג הדוח שתרצו ליצור:
 
@@ -306,7 +306,7 @@ class ReportsHandler:
                 ],
                 [
                     InlineKeyboardButton(
-                        f"{config.EMOJIS['back']} חזור",
+                        f"{config.EMOJES['back']} חזור",
                         callback_data="main_menu"
                     )
                 ]
@@ -356,7 +356,7 @@ class ReportsHandler:
                 return ConversationHandler.END
             if data == "report_detailed":
                 # Placeholder detailed report
-                message = f"{config.EMOJIS['info']} דוח מפורט יהיה זמין בקרוב"
+                message = f"{config.EMOJES['info']} דוח מפורט יהיה זמין בקרוב"
                 await update.callback_query.edit_message_text(
                     message,
                     reply_markup=get_main_menu_keyboard()
@@ -394,7 +394,7 @@ class ReportsHandler:
                 return ConversationHandler.END
             
             message = f"""
-{config.EMOJIS['report']} <b>{report_title}</b>
+{config.EMOJES['report']} <b>{report_title}</b>
 📅 {format_date_hebrew(start_date)} - {format_date_hebrew(end_date)}
 
 {report_content}
@@ -412,7 +412,7 @@ class ReportsHandler:
                 ],
                 [
                     InlineKeyboardButton(
-                        f"{config.EMOJIS['home']} תפריט ראשי",
+                        f"{config.EMOJES['home']} תפריט ראשי",
                         callback_data="main_menu"
                     )
                 ]
@@ -457,7 +457,7 @@ class ReportsHandler:
             if update.callback_query:
                 await update.callback_query.answer()
                 await update.callback_query.edit_message_text(
-                    f"{config.EMOJIS['success']} הדוח נשלח בהצלחה",
+                    f"{config.EMOJES['success']} הדוח נשלח בהצלחה",
                     reply_markup=get_main_menu_keyboard()
                 )
             return ConversationHandler.END
@@ -486,13 +486,13 @@ class ReportsHandler:
             full_report = self._combine_reports([adherence, symptoms, trends])
             
             message = f"""
-{config.EMOJIS['report']} <b>שליחת דוח לרופא</b>
-הדוח החודשי האחרון מוכן לשליחה. פונקציית השליחה תתווסף בקרוב.
-
-תוכן הדוח:
-
-{full_report}
-            """
+{config.EMOJES['report']} <b>שליחת דוח לרופא</b>
+הדוח החודשי האחרון מוכן לשליחה. פונקציית שליחה אוטומטית תתווסף בקרוב; בינתיים ניתן להעתיק ולשתף ידנית.
+ 
+ תוכן הדוח:
+ 
+ {full_report}
+             """
             if update.callback_query:
                 await update.callback_query.edit_message_text(
                     message,
@@ -522,7 +522,7 @@ class ReportsHandler:
                 await self.send_to_doctor_flow(update, context)
             elif data == "report_action_share":
                 await update.callback_query.edit_message_text(
-                    f"{config.EMOJIS['info']} אפשרויות שיתוף יתמכו בקרוב",
+                    f"{config.EMOJES['info']} אפשרויות שיתוף יתמכו בקרוב",
                     reply_markup=get_main_menu_keyboard()
                 )
             else:
@@ -539,12 +539,12 @@ class ReportsHandler:
             if update.callback_query:
                 await update.callback_query.answer()
                 await update.callback_query.edit_message_text(
-                    f"{config.EMOJIS['info']} יצוא דוחות לקובץ יהיה זמין בקרוב",
+                    f"{config.EMOJES['info']} יצוא דוחות לקובץ יהיה זמין בקרוב",
                     reply_markup=get_main_menu_keyboard()
                 )
             else:
                 await update.message.reply_text(
-                    f"{config.EMOJIS['info']} יצוא דוחות לקובץ יהיה זמין בקרוב",
+                    f"{config.EMOJES['info']} יצוא דוחות לקובץ יהיה זמין בקרוב",
                     reply_markup=get_main_menu_keyboard()
                 )
             return ConversationHandler.END
@@ -560,7 +560,7 @@ class ReportsHandler:
             medicines = await DatabaseManager.get_user_medicines(user_id)
             
             if not medicines:
-                return f"{config.EMOJIS['info']} אין תרופות רשומות"
+                return f"{config.EMOJES['info']} אין תרופות רשומות"
             
             total_doses = 0
             taken_doses = 0
@@ -596,7 +596,7 @@ class ReportsHandler:
                     skipped_doses += med_skipped
             
             if total_doses == 0:
-                return f"{config.EMOJIS['info']} אין נתוני נטילה בתקופה זו"
+                return f"{config.EMOJES['info']} אין נתוני נטילה בתקופה זו"
             
             overall_adherence = (taken_doses / total_doses) * 100
             
@@ -621,17 +621,17 @@ class ReportsHandler:
             
             # Add recommendations
             if overall_adherence >= 90:
-                report += f"\n{config.EMOJIS['success']} <b>מצוין!</b> שיעור ציות גבוה מאוד."
+                report += f"\n{config.EMOJES['success']} <b>מצוין!</b> שיעור ציות גבוה מאוד."
             elif overall_adherence >= 80:
-                report += f"\n{config.EMOJIS['warning']} <b>טוב.</b> יש מקום לשיפור קל."
+                report += f"\n{config.EMOJES['warning']} <b>טוב.</b> יש מקום לשיפור קל."
             else:
-                report += f"\n{config.EMOJIS['error']} <b>דורש תשומת לב.</b> מומלץ להתייעץ עם הרופא."
+                report += f"\n{config.EMOJES['error']} <b>דורש תשומת לב.</b> מומלץ להתייעץ עם הרופא."
             
             return report
             
         except Exception as e:
             logger.error(f"Error generating adherence report: {e}")
-            return f"{config.EMOJIS['error']} שגיאה ביצירת דוח נטילת תרופות"
+            return f"{config.EMOJES['error']} שגיאה ביצירת דוח נטילת תרופות"
     
     async def _generate_symptoms_report(self, user_id: int, start_date: date, end_date: date) -> str:
         """Generate symptoms and side effects report"""
@@ -642,7 +642,7 @@ class ReportsHandler:
             )
             
             if not symptom_logs:
-                return f"{config.EMOJIS['info']} אין נתוני תופעות לוואי בתקופה זו"
+                return f"{config.EMOJES['info']} אין נתוני תופעות לוואי בתקופה זו"
             
             # Calculate statistics
             mood_scores = [log.mood_score for log in symptom_logs if log.mood_score]
@@ -697,7 +697,7 @@ class ReportsHandler:
             
         except Exception as e:
             logger.error(f"Error generating symptoms report: {e}")
-            return f"{config.EMOJIS['error']} שגיאה ביצירת דוח תופעות לוואי"
+            return f"{config.EMOJES['error']} שגיאה ביצירת דוח תופעות לוואי"
     
     async def _generate_inventory_report(self, user_id: int) -> str:
         """Generate inventory status report"""
@@ -705,7 +705,7 @@ class ReportsHandler:
             medicines = await DatabaseManager.get_user_medicines(user_id)
             
             if not medicines:
-                return f"{config.EMOJIS['info']} אין תרופות רשומות"
+                return f"{config.EMOJES['info']} אין תרופות רשומות"
             
             low_stock = []
             out_of_stock = []
@@ -751,7 +751,7 @@ class ReportsHandler:
             
         except Exception as e:
             logger.error(f"Error generating inventory report: {e}")
-            return f"{config.EMOJIS['error']} שגיאה ביצירת דוח מלאי"
+            return f"{config.EMOJES['error']} שגיאה ביצירת דוח מלאי"
     
     async def _generate_trends_report(self, user_id: int, start_date: date, end_date: date) -> str:
         """Generate trends analysis report"""
@@ -760,14 +760,14 @@ class ReportsHandler:
             daily_adherence = await self._calculate_daily_adherence(user_id, start_date, end_date)
             
             if not daily_adherence:
-                return f"{config.EMOJIS['info']} אין מספיק נתונים לניתוח מגמות"
+                return f"{config.EMOJES['info']} אין מספיק נתונים לניתוח מגמות"
             
             # Calculate trends
             dates = list(daily_adherence.keys())
             rates = list(daily_adherence.values())
             
             if len(rates) < 3:
-                return f"{config.EMOJIS['info']} דרושים לפחות 3 ימים לניתוח מגמות"
+                return f"{config.EMOJES['info']} דרושים לפחות 3 ימים לניתוח מגמות"
             
             # Simple trend analysis
             recent_avg = sum(rates[-3:]) / 3
@@ -802,7 +802,7 @@ class ReportsHandler:
             
         except Exception as e:
             logger.error(f"Error generating trends report: {e}")
-            return f"{config.EMOJIS['error']} שגיאה ביצירת ניתוח מגמות"
+            return f"{config.EMOJES['error']} שגיאה ביצירת ניתוח מגמות"
     
     async def _send_report_to_caregivers(self, user_id: int, report_title: str, report_content: str):
         """Send report to all caregivers"""
@@ -814,13 +814,13 @@ class ReportsHandler:
                 return
             
             message = f"""
-{config.EMOJIS['report']} <b>{report_title}</b>
+{config.EMOJES['report']} <b>{report_title}</b>
 👤 <b>מטופל:</b> {user.first_name} {user.last_name or ''}
 📅 <b>תאריך:</b> {format_datetime_hebrew(datetime.now())}
 
 {report_content}
 
-{config.EMOJIS['info']} דוח זה נשלח אוטומטיות למטפלים.
+{config.EMOJES['info']} דוח זה נשלח אוטומטיות למטפלים.
             """
             
             for caregiver in caregivers:
@@ -888,7 +888,7 @@ class ReportsHandler:
             if user_id in self.user_report_data:
                 del self.user_report_data[user_id]
             
-            message = f"{config.EMOJIS['info']} יצירת הדוח בוטלה"
+            message = f"{config.EMOJES['info']} יצירת הדוח בוטלה"
             
             if update.callback_query:
                 await update.callback_query.answer()
@@ -913,12 +913,12 @@ class ReportsHandler:
         try:
             if update.callback_query:
                 await update.callback_query.edit_message_text(
-                    f"{config.EMOJIS['error']} {error_text}",
+                    f"{config.EMOJES['error']} {error_text}",
                     reply_markup=get_main_menu_keyboard()
                 )
             else:
                 await update.message.reply_text(
-                    f"{config.EMOJIS['error']} {error_text}",
+                    f"{config.EMOJES['error']} {error_text}",
                     reply_markup=get_main_menu_keyboard()
                 )
         except Exception as e:

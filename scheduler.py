@@ -366,7 +366,7 @@ class MedicineScheduler:
             """
             
             for caregiver in caregivers:
-                if caregiver.is_active:
+                if caregiver.is_active and caregiver.caregiver_telegram_id and caregiver.caregiver_telegram_id > 0:
                     await self.bot.send_message(
                         chat_id=caregiver.caregiver_telegram_id,
                         text=message,

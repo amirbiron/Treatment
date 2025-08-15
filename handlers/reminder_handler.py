@@ -43,6 +43,9 @@ class ReminderHandler:
             # Confirmation handlers
             CallbackQueryHandler(self.confirm_dose_skip, pattern="^skip_.*_confirm$"),
             CallbackQueryHandler(self.cancel_dose_skip, pattern="^skip_.*_cancel$"),
+
+            # Quick symptoms logging tied to a medicine
+            CallbackQueryHandler(self.handle_quick_symptoms, pattern="^symptoms_quick_"),
         ]
     
     async def handle_dose_taken(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -568,11 +571,45 @@ class ReminderHandler:
             logger.error(f"Error getting latest pending reminder: {e}")
             return None
     
+    async def handle_quick_symptoms(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Prompt user to log side-effects for a specific medicine."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            parts = (query.data or "").split("_")
+            medicine_id = int(parts[-1]) if parts and parts[-1].isdigit() else None
+            if not medicine_id:
+                await query.edit_message_text(
+                    f"{config.EMOJIS['error']} התרופה לא נמצאה",
+                    reply_markup=get_main_menu_keyboard()
+                )
+                return
+            med = await DatabaseManager.get_medicine_by_id(medicine_id)
+            if not med:
+                await query.edit_message_text(
+                    f"{config.EMOJIS['error']} התרופה לא נמצאה",
+                    reply_markup=get_main_menu_keyboard()
+                )
+                return
+            # Set context to capture next text as symptoms for this medicine (store name in prefix)
+            context.user_data['awaiting_symptom_text'] = True
+            context.user_data['symptoms_for_medicine'] = medicine_id
+            await query.edit_message_text(
+                f"{config.EMOJIS['symptoms']} רשמו תופעות לוואי עבור {med.name}:",
+                reply_markup=get_main_menu_keyboard()
+            )
+        except Exception as e:
+            logger.error(f"Error in handle_quick_symptoms: {e}")
+            try:
+                await update.callback_query.edit_message_text(config.ERROR_MESSAGES["general"]) 
+            except Exception:
+                pass
+    
     async def _notify_caregivers_dose_taken(self, user_id: int, medicine, taken_at: datetime):
         """Notify caregivers that dose was taken"""
         try:
             caregivers = await DatabaseManager.get_user_caregivers(user_id, active_only=True)
-            user = await DatabaseManager.get_user_by_telegram_id(user_id)
+            user = await DatabaseManager.get_user_by_id(user_id)
             
             if not caregivers or not user:
                 return
@@ -580,25 +617,21 @@ class ReminderHandler:
             message = f"""
 {config.EMOJIS['success']} **תרופה נלקחה**
 
-👤 **מטופל:** {user.first_name} {user.last_name or ''}
 {config.EMOJIS['medicine']} **תרופה:** {medicine.name}
-💊 **מינון:** {medicine.dosage}
-⏰ **זמן נטילה:** {taken_at.strftime('%H:%M')}
-📅 **תאריך:** {taken_at.strftime('%d/%m/%Y')}
+{config.EMOJIS['clock']} **שעה:** {taken_at.strftime('%H:%M')}
             """
             
             # Send to caregivers who have permission to receive updates
             for caregiver in caregivers:
-                if 'view' in caregiver.permissions or 'manage' in caregiver.permissions:
+                if ('view' in caregiver.permissions or 'manage' in caregiver.permissions) and caregiver.caregiver_telegram_id and caregiver.caregiver_telegram_id > 0:
                     try:
-                        await context.bot.send_message(
+                        await medicine_scheduler.bot.send_message(
                             chat_id=caregiver.caregiver_telegram_id,
                             text=message,
-                            parse_mode='HTML'
+                            parse_mode='Markdown'
                         )
                     except Exception as e:
                         logger.error(f"Failed to notify caregiver {caregiver.id}: {e}")
-            
         except Exception as e:
             logger.error(f"Error notifying caregivers about dose taken: {e}")
     
@@ -606,7 +639,7 @@ class ReminderHandler:
         """Notify caregivers that dose was skipped"""
         try:
             caregivers = await DatabaseManager.get_user_caregivers(user_id, active_only=True)
-            user = await DatabaseManager.get_user_by_telegram_id(user_id)
+            user = await DatabaseManager.get_user_by_id(user_id)
             
             if not caregivers or not user:
                 return
@@ -614,27 +647,22 @@ class ReminderHandler:
             message = f"""
 {config.EMOJIS['warning']} **תרופה דולגה**
 
-👤 **מטופל:** {user.first_name} {user.last_name or ''}
 {config.EMOJIS['medicine']} **תרופה:** {medicine.name}
-💊 **מינון:** {medicine.dosage}
-⏰ **זמן מתוכנן:** {skipped_at.strftime('%H:%M')}
-📅 **תאריך:** {skipped_at.strftime('%d/%m/%Y')}
-
+{config.EMOJIS['clock']} **שעה:** {skipped_at.strftime('%H:%M')}
 ⚠️ **המטופל בחר לדלג על התרופה**
             """
-            
+             
             # Send to caregivers who have permission to receive updates
             for caregiver in caregivers:
-                if 'view' in caregiver.permissions or 'manage' in caregiver.permissions:
+                if ('view' in caregiver.permissions or 'manage' in caregiver.permissions) and caregiver.caregiver_telegram_id and caregiver.caregiver_telegram_id > 0:
                     try:
-                        await context.bot.send_message(
+                        await medicine_scheduler.bot.send_message(
                             chat_id=caregiver.caregiver_telegram_id,
                             text=message,
-                            parse_mode='HTML'
+                            parse_mode='Markdown'
                         )
                     except Exception as e:
                         logger.error(f"Failed to notify caregiver {caregiver.id}: {e}")
-            
         except Exception as e:
             logger.error(f"Error notifying caregivers about dose skipped: {e}")
 
