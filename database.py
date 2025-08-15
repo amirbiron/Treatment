@@ -99,6 +99,9 @@ class SymptomLog(Base):
     side_effects: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Optional link to a specific medicine
+    medicine_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("medicines.id"), nullable=True)
+    medicine: Mapped[Optional["Medicine"]] = relationship("Medicine")
     
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="symptom_logs")
@@ -157,6 +160,14 @@ async def init_database():
     """Initialize the database and create all tables"""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Lightweight migration: add medicine_id to symptom_logs if missing (SQLite safe)
+        try:
+            res = await conn.exec_driver_sql("PRAGMA table_info(symptom_logs)")
+            cols = [row[1] for row in res.fetchall()]
+            if "medicine_id" not in cols:
+                await conn.exec_driver_sql("ALTER TABLE symptom_logs ADD COLUMN medicine_id INTEGER NULL")
+        except Exception:
+            pass
 
 
 async def get_session():
@@ -516,7 +527,8 @@ class DatabaseManager:
         symptoms: str = None,
         side_effects: str = None,
         mood_score: int = None,
-        notes: str = None
+        notes: str = None,
+        medicine_id: Optional[int] = None
     ) -> "SymptomLog":
         """Create a new symptom/side-effects log entry."""
         async with async_session() as session:
@@ -526,7 +538,8 @@ class DatabaseManager:
                 symptoms=symptoms,
                 side_effects=side_effects,
                 mood_score=mood_score,
-                notes=notes
+                notes=notes,
+                medicine_id=medicine_id
             )
             session.add(log)
             await session.commit()

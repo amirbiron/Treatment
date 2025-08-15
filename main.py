@@ -1022,7 +1022,8 @@ class MedicineReminderBot:
                         await DatabaseManager.create_symptom_log(
                             user_id=user.id,
                             log_date=dt.utcnow(),
-                            symptoms=entry_text
+                            symptoms=entry_text,
+                            medicine_id=int(med_id) if med_id else None
                         )
                         user_data.pop('awaiting_symptom_text', None)
                         from utils.keyboards import get_main_menu_keyboard
