@@ -891,6 +891,14 @@ class MedicineReminderBot:
     async def handle_text_message(self, update: Update, context):
         """Handle regular text messages (for conversation flows)"""
         try:
+            # Route appointment flow text first if active
+            if context.user_data.get('appt_state'):
+                try:
+                    await appointments_handler.handle_text(update, context)
+                    return
+                except Exception:
+                    pass
+            
             # This would handle conversation states for adding medicines, etc.
             # For now, just acknowledge
             user_data = context.user_data

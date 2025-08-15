@@ -153,7 +153,7 @@ class AppointmentsHandler:
 			ud['type'] = appt_type
 			ud['step'] = 'details'
 			prompt = {
-				'doctor': "הקלידו את שם הרופא",
+				'doctor': "הזינו את התמחות הרופא",
 				'blood': "הקלידו את סוג בדיקת הדם",
 				'treatment': "הקלידו את סוג הטיפול",
 				'checkup': "הקלידו את סוג הבדיקה",
