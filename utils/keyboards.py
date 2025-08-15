@@ -25,7 +25,7 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
             KeyboardButton(f"{config.EMOJIS['caregiver']} מטפלים")
         ],
         [
-            KeyboardButton(f"{config.EMOJIS['calendar']} קביעת תור")
+            KeyboardButton(f"{config.EMOJIS['calendar']} הוספת תור")
         ],
         [
             KeyboardButton(f"{config.EMOJIS['settings']} הגדרות"),

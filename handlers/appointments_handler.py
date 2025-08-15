@@ -29,7 +29,7 @@ class AppointmentsHandler:
 
 	async def show_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
 		await update.message.reply_text(
-			f"{config.EMOJIS['calendar']} קביעת תור\n\n{config.APPOINTMENTS_HELP}",
+			f"{config.EMOJIS['calendar']} הוספת תור\n\n{config.APPOINTMENTS_HELP}",
 			reply_markup=get_appointments_menu_keyboard()
 		)
 

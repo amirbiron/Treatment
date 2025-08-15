@@ -239,13 +239,13 @@ class MedicineReminderBot:
 לחצו על /add_medicine כדי להוסיף תרופה ראשונה.
                 """
             else:
-                message = f"{config.EMOJES['medicine']} <b>התרופות שלכם:</b>\n\n"
+                message = f"{config.EMOJIS['medicine']} <b>התרופות שלכם:</b>\n\n"
                 for medicine in medicines:
-                    status_emoji = config.EMOJES['success'] if medicine.is_active else config.EMOJES['error']
+                    status_emoji = config.EMOJIS['success'] if medicine.is_active else config.EMOJIS['error']
                     inventory_warning = ""
                     
                     if medicine.inventory_count <= medicine.low_stock_threshold:
-                        inventory_warning = f" {config.EMOJES['warning']}"
+                        inventory_warning = f" {config.EMOJIS['warning']}"
                     
                     message += f"{status_emoji} <b>{medicine.name}</b>\n"
                     message += f"   💊 {medicine.dosage}\n"
@@ -303,7 +303,7 @@ class MedicineReminderBot:
             
             await DatabaseManager.update_inventory(selected.id, new_count)
             await update.message.reply_text(
-                f"{config.EMOJES['success']} עודכן מלאי לתרופה {selected.name}: {new_count}"
+                f"{config.EMOJIS['success']} עודכן מלאי לתרופה {selected.name}: {new_count}"
             )
         
         except Exception as e:
@@ -401,7 +401,7 @@ class MedicineReminderBot:
                 from utils.keyboards import get_main_menu_keyboard
                 context.user_data.pop('editing_schedule_for', None)
                 # Telegram edit_message_text cannot attach ReplyKeyboardMarkup. Send a new message instead.
-                await query.edit_message_text(f"{config.EMOJES['info']} הפעולה בוטלה")
+                await query.edit_message_text(f"{config.EMOJIS['info']} הפעולה בוטלה")
                 await self.application.bot.send_message(
                     chat_id=query.message.chat_id,
                     text="בחרו פעולה:",
@@ -439,7 +439,7 @@ class MedicineReminderBot:
                         from utils.keyboards import get_medicine_detail_keyboard
                         med = await DatabaseManager.get_medicine_by_id(medicine_id)
                         await query.edit_message_text(
-                            f"{config.EMOJES['success']} השעה עודכנה ל- {new_time.strftime('%H:%M')}\n{config.EMOJES['medicine']} {med.name}",
+                            f"{config.EMOJIS['success']} השעה עודכנה ל- {new_time.strftime('%H:%M')}\n{config.EMOJIS['medicine']} {med.name}",
                             reply_markup=get_medicine_detail_keyboard(medicine_id)
                         )
                         return
@@ -485,7 +485,7 @@ class MedicineReminderBot:
                     from utils.keyboards import get_medicine_detail_keyboard
                     med2 = await DatabaseManager.get_medicine_by_id(mid)
                     await query.edit_message_text(
-                        f"{config.EMOJES['success']} הסטטוס עודכן ל{'פעילה' if med2.is_active else 'מושבתת'}",
+                        f"{config.EMOJIS['success']} הסטטוס עודכן ל{'פעילה' if med2.is_active else 'מושבתת'}",
                         reply_markup=get_medicine_detail_keyboard(mid)
                     )
                     return
@@ -538,7 +538,7 @@ class MedicineReminderBot:
                     context.user_data['awaiting_symptom_text'] = True
                     context.user_data['symptoms_for_medicine'] = med_id
                     await query.edit_message_text(
-                        f"{config.EMOJES['symptoms']} רשמו תופעות לוואי עבור {med.name}:",
+                        f"{config.EMOJIS['symptoms']} רשמו תופעות לוואי עבור {med.name}:",
                         reply_markup=get_main_menu_keyboard()
                     )
                     return
@@ -879,15 +879,15 @@ class MedicineReminderBot:
             )
             
             mapping = {
-                f"{config.EMOJES['medicine']} התרופות שלי": "my_medicines",
-                f"{config.EMOJES['reminder']} תזכורות": "reminders",
-                f"{config.EMOJES['inventory']} מלאי": "inventory",
-                f"{config.EMOJES['symptoms']} תופעות לוואי": "symptoms",
-                f"{config.EMOJES['report']} דוחות": "reports",
-                f"{config.EMOJES['caregiver']} מטפלים": "caregivers",
-                f"{config.EMOJES['calendar']} קביעת תור": "appointments",
-                f"{config.EMOJES['settings']} הגדרות": "settings",
-                f"{config.EMOJES['info']} עזרה": "help",
+                f"{config.EMOJIS['medicine']} התרופות שלי": "my_medicines",
+                f"{config.EMOJIS['reminder']} תזכורות": "reminders",
+                f"{config.EMOJIS['inventory']} מלאי": "inventory",
+                f"{config.EMOJIS['symptoms']} תופעות לוואי": "symptoms",
+                f"{config.EMOJIS['report']} דוחות": "reports",
+                f"{config.EMOJIS['caregiver']} מטפלים": "caregivers",
+                f"{config.EMOJIS['calendar']} הוספת תור": "appointments",
+                f"{config.EMOJIS['settings']} הגדרות": "settings",
+                f"{config.EMOJIS['info']} עזרה": "help",
             }
             
             # Handle mededit text inputs
