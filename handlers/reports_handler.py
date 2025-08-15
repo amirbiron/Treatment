@@ -575,11 +575,16 @@ class ReportsHandler:
             if data == "report_action_send_doctor":
                 await self.send_to_doctor_flow(update, context)
             elif data == "report_action_share":
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton(f"{config.EMOJIS['home']} תפריט ראשי", callback_data="main_menu")]
+                ])
                 await update.callback_query.edit_message_text(
                     f"{config.EMOJIS['info']} אפשרויות שיתוף יתמכו בקרוב",
-                    reply_markup=get_main_menu_keyboard()
+                    reply_markup=kb
                 )
             else:
+                # Unknown -> back to reports menu
                 await self.show_reports_menu(update, context)
             return ConversationHandler.END
         except Exception as e:
