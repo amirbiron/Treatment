@@ -325,7 +325,8 @@ class MedicineReminderBot:
         """Open symptoms tracking menu"""
         try:
             user = update.effective_user
-            meds = await DatabaseManager.get_user_medicines(user.id) if user else []
+            db_user = await DatabaseManager.get_user_by_telegram_id(user.id) if user else None
+            meds = await DatabaseManager.get_user_medicines(db_user.id) if db_user else []
             # Support both message command and callback button
             if getattr(update, "callback_query", None):
                 await update.callback_query.answer()
@@ -336,10 +337,8 @@ class MedicineReminderBot:
                         reply_markup=get_symptoms_medicine_picker(meds)
                     )
                 else:
-                    from utils.keyboards import get_symptoms_keyboard
                     await update.callback_query.edit_message_text(
-                        "מעקב סימפטומים (ללא שיוך לתרופה - אין תרופות במערכת):",
-                        reply_markup=get_symptoms_keyboard()
+                        "אין תרופות במערכת. הוסיפו תרופה דרך 'התרופות שלי'."
                     )
                 return
             # Fallback to classic message reply
@@ -350,10 +349,8 @@ class MedicineReminderBot:
                     reply_markup=get_symptoms_medicine_picker(meds)
                 )
             else:
-                from utils.keyboards import get_symptoms_keyboard
                 await update.message.reply_text(
-                    "מעקב סימפטומים (ללא שיוך לתרופה - אין תרופות במערכת):",
-                    reply_markup=get_symptoms_keyboard()
+                    "אין תרופות במערכת. הוסיפו תרופה דרך 'התרופות שלי'."
                 )
         except Exception as e:
             logger.error(f"Error in log_symptoms command: {e}")
@@ -704,7 +701,7 @@ class MedicineReminderBot:
                             med_filter = int(data.split("_")[-1])
                         except Exception:
                             med_filter = None
-                    logs = await DatabaseManager.get_symptom_logs_in_range(user.id, start_date, end_date, med_filter)
+                    logs = await DatabaseManager.get_symptom_logs_in_range(user.id, start_date, end_date, medicine_id=med_filter)
                     if not logs:
                         await query.edit_message_text("אין רישומי תופעות לוואי ב-30 הימים האחרונים")
                         return
@@ -923,7 +920,7 @@ class MedicineReminderBot:
                     med = await DatabaseManager.get_medicine_by_id(medicine_id)
                     pack = med.pack_size if med and med.pack_size else 28
                     await query.edit_message_text(
-                        f"בחרו עדכון מהיר למלאי או הזינו כמות מדויקת:",
+                        f"{config.EMOJES['inventory']} עדכון מלאי: {med.name}\nמלאי נוכחי: {med.inventory_count} כדורים\n\nבחרו עדכון מהיר למלאי או הזינו כמות מדויקת:",
                         reply_markup=get_inventory_update_keyboard(medicine_id, pack)
                     )
                     return
@@ -973,7 +970,11 @@ class MedicineReminderBot:
                     return
                 from datetime import date, timedelta
                 end_date = date.today(); start_date = end_date - timedelta(days=30)
-                logs = await DatabaseManager.get_symptom_logs_in_range(query.from_user.id, start_date, end_date, med_filter=medicine_id)
+                user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+                if not user:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
+                    return
+                logs = await DatabaseManager.get_symptom_logs_in_range(user.id, start_date, end_date, medicine_id=medicine_id)
                 if not logs:
                     await query.edit_message_text("אין היסטוריה 30 ימים לתרופה זו")
                     return

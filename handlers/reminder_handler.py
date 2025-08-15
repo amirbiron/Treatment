@@ -15,7 +15,8 @@ from scheduler import medicine_scheduler
 from utils.keyboards import (
     get_reminder_keyboard,
     get_main_menu_keyboard,
-    get_confirmation_keyboard
+    get_confirmation_keyboard,
+    get_cancel_keyboard
 )
 
 logger = logging.getLogger(__name__)
@@ -390,7 +391,7 @@ class ReminderHandler:
                 message = f"""
 {config.EMOJIS['info']} **אין תזכורות מתוזמנות**
 
-הוסיפו שעה לנטילת תרופה קיימת או הוסיפו תרופה חדשה.
+הוסיפו שעה לנטילת תרופה קיימת.
                 """
                 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
                 # Build quick actions
@@ -399,7 +400,6 @@ class ReminderHandler:
                 rows = []
                 if meds:
                     rows.append([InlineKeyboardButton("הוסף שעה לתרופה", callback_data="rem_pick_medicine_for_time")])
-                rows.append([InlineKeyboardButton(f"{config.EMOJIS['medicine']} הוסף תרופה", callback_data="medicine_add")])
                 rows.append([InlineKeyboardButton(f"{config.EMOJIS['reminder']} הגדרות תזכורות", callback_data="settings_reminders")])
                 rows.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="main_menu")])
                 kb = InlineKeyboardMarkup(rows)
@@ -625,8 +625,7 @@ class ReminderHandler:
             context.user_data['awaiting_symptom_text'] = True
             context.user_data['symptoms_for_medicine'] = medicine_id
             await query.edit_message_text(
-                f"{config.EMOJIS['symptoms']} רשמו תופעות לוואי עבור {med.name}:",
-                reply_markup=get_main_menu_keyboard()
+                f"{config.EMOJIS['symptoms']} רשמו תופעות לוואי עבור {med.name}:"
             )
         except Exception as e:
             logger.error(f"Error in handle_quick_symptoms: {e}")
