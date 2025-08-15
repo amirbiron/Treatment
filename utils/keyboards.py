@@ -738,19 +738,15 @@ def get_symptoms_medicine_picker(medicines: List) -> InlineKeyboardMarkup:
         mid = getattr(med, 'id', None)
         if mid is None:
             continue
-        # Choose icon by simple heuristics on the name; fallback to pill
+        # Only special-case cannabis; otherwise show clean name without icon
         lower_name = str(name).lower()
-        if any(tok in lower_name for tok in ["קפס", "caps", "cap", "gel"]):
-            icon = "💊"  # capsule
-        elif any(tok in lower_name for tok in ["טבל", "tab", "tablet"]):
-            icon = "🟦"  # tablet/caplet (approximation)
-        elif any(tok in lower_name for tok in ["קנאביס", "cannabis", "cbd", "thc"]):
-            icon = "🌿"  # cannabis
+        if any(tok in lower_name for tok in ["קנאביס", "cannabis", "cבד", "cbd", "thc"]):
+            label = f"🌿 {name}"
         else:
-            icon = config.EMOJIS['medicine']
+            label = f"{name}"
         keyboard.append([
             InlineKeyboardButton(
-                f"{icon} {name}",
+                label,
                 callback_data=f"symptoms_log_med_{mid}"
             )
         ])
