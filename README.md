@@ -292,3 +292,43 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 Made with ❤️ in Israel
 
 </div>
+
+## Revert Guide (Rollback to a stable baseline)
+
+If recent deploys introduced regressions, you can revert to a stable state prior to the last problematic merges.
+
+- Last two merges likely related to current issues:
+  - PR #25: `68f8752` — Merge pull request #25 (debug-bot-errors-in-logs)
+  - PR #23: `bf705a7` — Merge pull request #23 (fix-appointment-booking)
+- Stable baseline before these merges:
+  - Post-PR #22 merge: `7f8f1cb`
+
+### Option A: Revert the problematic merges (preferred first)
+
+Use the merge revert (-m 1) to undo the merges cleanly, in a new branch:
+
+```bash
+# Create a hotfix branch
+git checkout -b hotfix/revert-problematic-merges
+
+# Revert PR #25
+git revert -m 1 68f8752
+
+# Revert PR #23 (if still needed)
+git revert -m 1 bf705a7
+
+# Resolve conflicts if any, commit, push and open a PR
+```
+
+### Option B: Branch from the stable baseline
+
+If you prefer to branch from the last known-good commit and re-apply only desired changes:
+
+```bash
+git checkout -b hotfix/from-7f8f1cb 7f8f1cb
+# Build/test, then push and open a PR
+```
+
+### Notes
+- After reverting, rebuild and verify: scheduler start/stop, webhook handling, medicines edit flows, and symptoms logging.
+- If you do not have terminal access, a maintainer can execute the above steps on your behalf. This file documents the exact commit IDs so the operation can be performed safely later.
