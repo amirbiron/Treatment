@@ -141,17 +141,17 @@ class Config:
         "info": "ℹ️",
         "report": "📊",
         "caregiver": "👥",
-        "symptoms": "📝",
-        "home": "🏠",
         "settings": "⚙️",
+        "calendar": "📅",
         "back": "⬅️",
         "next": "➡️",
-        "calendar": "📅",
-        "clock": "🕐",
-        "hospital": "🏥",
         "doctor": "👨‍⚕️",
-        "appointment": "📅"
+        "symptoms": "🤒",
+        "clock": "🕒",
     }
+
+    # Backward-compat alias for occasional typos
+    EMOJES = EMOJIS
     
     @classmethod
     def validate_config(cls) -> List[str]:
