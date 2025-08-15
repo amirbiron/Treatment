@@ -321,11 +321,19 @@ class MedicineReminderBot:
     async def log_symptoms_command(self, update: Update, context):
         """Open symptoms tracking menu"""
         try:
-            from utils.keyboards import get_symptoms_keyboard
+            from utils.keyboards import get_symptoms_keyboard, get_symptoms_medicine_picker
+            user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
+            meds = await DatabaseManager.get_user_medicines(user.id) if user else []
             await update.message.reply_text(
                 "מעקב סימפטומים:",
                 reply_markup=get_symptoms_keyboard()
             )
+            # Offer picking a medicine as well
+            if meds:
+                await update.message.reply_text(
+                    "בחרו תרופה לשיוך דיווח התופעות:",
+                    reply_markup=get_symptoms_medicine_picker(meds)
+                )
         except Exception as e:
             logger.error(f"Error in log_symptoms command: {e}")
             await update.message.reply_text(config.ERROR_MESSAGES["general"])
@@ -498,6 +506,24 @@ class MedicineReminderBot:
                 return
             elif data.startswith("symptoms_"):
                 # Minimal inline handling for symptoms
+                if data.startswith("symptoms_log_med_"):
+                    # bind next text to a specific medicine id
+                    try:
+                        med_id = int(data.split("_")[-1])
+                    except Exception:
+                        await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                        return
+                    med = await DatabaseManager.get_medicine_by_id(med_id)
+                    if not med:
+                        await query.edit_message_text(config.ERROR_MESSAGES["medicine_not_found"]) 
+                        return
+                    context.user_data['awaiting_symptom_text'] = True
+                    context.user_data['symptoms_for_medicine'] = med_id
+                    await query.edit_message_text(
+                        f"{config.EMOJIS['symptoms']} רשמו תופעות לוואי עבור {med.name}:",
+                        reply_markup=get_main_menu_keyboard()
+                    )
+                    return
                 if data == "symptoms_log":
                     await query.edit_message_text(
                         "שלחו עכשיו הודעה עם תיאור תופעות הלוואי שברצונכם לרשום.",

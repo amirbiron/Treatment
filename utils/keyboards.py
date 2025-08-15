@@ -580,3 +580,36 @@ def get_emergency_keyboard() -> InlineKeyboardMarkup:
     ]
     
     return InlineKeyboardMarkup(keyboard)
+
+
+def get_symptoms_medicine_picker(medicines: List) -> InlineKeyboardMarkup:
+    """Build a keyboard to select a medicine for symptoms logging."""
+    keyboard = []
+    # Show up to 8 medicines; each as a row button
+    for med in medicines[:8]:
+        name = getattr(med, 'name', 'תרופה')
+        mid = getattr(med, 'id', None)
+        if mid is None:
+            continue
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{config.EMOJIS['medicine']} {name}",
+                callback_data=f"symptoms_log_med_{mid}"
+            )
+        ])
+    # Fallback when no medicines
+    if not medicines:
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{config.EMOJIS['info']} אין תרופות רשומות",
+                callback_data="main_menu"
+            )
+        ])
+    # Back button
+    keyboard.append([
+        InlineKeyboardButton(
+            f"{config.EMOJIS['back']} חזור",
+            callback_data="main_menu"
+        )
+    ])
+    return InlineKeyboardMarkup(keyboard)
