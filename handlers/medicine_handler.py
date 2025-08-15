@@ -278,7 +278,7 @@ class MedicineHandler:
 {config.EMOJIS['medicine']} <b>{medicine_name}</b>
 💊 מינון: {dosage}
 ⏰ שעות נטילה: {schedules_text}
-📦 מלאי התחלתי: 0 יחידות (ניתן לעדכן דרך "עדכן מלאי")
+📦 מלאי התחלתי: 0 כדורים (ניתן לעדכן דרך "עדכן מלאי")
 
 התזכורות הופעלו אוטומטית!
                     """
@@ -340,7 +340,7 @@ class MedicineHandler:
 {config.EMOJIS['medicine']} <b>{medicine_name}</b>
 💊 מינון: {dosage}
 ⏰ שעות נטילה: {schedules_text}
-📦 מלאי התחלתי: 0 יחידות (ניתן לעדכן דרך "עדכן מלאי")
+📦 מלאי התחלתי: 0 כדורים (ניתן לעדכן דרך "עדכן מלאי")
 
 התזכורות הופעלו אוטומטית!
                 """
@@ -496,7 +496,7 @@ class MedicineHandler:
 
 💊 <b>מינון:</b> {medicine.dosage}
 ⏰ <b>שעות נטילה:</b> {', '.join(schedule_times) if schedule_times else 'לא מוגדר'}
-📦 <b>מלאי:</b> {medicine.inventory_count} יחידות
+📦 <b>מלאי:</b> {medicine.inventory_count} כדורים
 📊 <b>השבוע:</b> נלקח {taken_count}/{total_count} פעמים
 📅 <b>נוצר:</b> {medicine.created_at.strftime('%d/%m/%Y')}
 🟢 <b>פעיל:</b> {'כן' if medicine.is_active else 'לא'}
@@ -584,7 +584,7 @@ class MedicineHandler:
                 message = f"""
 {config.EMOJIS['inventory']} <b>עדכון מלאי: {medicine.name}</b>
 
-מלאי נוכחי: {medicine.inventory_count} יחידות
+מלאי נוכחי: {medicine.inventory_count} כדורים
 
 אנא הזינו את הכמות החדשה:
                 """
@@ -624,7 +624,7 @@ class MedicineHandler:
 {config.EMOJIS['success']} <b>מלאי עודכן!</b>
 
 {config.EMOJIS['medicine']} {medicine.name}
-📦 מלאי חדש: {new_count} יחידות{status_msg}
+📦 מלאי חדש: {new_count} כדורים{status_msg}
                 """
                 
                 await query.edit_message_text(
@@ -675,7 +675,7 @@ class MedicineHandler:
 {config.EMOJIS['success']} <b>מלאי עודכן בהצלחה!</b>
 
 {config.EMOJIS['medicine']} {medicine.name}
-📦 מלאי חדש: {new_count} יחידות{status_msg}
+📦 מלאי חדש: {new_count} כדורים{status_msg}
             """
             
             await update.message.reply_text(

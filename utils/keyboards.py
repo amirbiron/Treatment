@@ -424,13 +424,13 @@ def get_inventory_update_keyboard(medicine_id: int) -> InlineKeyboardMarkup:
     keyboard = [
         [
             InlineKeyboardButton("+1", callback_data=f"inventory_{medicine_id}_+1"),
-            InlineKeyboardButton("+5", callback_data=f"inventory_{medicine_id}_+5"),
-            InlineKeyboardButton("+10", callback_data=f"inventory_{medicine_id}_+10")
+            InlineKeyboardButton("+2", callback_data=f"inventory_{medicine_id}_+2"),
+            InlineKeyboardButton("+5", callback_data=f"inventory_{medicine_id}_+5")
         ],
         [
             InlineKeyboardButton("-1", callback_data=f"inventory_{medicine_id}_-1"),
-            InlineKeyboardButton("-5", callback_data=f"inventory_{medicine_id}_-5"),
-            InlineKeyboardButton("-10", callback_data=f"inventory_{medicine_id}_-10")
+            InlineKeyboardButton("-2", callback_data=f"inventory_{medicine_id}_-2"),
+            InlineKeyboardButton("-5", callback_data=f"inventory_{medicine_id}_-5")
         ],
         [
             InlineKeyboardButton(

@@ -91,7 +91,7 @@ class ReminderHandler:
                 # Check for low stock
                 low_stock_warning = ""
                 if new_count <= medicine.low_stock_threshold:
-                    low_stock_warning = f"\n\n{config.EMOJIS['warning']} <b>מלאי נמוך!</b>\nנותרו {new_count} יחידות. כדאי להזמין עוד."
+                    low_stock_warning = f"\n\n{config.EMOJIS['warning']} <b>מלאי נמוך!</b>\nנותרו {new_count} כדורים. כדאי להזמין עוד."
                 
             else:
                 new_count = 0
@@ -109,7 +109,7 @@ class ReminderHandler:
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
 💊 מינון: {medicine.dosage}
 ⏰ זמן נטילה: {now.strftime('%H:%M')}
-📦 מלאי נותר: {new_count} יחידות{low_stock_warning}
+📦 מלאי נותר: {new_count} כדורים{low_stock_warning}
 
 {config.EMOJIS['info']} התרופה תירשם ביומן הטיפולים שלכם.
             """
@@ -313,7 +313,7 @@ class ReminderHandler:
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
 💊 מינון: {medicine.dosage}
 
-{config.EMOJIS['inventory']} מלאי נותר: {medicine.inventory_count} יחידות
+{config.EMOJIS['inventory']} מלאי נותר: {medicine.inventory_count} כדורים
             """
             
             if medicine.inventory_count <= medicine.low_stock_threshold:
