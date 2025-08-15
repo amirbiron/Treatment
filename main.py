@@ -519,6 +519,20 @@ class MedicineReminderBot:
                     reply_markup=get_time_selection_keyboard()
                 )
                 return
+            elif data == "rem_pick_medicine_for_time":
+                # From empty reminders screen: pick medicine then choose hour
+                user = await DatabaseManager.get_user_by_telegram_id(user_id)
+                meds = await DatabaseManager.get_user_medicines(user.id) if user else []
+                if not meds:
+                    await query.edit_message_text("אין תרופות זמינות להוספת שעות.")
+                    return
+                from utils.keyboards import get_medicines_keyboard
+                # Reuse medicines list; user clicks a medicine and then can choose שעות
+                await query.edit_message_text(
+                    "בחרו תרופה להוספת שעה:",
+                    reply_markup=get_medicines_keyboard(meds)
+                )
+                return
             elif data.startswith("rem_disable_"):
                 # Disable reminder by deactivating medicine
                 try:
