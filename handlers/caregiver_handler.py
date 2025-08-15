@@ -103,31 +103,8 @@ class CaregiverHandler:
                 await self._send_error_message(update, "משתמש לא נמצא")
                 return ConversationHandler.END
             
-            # Check caregiver limit
-            existing_caregivers = await DatabaseManager.get_user_caregivers(user.id, active_only=False)
-            if len(existing_caregivers) >= config.MAX_CAREGIVERS_PER_USER:
-                message = f"""
-{config.EMOJIS['error']} <b>הגעתם למגבלת המטפלים</b>
-
-אתם יכולים להוסיף עד {config.MAX_CAREGIVERS_PER_USER} מטפלים.
-אנא הסירו מטפל קיים לפני הוספת מטפל חדש.
-                """
-                
-                if update.callback_query:
-                    await update.callback_query.answer()
-                    await update.callback_query.edit_message_text(
-                        message,
-                        parse_mode='HTML',
-                        reply_markup=get_caregiver_keyboard()
-                    )
-                else:
-                    await update.message.reply_text(
-                        message,
-                        parse_mode='HTML',
-                        reply_markup=get_caregiver_keyboard()
-                    )
-                
-                return ConversationHandler.END
+            # Caregiver limit disabled per request
+            # (previous limit check removed)
             
             # Initialize caregiver data
             self.user_caregiver_data[user_id] = {
@@ -492,9 +469,8 @@ class CaregiverHandler:
 • שם: {data['caregiver_name']}
 • קשר: {data['relationship_type']}
 • הרשאות: {perm_desc}
-• מזהה טלגרם: {data['caregiver_telegram_id']}
-
-המטפל יקבל הודעה על ההצטרפות ויוכל לראות דוחות מיד.
+{f'• מזהה טלגרם: {data["caregiver_telegram_id"]}\n' if data.get('caregiver_telegram_id') else ''}
+מטפל יקבל הודעה על ההצטרפות ויוכל לראות דוחות מיד.
                 """
                 
                 # Send notification to caregiver
@@ -550,7 +526,7 @@ class CaregiverHandler:
             
             if not user:
                 await self._send_error_message(update, "משתמש לא נמצא")
-                return
+                return ConversationHandler.END
             
             caregivers = await DatabaseManager.get_user_caregivers(user.id, active_only=False)
             
@@ -576,16 +552,17 @@ class CaregiverHandler:
                 for caregiver in caregivers:
                     status_emoji = config.EMOJIS['success'] if caregiver.is_active else config.EMOJIS['error']
                     perm_desc = self.permission_levels.get(caregiver.permissions, caregiver.permissions)
+                    created_txt = caregiver.created_at.strftime('%d/%m/%Y') if getattr(caregiver, 'created_at', None) else ''
                     
                     message += f"{status_emoji} <b>{caregiver.caregiver_name}</b>\n"
                     message += f"   👤 {caregiver.relationship_type}\n"
                     message += f"   🔐 {perm_desc}\n"
-                    message += f"   📅 נוסף: {caregiver.created_at.strftime('%d/%m/%Y')}\n\n"
+                    message += f"   📅 נוסף: {created_txt}\n\n"
                 
                 keyboard = []
                 
-                # Add management buttons for each caregiver
-                for caregiver in caregivers[:5]:  # Limit to 5 for space
+                # Add management buttons for caregivers (paginate if needed)
+                for caregiver in caregivers[:10]:
                     keyboard.append([
                         InlineKeyboardButton(
                             f"✏️ {caregiver.caregiver_name}",
@@ -721,9 +698,8 @@ class CaregiverHandler:
                 await update.callback_query.edit_message_text(
                     f"{config.EMOJIS['error']} {error_text}"
                 )
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="תפריט ראשי:",
+                await update.effective_message.reply_text(
+                    "תפריט ראשי:",
                     reply_markup=get_main_menu_keyboard()
                 )
             else:
