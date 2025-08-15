@@ -348,14 +348,14 @@ class CaregiverHandler:
             self.user_caregiver_data[user_id]['email'] = email
             # Permissions keyboard
             keyboard = [[InlineKeyboardButton(desc, callback_data=f"perm_{key}")] for key, desc in self.permission_levels.items()]
-            message = f"""
-{config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
-
-✅ <b>טלפון:</b> {self.user_caregiver_data[user_id]['phone']}
-{f"✅ <b>אימייל:</b> {email}\n" if email else ''}
-🔹 <b>שלב 4/4:</b> הרשאות
-בחרו את רמת ההרשאות של המטפל:
-            """
+            email_line = f"✅ <b>אימייל:</b> {email}\n" if email else ""
+            message = (
+                f"{config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>\n\n"
+                f"✅ <b>טלפון:</b> {self.user_caregiver_data[user_id]['phone']}\n"
+                f"{email_line}"
+                f"🔹 <b>שלב 4/4:</b> הרשאות\n"
+                f"בחרו את רמת ההרשאות של המטפל:"
+            )
             await update.message.reply_text(message, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
             return CAREGIVER_PERMISSIONS
         except Exception as e:
@@ -382,16 +382,16 @@ class CaregiverHandler:
                 data = self.user_caregiver_data[user_id]
                 perm_desc = self.permission_levels.get(permissions, permissions)
                 
-                message = f"""
-{config.EMOJIS['success']} <b>מטפל נוסף בהצלחה!</b>
-
-{config.EMOJIS['caregiver']} <b>פרטי המטפל:</b>
-• שם: {data['caregiver_name']}
-• הרשאות: {perm_desc}
-{f'• מספר טלפון: {data["phone"]}\n' if data.get('phone') else ''}
-{f'• דואר אלקטרוני: {data["email"]}\n' if data.get('email') else ''}
-מטפל יקבל הודעה על ההצטרפות ויוכל לראות דוחות מיד.
-                """
+                phone_line = f"• מספר טלפון: {data.get('phone')}\n" if data.get('phone') else ""
+                email_line = f"• דואר אלקטרוני: {data.get('email')}\n" if data.get('email') else ""
+                message = (
+                    f"{config.EMOJIS['success']} <b>מטפל נוסף בהצלחה!</b>\n\n"
+                    f"{config.EMOJIS['caregiver']} <b>פרטי המטפל:</b>\n"
+                    f"• שם: {data['caregiver_name']}\n"
+                    f"• הרשאות: {perm_desc}\n"
+                    f"{phone_line}{email_line}"
+                    f"מטפל יקבל הודעה על ההצטרפות ויוכל לראות דוחות מיד."
+                )
                 
                 # Send notification to caregiver
                 await self._notify_new_caregiver(user_id, data)
