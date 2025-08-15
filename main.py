@@ -788,10 +788,13 @@ class MedicineReminderBot:
                         offset = int(data.split("_")[-1])
                     except Exception:
                         offset = 0
+                header = ""
+                if data == "medicine_manage":
+                    header = f"{config.EMOJES['settings']} <b>מצב עריכת תרופות</b>\n\n"
                 if not medicines:
-                    message = f"{config.EMOJES['info']} <b>אין תרופות רשומות</b>\n\nלחצו על /add_medicine כדי להוסיף תרופה ראשונה."
+                    message = header + f"{config.EMOJES['info']} <b>אין תרופות רשומות</b>\n\nלחצו על /add_medicine כדי להוסיף תרופה ראשונה."
                 else:
-                    message = f"{config.EMOJES['medicine']} <b>התרופות שלכם:</b>\n\n"
+                    message = header + f"{config.EMOJES['medicine']} <b>התרופות שלכם:</b>\n\n"
                     slice_start = max(0, offset)
                     slice_end = slice_start + config.MAX_MEDICINES_PER_PAGE
                     for medicine in medicines[slice_start:slice_end]:
@@ -809,19 +812,13 @@ class MedicineReminderBot:
                         reply_markup=get_medicines_keyboard(medicines if medicines else [], offset=offset)
                     )
                 except Exception as exc:
-                    if 'Message is not modified' in str(exc):
-                        try:
-                            await query.answer("כבר מוצג")
-                        except Exception:
-                            pass
-                    else:
-                        # Fallback: send a fresh message instead of editing
-                        await self.application.bot.send_message(
-                            chat_id=query.message.chat_id,
-                            text=message,
-                            parse_mode='HTML',
-                            reply_markup=get_medicines_keyboard(medicines if medicines else [], offset=offset)
-                        )
+                    # Always send a fresh message if edit fails so user sees a change
+                    await self.application.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=message,
+                        parse_mode='HTML',
+                        reply_markup=get_medicines_keyboard(medicines if medicines else [], offset=offset)
+                    )
                 # Persist current offset for returns after actions
                 context.user_data['med_list_offset'] = offset
                 return
