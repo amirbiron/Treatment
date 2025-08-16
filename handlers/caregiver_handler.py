@@ -52,8 +52,6 @@ class CaregiverHandler:
         """Get the conversation handler for caregiver management"""
         return ConversationHandler(
             entry_points=[
-                CommandHandler("add_caregiver", self.start_add_caregiver),
-                CallbackQueryHandler(self.start_add_caregiver, pattern="^caregiver_add$"),
                 CallbackQueryHandler(self.view_caregivers, pattern="^caregiver_manage$"),
                 CallbackQueryHandler(self.edit_caregiver, pattern="^caregiver_edit_"),
             ],
@@ -426,9 +424,7 @@ class CaregiverHandler:
 עדיין לא הוספתם מטפלים.
 מטפלים יכולים לעזור לכם לעקוב אחר נטילת התרופות ולקבל דוחות.
                 """
-                keyboard = [
-                    [InlineKeyboardButton(f"{config.EMOJIS['caregiver']} הוסף מטפל ראשון", callback_data="caregiver_add")]
-                ]
+                keyboard = [[InlineKeyboardButton("🔗 הזמן מטפל (קוד/קישור)", callback_data="caregiver_invite")]]
             else:
                 message = f"{config.EMOJIS['caregiver']} <b>המטפלים שלכם ({len(caregivers)}):</b>\n\n"
                 for c in caregivers[offset : offset + page_size]:
@@ -451,9 +447,6 @@ class CaregiverHandler:
                 if nav:
                     keyboard.append(nav)
                 # Actions
-                keyboard.append(
-                    [InlineKeyboardButton(f"{config.EMOJIS['caregiver']} הוסף מטפל", callback_data="caregiver_add")]
-                )
                 keyboard.append([InlineKeyboardButton("🔗 הזמן מטפל (קוד/קישור)", callback_data="caregiver_invite")])
                 if caregivers:
                     keyboard.append([InlineKeyboardButton("📊 שלח דוח למטפלים", callback_data="caregiver_send_report")])
