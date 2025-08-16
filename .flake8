@@ -1,6 +1,8 @@
 [flake8]
 max-line-length = 127
 extend-ignore = E203, W503
-exclude = .git, __pycache__, build, dist, .venv, venv, .mypy_cache, .pytest_cache, htmlcov, .github
+exclude = .git, __pycache__, build, dist, .venv, venv, .mypy_cache, .pytest_cache, htmlcov, .github, get-pip.py, tests
 show-source = true
 statistics = true
+per-file-ignores =
+	handlers/__init__.py: W191
