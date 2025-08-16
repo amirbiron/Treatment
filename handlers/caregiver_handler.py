@@ -4,16 +4,15 @@ Handles caregiver management: adding, removing, permissions, daily reports
 """
 
 import logging
-import os
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 
 from config import config
-from database import DatabaseManager, Caregiver
-from utils.keyboards import get_caregiver_keyboard, get_main_menu_keyboard, get_cancel_keyboard, get_confirmation_keyboard
-from utils.helpers import validate_telegram_id, format_datetime_hebrew, validate_phone_number
+from database import DatabaseManager
+from utils.keyboards import get_main_menu_keyboard, get_cancel_keyboard
+from utils.helpers import validate_telegram_id, validate_phone_number
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +72,10 @@ class CaregiverHandler:
                 EDIT_ALL_PERMS: [CallbackQueryHandler(self._edit_all_set_perms, pattern="^perm_")],
                 # Inline callbacks to start edit flows
                 0: [
-                    CallbackQueryHandler(self._start_edit_all, pattern="^caregiver_edit_all_\d+$"),
-                    CallbackQueryHandler(self._start_edit_name, pattern="^caregiver_edit_name_\d+$"),
-                    CallbackQueryHandler(self._start_edit_phone, pattern="^caregiver_edit_phone_\d+$"),
-                    CallbackQueryHandler(self._start_edit_email, pattern="^caregiver_edit_email_\d+$"),
+                    CallbackQueryHandler(self._start_edit_all, pattern=r"^caregiver_edit_all_\d+$"),
+                    CallbackQueryHandler(self._start_edit_name, pattern=r"^caregiver_edit_name_\d+$"),
+                    CallbackQueryHandler(self._start_edit_phone, pattern=r"^caregiver_edit_phone_\d+$"),
+                    CallbackQueryHandler(self._start_edit_email, pattern=r"^caregiver_edit_email_\d+$"),
                 ],
             },
             fallbacks=[
@@ -120,9 +119,9 @@ class CaregiverHandler:
 
             message = f"""
   {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
-  
+
   🔹 <b>שלב 1/3:</b> שם המטפל
-  
+
   אנא הזינו את שם המטפל:
   (לדוגמה: ד"ר כהן, אמא, אחות שרה)
             """
@@ -195,14 +194,14 @@ class CaregiverHandler:
 
             message = f"""
   {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
- 
+
  ✅ <b>מזהה טלגרם:</b> {caregiver_telegram_id}
- 
+
  🔹 <b>שלב 2/3:</b> שם המטפל
- 
+
  אנא הזינו את שם המטפל:
  (לדוגמה: ד"ר כהן, אמא, אחות שרה)
-             """
+            """
 
             await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_cancel_keyboard())
 
@@ -369,8 +368,8 @@ class CaregiverHandler:
                 message = (
                     f"{success_emoji} <b>מטפל נוסף בהצלחה!</b>\n\n"
                     f"{caregiver_emoji} <b>פרטי המטפל:</b>\n"
-                    f"• שם: {data.get('caregiver_name','')}\n"
-                    f"• קשר: {data.get('relationship_type','')}\n"
+                    f"• שם: {data.get('caregiver_name', '')}\n"
+                    f"• קשר: {data.get('relationship_type', '')}\n"
                     f"• הרשאות: {perm_desc}\n"
                     f"{phone_line}{email_line}"
                 )
@@ -456,7 +455,7 @@ class CaregiverHandler:
                 )
                 keyboard.append([InlineKeyboardButton("🔗 הזמן מטפל (קוד/קישור)", callback_data="caregiver_invite")])
                 if caregivers:
-                    keyboard.append([InlineKeyboardButton(f"📊 שלח דוח למטפלים", callback_data="caregiver_send_report")])
+                    keyboard.append([InlineKeyboardButton("📊 שלח דוח למטפלים", callback_data="caregiver_send_report")])
             keyboard.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="main_menu")])
             if query:
                 await query.answer()
@@ -557,7 +556,7 @@ class CaregiverHandler:
     async def caregiver_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show caregiver settings menu (minimal)."""
         try:
-            from utils.keyboards import get_caregiver_keyboard
+            from utils.keyboards import get_caregiver_keyboard  # noqa: F401
 
             message = f"{config.EMOJIS['caregiver']} ניהול מטפלים"
             if update.callback_query:
@@ -633,7 +632,7 @@ class CaregiverHandler:
                 await query.edit_message_reply_markup(
                     reply_markup=InlineKeyboardMarkup(
                         [
-                            [InlineKeyboardButton("✔️ הועתק קוד", callback_data=f"noop")],
+                            [InlineKeyboardButton("✔️ הועתק קוד", callback_data="noop")],
                             [InlineKeyboardButton("📋 העתק הודעה למטפל", callback_data=f"copy_inv_msg_{code}")],
                             [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")],
                         ]
@@ -692,7 +691,7 @@ class CaregiverHandler:
             if not caregiver:
                 await query.edit_message_text(f"{config.EMOJIS['error']} מטפל לא נמצא")
                 return
-            perm_desc = self.permission_levels.get(caregiver.permissions, caregiver.permissions)
+            _perm_desc = self.permission_levels.get(caregiver.permissions, caregiver.permissions)  # noqa: F841
             status_emoji = config.EMOJIS["success"] if caregiver.is_active else config.EMOJIS["error"]
             message = f"""
 {config.EMOJIS['caregiver']} <b>עריכת מטפל</b>

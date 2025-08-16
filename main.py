@@ -495,11 +495,11 @@ class MedicineReminderBot:
                 )
             elif data.startswith("medicine_") or data.startswith("medicines_"):
                 # Route to internal medicine action handler which covers all medicine flows
-                await self._handle_medicine_action(query, context)
+                await self._handle_medicine_action(update, query, context)
                 return
             elif data == "medicine_next_page":
                 # TODO: implement paging; for now just re-render list (simple UX)
-                await self._handle_medicine_action(query, context)
+                await self._handle_medicine_action(update, query, context)
                 return
             elif data.startswith("rem_edit_"):
                 # Open time selection for a medicine
@@ -861,7 +861,7 @@ class MedicineReminderBot:
             context.user_data.pop("adding_medicine", None)
             await update.message.reply_text(config.ERROR_MESSAGES["general"])
 
-    async def _handle_medicine_action(self, query, context):
+    async def _handle_medicine_action(self, update: Update, query, context):
         """Handle medicine-related inline actions"""
         from utils.keyboards import (
             get_medicines_keyboard,
@@ -973,7 +973,7 @@ class MedicineReminderBot:
                 # Otherwise, forward inventory_* callbacks to handler
                 from handlers.medicine_handler import medicine_handler
 
-                await medicine_handler.handle_inventory_update(update, context)
+                await medicine_handler.handle_inventory_update(update=update, context=context)
                 return
 
             if data.startswith("medicine_schedule_"):

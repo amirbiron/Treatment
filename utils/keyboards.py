@@ -29,14 +29,14 @@ def get_appointments_menu_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [
             InlineKeyboardButton(f"{config.EMOJIS['doctor']} לרופא", callback_data="appt_type_doctor"),
-            InlineKeyboardButton(f"🧪 לבדיקת דם", callback_data="appt_type_blood"),
+            InlineKeyboardButton("🧪 לבדיקת דם", callback_data="appt_type_blood"),
         ],
         [
-            InlineKeyboardButton(f"💆 לטיפול", callback_data="appt_type_treatment"),
-            InlineKeyboardButton(f"🔎 לבדיקה", callback_data="appt_type_checkup"),
+            InlineKeyboardButton("💆 לטיפול", callback_data="appt_type_treatment"),
+            InlineKeyboardButton("🔎 לבדיקה", callback_data="appt_type_checkup"),
         ],
         [InlineKeyboardButton(f"{config.EMOJIS['info']} אחר...", callback_data="appt_type_custom")],
-        [InlineKeyboardButton(f"📋 התורים שלי", callback_data="appt_list")],
+        [InlineKeyboardButton("📋 התורים שלי", callback_data="appt_list")],
         [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור לתפריט", callback_data="main_menu")],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -137,7 +137,7 @@ def get_appointment_reminder_keyboard(rem1: bool, rem3: bool, rem0: bool = False
                 f"{on if rem0 else off} ביום התור (ב-{config.APPOINTMENT_SAME_DAY_REMINDER_HOUR:02d}:00)",
                 callback_data="appt_rem0_toggle",
             ),
-            InlineKeyboardButton(f"שנה שעה", callback_data="appt_rem0_time"),
+            InlineKeyboardButton("שנה שעה", callback_data="appt_rem0_time"),
         ],
         [InlineKeyboardButton(f"{config.EMOJIS['success']} שמור תור", callback_data="appt_save")],
         [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="appt_back")],
@@ -194,10 +194,10 @@ def get_medicines_keyboard(medicines: List, offset: int = 0) -> InlineKeyboardMa
     nav_row = []
     if slice_start > 0:
         prev_offset = max(0, slice_start - page_size)
-        nav_row.append(InlineKeyboardButton(f"‹ הקודם", callback_data=f"medicines_page_{prev_offset}"))
+        nav_row.append(InlineKeyboardButton("‹ הקודם", callback_data=f"medicines_page_{prev_offset}"))
     if slice_end < len(medicines):
         next_offset = slice_start + page_size
-        nav_row.append(InlineKeyboardButton(f"עמוד הבא ›", callback_data=f"medicines_page_{next_offset}"))
+        nav_row.append(InlineKeyboardButton("עמוד הבא ›", callback_data=f"medicines_page_{next_offset}"))
     if nav_row:
         keyboard.append(nav_row)
 
@@ -378,15 +378,15 @@ def get_inventory_update_keyboard(medicine_id: int, pack_size: int = None) -> In
     keyboard: List[List[InlineKeyboardButton]] = []
 
     # Add-quantity explicit button at the top
-    keyboard.append([InlineKeyboardButton(f"➕ הוסף כמות כדורים", callback_data=f"inventory_{medicine_id}_add_dialog")])
+    keyboard.append([InlineKeyboardButton("➕ הוסף כמות כדורים", callback_data=f"inventory_{medicine_id}_add_dialog")])
 
     # Add fixed increments only if they do not duplicate pack-based steps
     if show_fixed:
         keyboard.append(
             [
-                InlineKeyboardButton(f"+28", callback_data=f"inventory_{medicine_id}_+28"),
-                InlineKeyboardButton(f"+56", callback_data=f"inventory_{medicine_id}_+56"),
-                InlineKeyboardButton(f"+84", callback_data=f"inventory_{medicine_id}_+84"),
+                InlineKeyboardButton("+28", callback_data=f"inventory_{medicine_id}_+28"),
+                InlineKeyboardButton("+56", callback_data=f"inventory_{medicine_id}_+56"),
+                InlineKeyboardButton("+84", callback_data=f"inventory_{medicine_id}_+84"),
             ]
         )
 
@@ -483,8 +483,8 @@ def hide_keyboard() -> ReplyKeyboardMarkup:
 def get_emergency_keyboard() -> InlineKeyboardMarkup:
     """Emergency actions keyboard"""
     keyboard = [
-        [InlineKeyboardButton(f"🚨 חירום - צור קשר עם מטפל", callback_data="emergency_caregiver")],
-        [InlineKeyboardButton(f"🏥 חירום רפואי - 101", url="tel:101")],
+        [InlineKeyboardButton("🚨 חירום - צור קשר עם מטפל", callback_data="emergency_caregiver")],
+        [InlineKeyboardButton("🏥 חירום רפואי - 101", url="tel:101")],
         [InlineKeyboardButton(f"{config.EMOJIS['doctor']} פנה לרופא המשפחה", callback_data="emergency_doctor")],
     ]
 

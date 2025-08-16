@@ -139,8 +139,8 @@ class ReportsHandler:
 
             keyboard = [
                 [
-                    InlineKeyboardButton(f"📧 שלח לרופא", callback_data="report_action_send_doctor"),
-                    InlineKeyboardButton(f"💾 שמור כקובץ", callback_data="export_report_weekly"),
+                    InlineKeyboardButton("📧 שלח לרופא", callback_data="report_action_send_doctor"),
+                    InlineKeyboardButton("💾 שמור כקובץ", callback_data="export_report_weekly"),
                 ],
                 [InlineKeyboardButton(f"{config.EMOJIS['home']} תפריט ראשי", callback_data="main_menu")],
             ]
@@ -206,10 +206,10 @@ class ReportsHandler:
 
             keyboard = [
                 [
-                    InlineKeyboardButton(f"📧 שלח לרופא", callback_data="report_action_send_doctor"),
-                    InlineKeyboardButton(f"💾 שמור כקובץ", callback_data="export_report_monthly"),
+                    InlineKeyboardButton("📧 שלח לרופא", callback_data="report_action_send_doctor"),
+                    InlineKeyboardButton("💾 שמור כקובץ", callback_data="export_report_monthly"),
                 ],
-                [InlineKeyboardButton(f"📊 דוח מפורט נוסף", callback_data="report_detailed")],
+                [InlineKeyboardButton("📊 דוח מפורט נוסף", callback_data="report_detailed")],
                 [InlineKeyboardButton(f"{config.EMOJIS['home']} תפריט ראשי", callback_data="main_menu")],
             ]
 
@@ -243,10 +243,10 @@ class ReportsHandler:
 
             keyboard = [
                 [
-                    InlineKeyboardButton(f"📅 דוח שבועי", callback_data="report_weekly"),
-                    InlineKeyboardButton(f"📋 דוח מקיף", callback_data="report_full"),
+                    InlineKeyboardButton("📅 דוח שבועי", callback_data="report_weekly"),
+                    InlineKeyboardButton("📋 דוח מקיף", callback_data="report_full"),
                 ],
-                [InlineKeyboardButton(f"⚙️ דוחות מתקדמים", callback_data="reports_advanced")],
+                [InlineKeyboardButton("⚙️ דוחות מתקדמים", callback_data="reports_advanced")],
                 [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="main_menu")],
             ]
 
@@ -365,8 +365,8 @@ class ReportsHandler:
             """
             keyboard = [
                 [
-                    InlineKeyboardButton(f"📧 שלח לרופא", callback_data="report_action_send_doctor"),
-                    InlineKeyboardButton(f"💾 שמור כקובץ", callback_data="export_report_custom"),
+                    InlineKeyboardButton("📧 שלח לרופא", callback_data="report_action_send_doctor"),
+                    InlineKeyboardButton("💾 שמור כקובץ", callback_data="export_report_custom"),
                 ],
                 [InlineKeyboardButton(f"{config.EMOJIS['home']} תפריט ראשי", callback_data="main_menu")],
             ]
@@ -446,11 +446,11 @@ class ReportsHandler:
             message = f"""
 {config.EMOJIS['report']} <b>שליחת דוח לרופא</b>
 הדוח החודשי האחרון מוכן לשליחה. פונקציית שליחה אוטומטית תתווסף בקרוב; בינתיים ניתן להעתיק ולשתף ידנית.
- 
- תוכן הדוח:
- 
- {full_report}
-             """
+
+תוכן הדוח:
+
+{full_report}
+            """
             # Export as a simple text file placeholder
             filename = create_report_filename("doctor_report", end_date, ext="txt")
             try:
@@ -692,12 +692,12 @@ class ReportsHandler:
 """
 
             if common_symptoms:
-                report += f"\n🤒 <b>תסמינים נפוצים:</b>\n"
+                report += "\n🤒 <b>תסמינים נפוצים:</b>\n"
                 for symptom, count in common_symptoms:
                     report += f"• {symptom}: {count} פעמים\n"
 
             if common_side_effects:
-                report += f"\n💊 <b>תופעות לוואי נפוצות:</b>\n"
+                report += "\n💊 <b>תופעות לוואי נפוצות:</b>\n"
                 for side_effect, count in common_side_effects:
                     report += f"• {side_effect}: {count} פעמים\n"
 
@@ -745,17 +745,17 @@ class ReportsHandler:
 """
 
             if out_of_stock:
-                report += f"\n🚨 **תרופות שנגמרו (דורש הזמנה דחופה):**\n"
+                report += "\n🚨 **תרופות שנגמרו (דורש הזמנה דחופה):**\n"
                 for medicine in out_of_stock:
                     report += f"• {medicine.name}\n"
 
             if low_stock:
-                report += f"\n⚠️ **מלאי נמוך (מומלץ להזמין):**\n"
+                report += "\n⚠️ **מלאי נמוך (מומלץ להזמין):**\n"
                 for medicine in low_stock:
                     report += f"• {medicine.name}: {medicine.inventory_count} כדורים\n"
 
             if good_stock:
-                report += f"\n✅ **מלאי תקין:**\n"
+                report += "\n✅ **מלאי תקין:**\n"
                 for medicine in good_stock[:5]:  # Show first 5
                     report += f"• {medicine.name}: {medicine.inventory_count} כדורים\n"
 
@@ -778,7 +778,6 @@ class ReportsHandler:
                 return f"{config.EMOJIS['info']} אין מספיק נתונים לניתוח מגמות"
 
             # Calculate trends
-            dates = list(daily_adherence.keys())
             rates = list(daily_adherence.values())
 
             if len(rates) < 3:
@@ -809,9 +808,9 @@ class ReportsHandler:
 
             # Recommendations based on trends
             if trend_direction == "מתדרדרת":
-                report += f"\n💡 <b>המלצות:</b>\n• כדאי לבדוק סיבות לירידה בציות\n• ייתכן שצריך התאמת זמני התזכורות\n• מומלץ התייעצות עם הרופא"
+                report += "\n💡 <b>המלצות:</b>\n• כדאי לבדוק סיבות לירידה בציות\n• ייתכן שצריך התאמת זמני התזכורות\n• מומלץ התייעצות עם הרופא"
             elif trend_direction == "משתפרת":
-                report += f"\n🎉 <b>כל הכבוד!</b> המגמה חיובית, המשיכו כך!"
+                report += "\n🎉 <b>כל הכבוד!</b> המגמה חיובית, המשיכו כך!"
 
             return report
 

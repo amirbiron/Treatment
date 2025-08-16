@@ -25,3 +25,12 @@ exclude = '(^tests/|^handlers/|^utils/|^database\.py$|^scheduler\.py$|^main\.py$
 
 [tool.bandit]
 exclude_dirs = ["tests", ".venv", "venv", "htmlcov", ".github", "build", "dist"]
+
+[tool.flake8]
+max-line-length = 127
+extend-ignore = ["E203", "W503"]
+exclude = [".git", "__pycache__", "build", "dist", ".venv", "venv", ".mypy_cache", ".pytest_cache", "htmlcov", ".github", "get-pip.py", "tests"]
+per-file-ignores = [
+  # allow asserts/comparisons style in tests
+  "tests/*: E711,E712,B101",
+]
