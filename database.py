@@ -1016,6 +1016,32 @@ class DatabaseManagerMongo:
 		return s
 
 	@staticmethod
+	async def replace_medicine_schedules(medicine_id: int, times: List[time]) -> None:
+		"""Replace all schedules for a medicine with provided times (Mongo)."""
+		await _init_mongo()
+		# Remove existing schedules for this medicine
+		await _mongo_db.medicine_schedules.delete_many({"medicine_id": int(medicine_id)})
+		# If no times provided, we are done (effectively clearing the schedule)
+		if not times:
+			return
+		# Generate sequential ids and insert new schedules
+		last = await _mongo_db.medicine_schedules.find().sort("_id", -1).limit(1).to_list(1)
+		next_id = (last[0]["_id"] + 1) if last else 1
+		docs = []
+		for t in times:
+			docs.append({
+				"_id": next_id,
+				"medicine_id": int(medicine_id),
+				"time_to_take": t.strftime('%H:%M'),
+				"is_active": True,
+				"reminder_minutes_before": 0,
+				"created_at": datetime.utcnow(),
+			})
+			next_id += 1
+		await _mongo_db.medicine_schedules.insert_many(docs)
+		return
+
+	@staticmethod
 	async def get_recent_doses(medicine_id: int, hours: int = None, days: int = None) -> List[DoseLog]:
 		await _init_mongo()
 		assert hours is not None or days is not None
