@@ -347,7 +347,7 @@ class CaregiverHandler:
 📞 <b>טלפון:</b> {data.get('phone') or '-'}\n
 ✉️ <b>אימייל:</b> {data.get('email') or '-'}
             """
-                keyboard = [[[InlineKeyboardButton(f"{config.EMOJIS['caregiver']} נהל מטפלים", callback_data="caregiver_manage")]]]
+                keyboard = [[InlineKeyboardButton(f"{config.EMOJIS['caregiver']} נהל מטפלים", callback_data="caregiver_manage")]]
             else:
                 message = f"{config.EMOJIS['error']} שגיאה בשמירת המטפל. אנא נסו שוב."
                 keyboard = [[
@@ -478,7 +478,7 @@ class CaregiverHandler:
 עדיין לא הוספתם מטפלים.
 מטפלים יכולים לעזור לכם לעקוב אחר נטילת התרופות ולקבל דוחות.
                 """
-                keyboard = [[[InlineKeyboardButton(f"{config.EMOJIS['caregiver']} הוסף מטפל ראשון", callback_data="caregiver_add")]]]
+                keyboard = [[InlineKeyboardButton(f"{config.EMOJIS['caregiver']} הוסף מטפל ראשון", callback_data="caregiver_add")]]
             else:
                 message = f"{config.EMOJIS['caregiver']} <b>המטפלים שלכם ({len(caregivers)}):</b>\n\n"
                 for c in caregivers[offset:offset+page_size]:

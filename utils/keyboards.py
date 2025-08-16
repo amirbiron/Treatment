@@ -368,7 +368,7 @@ def get_reminders_settings_keyboard(current_snooze: int, current_attempts: int, 
             )
         ],
         [
-            InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="settings_menu")
+            InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="reminders_menu")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)

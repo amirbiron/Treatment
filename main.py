@@ -1099,8 +1099,11 @@ class MedicineReminderBot:
             elif data == "settings_caregivers":
                 await query.edit_message_text("ניהול מטפלים זמין דרך תפריט 'מטפלים'.")
             elif data == "settings_reports":
-                from handlers import reports_handler
-                await reports_handler.show_reports_menu(update, context)
+                # Show report settings placeholder rather than opening reports center
+                await query.edit_message_text(
+                    f"{config.EMOJES['report']} הגדרות דוחות יתווספו בקרוב (בחירת תדירות, ערוצים)",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{config.EMOJES['back']} חזור", callback_data="settings_menu")]])
+                )
                 return
             elif data == "settings_appointments":
                 await appointments_handler.show_menu(query, context)
