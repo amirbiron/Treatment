@@ -246,7 +246,7 @@ def get_medicines_keyboard(medicines: List, offset: int = 0) -> InlineKeyboardMa
         next_offset = slice_start + page_size
         nav_row.append(
             InlineKeyboardButton(
-                f"הבא ›",
+                f"עמוד הבא ›",
                 callback_data=f"medicines_page_{next_offset}"
             )
         )
