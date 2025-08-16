@@ -590,6 +590,10 @@ class MedicineReminderBot:
                 # Avoid main-menu text mapping hijacking next text
                 context.user_data['suppress_menu_mapping'] = True
                 return
+            elif data == "reminders_menu":
+                from handlers import reminder_handler
+                await reminder_handler.show_next_reminders(update, context)
+                return
             elif data.startswith("settings_") or data.startswith("tz_"):
                 await self._handle_settings_action(update, context)
             elif data.startswith("report_") or data.startswith("report_action_") or data.startswith("export_report_"):
@@ -649,8 +653,7 @@ class MedicineReminderBot:
                 await self._handle_inventory_controls(query, context)
                 return
             elif data.startswith("inventory_"):
-                from handlers.medicine_handler import medicine_handler
-                await medicine_handler.handle_inventory_update(update, context)
+                # Handled by medicine handler conversation entry points
                 return
             elif data.startswith("caregiver_"):
                 # Routed by caregiver handler; do nothing here
@@ -1231,18 +1234,49 @@ class MedicineReminderBot:
                 await update.message.reply_text(config.ERROR_MESSAGES['invalid_input'])
                 return
 
-            # Inventory update inline flow via text
-            if 'updating_inventory_for' in user_data:
-                medicine_id = user_data.get('updating_inventory_for')
+            # Inventory update inline flow via text (fallback if conversation isn't active)
+            if 'updating_inventory_for' in user_data or 'adding_inventory_for' in user_data:
+                medicine_id = user_data.get('updating_inventory_for') or user_data.get('adding_inventory_for')
                 try:
-                    new_count = float(text)
+                    delta_or_total = float(text)
+                    if delta_or_total < 0:
+                        raise ValueError("Negative inventory")
                 except ValueError:
                     await update.message.reply_text("אנא הזינו מספר תקין לכמות המלאי")
                     return
-                await DatabaseManager.update_inventory(int(medicine_id), new_count)
+                # Compute final count
+                med = await DatabaseManager.get_medicine_by_id(int(medicine_id))
+                if not med:
+                    await update.message.reply_text(config.ERROR_MESSAGES["medicine_not_found"]) 
+                    user_data.pop('updating_inventory_for', None)
+                    user_data.pop('adding_inventory_for', None)
+                    user_data.pop('awaiting_add_quantity', None)
+                    return
+                if user_data.get('awaiting_add_quantity'):
+                    final_count = float(med.inventory_count) + delta_or_total
+                else:
+                    final_count = delta_or_total
+                await DatabaseManager.update_inventory(int(medicine_id), final_count)
+                # Success message similar to conversation handler
+                status_msg = ""
+                if final_count <= med.low_stock_threshold:
+                    status_msg = f"\n{config.EMOJES['warning']} מלאי נמוך!"
+                from utils.keyboards import get_medicine_detail_keyboard
+                message = f"""
+{config.EMOJES['success']} <b>מלאי עודכן בהצלחה!</b>
+
+{config.EMOJES['medicine']} {med.name}
+📦 מלאי חדש: {int(final_count)} כדורים{status_msg}
+                """
+                await update.message.reply_text(
+                    message,
+                    parse_mode='HTML',
+                    reply_markup=get_medicine_detail_keyboard(int(medicine_id))
+                )
+                # Clean flags
                 user_data.pop('updating_inventory_for', None)
-                await update.message.reply_text(f"{config.EMOJES['success']} המלאי עודכן")
-                await self.my_medicines_command(update, context)
+                user_data.pop('adding_inventory_for', None)
+                user_data.pop('awaiting_add_quantity', None)
                 return
             # Schedule edit flow via text (time input HH:MM)
             if 'editing_schedule_for' in user_data:

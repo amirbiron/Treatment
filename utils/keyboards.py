@@ -68,11 +68,20 @@ def get_appointments_menu_keyboard() -> InlineKeyboardMarkup:
 def get_appointments_list_keyboard(items: list, offset: int = 0, page_size: int = 10) -> InlineKeyboardMarkup:
     """Show upcoming appointments list with select/delete buttons"""
     keyboard = []
+    category_map = {
+        "doctor": "רופא",
+        "blood": "בדיקת דם",
+        "treatment": "טיפול",
+        "checkup": "בדיקה",
+        "custom": "אחר",
+    }
     for appt in items:
-        title = appt.title or 'תור'
+        title = getattr(appt, 'title', None) or 'תור'
+        category_key = getattr(appt, 'category', None)
+        category_label = category_map.get(category_key, "תור")
         when_txt = appt.when_at.strftime('%d/%m %H:%M')
         keyboard.append([
-            InlineKeyboardButton(f"{when_txt} — {title}", callback_data=f"appt_view_{appt.id}")
+            InlineKeyboardButton(f"{when_txt} — {category_label} — {title}", callback_data=f"appt_view_{appt.id}")
         ])
     nav = []
     if offset > 0:
@@ -246,7 +255,7 @@ def get_medicines_keyboard(medicines: List, offset: int = 0) -> InlineKeyboardMa
         next_offset = slice_start + page_size
         nav_row.append(
             InlineKeyboardButton(
-                f"הבא ›",
+                f"עמוד הבא ›",
                 callback_data=f"medicines_page_{next_offset}"
             )
         )
@@ -641,7 +650,7 @@ def get_cancel_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [
             InlineKeyboardButton(
-                f"{config.EMOJIS['back']} ביטול",
+                f"{config.EMOJIS['back']} חזור",
                 callback_data="cancel"
             )
         ]

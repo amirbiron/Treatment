@@ -43,7 +43,12 @@ class AppointmentsHandler:
 
 		if data == 'appt_cancel' or data == 'time_cancel':
 			context.user_data.pop('appt_state', None)
-			await query.edit_message_text("בוטל", reply_markup=get_main_menu_keyboard())
+			await query.edit_message_text("בוטל")
+			await context.bot.send_message(
+				chat_id=query.message.chat_id,
+				text="תפריט ראשי:",
+				reply_markup=get_main_menu_keyboard()
+			)
 			return
 
 		if data == 'appt_back_to_menu':
@@ -290,7 +295,12 @@ class AppointmentsHandler:
 				# Schedule reminders
 				await medicine_scheduler.schedule_appointment_reminders(user.id, appt.id, when, rem1, rem3, user.timezone or config.DEFAULT_TIMEZONE, same_day=rem0)
 				context.user_data.pop('appt_state', None)
-				await query.edit_message_text(f"{config.EMOJIS['success']} התור נשמר!", reply_markup=get_main_menu_keyboard())
+				await query.edit_message_text(f"{config.EMOJIS['success']} התור נשמר!")
+				await context.bot.send_message(
+					chat_id=query.message.chat_id,
+					text="תפריט ראשי:",
+					reply_markup=get_main_menu_keyboard()
+				)
 				return
 			except Exception:
 				await query.edit_message_text(config.ERROR_MESSAGES['general'])
