@@ -179,7 +179,7 @@ class MedicineScheduler:
 {config.EMOJIS['reminder']} *זמן לקחת תרופה!*
 
 {config.EMOJIS['medicine']} *{medicine.name}*
-💊 מינון: {medicine.dosage}
+⚖️ מינון: {medicine.dosage}
 
 {config.EMOJIS['inventory']} מלאי נותר: {medicine.inventory_count} כדורים
             """
