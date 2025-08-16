@@ -604,8 +604,8 @@ class MedicineHandler:
 {config.EMOJIS['inventory']} <b>עדכון מלאי: {medicine.name}</b>
 
 מלאי נוכחי: {medicine.inventory_count} כדורים
-
-אנא הזן את סך המלאי העדכני שברשותך (במספר כדורים):
+ 
+אנא הזן את סך המלאי העדכני הכולל שברשותך (במספר כדורים):
                 """
                 
                 await query.edit_message_text(
