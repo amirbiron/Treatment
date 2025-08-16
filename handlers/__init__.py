@@ -1,3 +1,4 @@
+# fmt: off
 """
 Handlers Package
 All conversation and callback handlers for Medicine Reminder Bot
