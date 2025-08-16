@@ -1002,6 +1002,18 @@ class ReportsHandler:
         except Exception as e:
             logger.error(f"Error sending error message: {e}")
 
+    async def _generate_full_report(self, user_id: int, start_date: date, end_date: date) -> str:
+        """Generate a full report (adherence + symptoms + inventory + trends) for a date range."""
+        try:
+            adherence = await self._generate_adherence_report(user_id, start_date, end_date)
+            symptoms = await self._generate_symptoms_report(user_id, start_date, end_date)
+            inventory = await self._generate_inventory_report(user_id)
+            trends = await self._generate_trends_report(user_id, start_date, end_date)
+            return self._combine_reports([adherence, symptoms, inventory, trends])
+        except Exception as e:
+            logger.error(f"Error generating full report: {e}")
+            return ""
+
 
 # Global instance
 reports_handler = ReportsHandler()
