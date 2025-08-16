@@ -774,6 +774,48 @@ class MedicineReminderBot:
                 except Exception:
                     await query.edit_message_text(config.ERROR_MESSAGES["general"])
                 return
+            elif data == "history_back":
+                # Route back based on stored origin
+                origin = context.user_data.get("history_origin", "list")
+                med_id = context.user_data.get("history_medicine_id")
+                if origin == "from_detail" and med_id:
+                    # Reopen details view
+                    from utils.keyboards import get_medicine_detail_keyboard
+                    med = await DatabaseManager.get_medicine_by_id(int(med_id))
+                    if not med:
+                        await query.edit_message_text(config.ERROR_MESSAGES["medicine_not_found"])
+                        return
+                    msg = f"{config.EMOJES['medicine']} <b>{med.name}</b>\n\n"
+                    schedules = await DatabaseManager.get_medicine_schedules(med.id)
+                    schedule_times = ", ".join([s.time_to_take.strftime("%H:%M") for s in schedules]) if schedules else "לא מוגדר"
+                    msg += f"⚖️ <b>מינון:</b> {med.dosage}\n"
+                    msg += f"⏰ <b>שעות נטילה:</b> {schedule_times}\n"
+                    msg += f"📦 <b>מלאי:</b> {med.inventory_count} כדורים\n"
+                    msg += f"📅 <b>נוצר:</b> {med.created_at.strftime('%d/%m/%Y')}\n\n"
+                    await query.edit_message_text(msg, parse_mode="HTML", reply_markup=get_medicine_detail_keyboard(med.id))
+                    return
+                # Default: return to medicines list at previous offset
+                from utils.keyboards import get_medicines_keyboard
+                db_user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+                medicines = await DatabaseManager.get_user_medicines(db_user.id) if db_user else []
+                offset = context.user_data.get("med_list_offset", 0)
+                header = f"{config.EMOJES['medicine']} <b>התרופות שלכם:</b>\n\n" if medicines else f"{config.EMOJES['info']} <b>אין תרופות רשומות</b>\n\nלחצו על /add_medicine כדי להוסיף תרופה ראשונה."
+                message = header
+                if medicines:
+                    slice_start = max(0, int(offset))
+                    slice_end = slice_start + config.MAX_MEDICINES_PER_PAGE
+                    for medicine in medicines[slice_start:slice_end]:
+                        status_emoji = config.EMOJES["success"] if medicine.is_active else config.EMOJES["error"]
+                        inventory_warning = (
+                            f" {config.EMOJES['warning']}" if medicine.inventory_count <= medicine.low_stock_threshold else ""
+                        )
+                        message += f"{status_emoji} <b>{medicine.name}</b>\n"
+                        message += f"   ⚖️ {medicine.dosage}\n"
+                        message += f"   📦 מלאי: {medicine.inventory_count}{inventory_warning}\n\n"
+                await query.edit_message_text(
+                    message, parse_mode="HTML", reply_markup=get_medicines_keyboard(medicines if medicines else [], offset=offset)
+                )
+                return
             else:
                 # Ignore unknown callbacks silently to reduce confusion
                 try:
@@ -1010,7 +1052,10 @@ class MedicineReminderBot:
             if data.startswith("medicine_history_"):
                 # Show last 30 days history for this specific medicine
                 try:
-                    medicine_id = int(data.split("_")[-1])
+                    parts = data.split("_")
+                    # format: medicine_history_{id}[_origin]
+                    medicine_id = int(parts[2])
+                    origin = parts[3] if len(parts) > 3 else None
                 except Exception:
                     await query.edit_message_text(config.ERROR_MESSAGES["general"])
                     return
@@ -1027,6 +1072,10 @@ class MedicineReminderBot:
                     await query.edit_message_text("אין היסטוריה 30 ימים לתרופה זו")
                     return
                 from utils.keyboards import get_symptom_logs_list_keyboard
+
+                # Remember where we came from to support a proper Back action later
+                context.user_data["history_origin"] = origin or "list"
+                context.user_data["history_medicine_id"] = medicine_id
 
                 await query.edit_message_text(
                     f"היסטוריה (30 ימים) לתרופה {medicine_id}:", reply_markup=get_symptom_logs_list_keyboard(logs[-10:])
