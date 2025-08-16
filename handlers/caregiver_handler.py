@@ -89,7 +89,7 @@ class CaregiverHandler:
             CommandHandler("caregiver_settings", self.caregiver_settings),
             CommandHandler("send_report", self.send_manual_report),
             # Handle only specific caregiver actions here; let conversation handle add/manage/edit entries
-            CallbackQueryHandler(self.handle_caregiver_actions, pattern=r"^caregiver_(invite|send_report|copy_inv_code_.*|copy_inv_msg_.*)$"),
+            CallbackQueryHandler(self.handle_caregiver_actions, pattern=r"^caregiver_(invite|send_report|copy_inv_msg_.*)$"),
             CallbackQueryHandler(self.confirm_remove_caregiver, pattern=r"^remove_caregiver_"),
             CallbackQueryHandler(self.toggle_caregiver_status, pattern=r"^toggle_caregiver_"),
         ]
@@ -607,12 +607,10 @@ class CaregiverHandler:
                 ).strip()
                 msg = (
                     f"{config.EMOJIS['caregiver']} יצירת הזמנה למטפל\n\n"
-                    f"קוד הזמנה: <b>{inv.code}</b>\n"
-                    f"קישור: <code>{deep_link}</code>\n\n"
-                    f"שלחו את הקוד או השתמשו בהעתקה של ההודעה למטה."
+                    f"מטרת הפונקציה: לשלוח למטפל/ת שלך קישור הצטרפות פשוט, כדי שיוכלו לקבל ממך דוחות מעקב.\n\n"
+                    f"לחצו על הכפתור כדי לקבל הודעה מוכנה להעברה למטפל/ת.\n"
                 )
                 kb = [
-                    [InlineKeyboardButton("📋 העתק קוד", callback_data=f"copy_inv_code_{inv.code}")],
                     [InlineKeyboardButton("📋 העתק הודעה למטפל", callback_data=f"copy_inv_msg_{inv.code}")],
                     [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")],
                 ]
@@ -620,19 +618,7 @@ class CaregiverHandler:
                 context.user_data["last_invite"] = {"code": inv.code, "link": deep_link, "text": caregiver_msg}
                 await query.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
                 return
-            if data.startswith("copy_inv_code_"):
-                code = data.split("_")[-1]
-                await query.answer(text=f"הועתק: {code}", show_alert=False)
-                await query.edit_message_reply_markup(
-                    reply_markup=InlineKeyboardMarkup(
-                        [
-                            [InlineKeyboardButton("✔️ הועתק קוד", callback_data="noop")],
-                            [InlineKeyboardButton("📋 העתק הודעה למטפל", callback_data=f"copy_inv_msg_{code}")],
-                            [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")],
-                        ]
-                    )
-                )
-                return
+
             if data.startswith("copy_inv_msg_"):
                 code = data.split("_")[-1]
                 invite = context.user_data.get("last_invite", {})
@@ -641,10 +627,10 @@ class CaregiverHandler:
                     user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
                     link = f"t.me/{config.BOT_USERNAME}?start=invite_{code}"
                     text = (
-                        f"שלום! הוזמנת להיות מטפל עבור {user.first_name} {user.last_name or ''}.\n"
-                        f"כדי להצטרף, לחצו על הקישור והאשרו: {link}"
+                        f"שלום! זה קישור לאפליקציית המעקב שלי בטלגרם כדי שתוכל/י לקבל ממני דוחות על עקביות נטילת התרופות.\n"
+                        f"להצטרפות כמטפל/ת שלי, פשוט לחצו והאשרו: {link}"
                     ).strip()
-                await query.answer(text="ההודעה להעתקה נשלחה למעלה בצ׳אט", show_alert=False)
+                await query.answer(text="✔️ הודעה מוכנה להעתקה נשלחה בצ׳אט", show_alert=False)
                 # Send the copyable message as a new message the user can forward
                 await context.bot.send_message(chat_id=query.message.chat_id, text=text)
                 return
