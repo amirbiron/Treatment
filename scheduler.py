@@ -41,11 +41,22 @@ class MedicineScheduler:
         # Add event listeners
         self.scheduler.add_listener(self._job_executed_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
 
+    async def __aenter__(self):
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.stop()
+        return False
+
     async def start(self):
         """Start the scheduler"""
         try:
-            self.scheduler.start()
-            logger.info("Medicine scheduler started successfully")
+            if not self.scheduler.running:
+                self.scheduler.start()
+                logger.info("Medicine scheduler started successfully")
+            else:
+                logger.debug("Medicine scheduler already running")
 
             # Schedule weekly reports
             await self._schedule_weekly_reports()
@@ -68,7 +79,7 @@ class MedicineScheduler:
 
     async def stop(self):
         """Stop the scheduler"""
-        if self.scheduler.running:
+        if self.scheduler and self.scheduler.running:
             self.scheduler.shutdown(wait=True)
             logger.info("Medicine scheduler stopped")
 
@@ -168,7 +179,7 @@ class MedicineScheduler:
 {config.EMOJIS['reminder']} *זמן לקחת תרופה!*
 
 {config.EMOJIS['medicine']} *{medicine.name}*
-💊 מינון: {medicine.dosage}
+⚖️ מינון: {medicine.dosage}
 
 {config.EMOJIS['inventory']} מלאי נותר: {medicine.inventory_count} כדורים
             """

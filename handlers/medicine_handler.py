@@ -167,7 +167,7 @@ class MedicineHandler:
 
             message = f"""
 {config.EMOJIS['medicine']} <b>הוספת תרופה: {medicine_name}</b>
-💊 <b>מינון:</b> {dosage}
+⚖️ <b>מינון:</b> {dosage}
 
 🔹 <b>שלב 3/3:</b> שעות נטילה
 
@@ -232,7 +232,7 @@ class MedicineHandler:
 {config.EMOJIS['success']} <b>התרופה נוספה בהצלחה!</b>
 
 {config.EMOJIS['medicine']} <b>{medicine_name}</b>
-💊 מינון: {dosage}
+⚖️ מינון: {dosage}
 ⏰ שעות נטילה: {schedules_text}
 📦 מלאי התחלתי: 0 כדורים (ניתן לעדכן דרך "עדכן מלאי")
 
@@ -295,7 +295,7 @@ class MedicineHandler:
 {config.EMOJIS['success']} <b>התרופה נוספה בהצלחה!</b>
 
 {config.EMOJIS['medicine']} <b>{medicine_name}</b>
-💊 מינון: {dosage}
+⚖️ מינון: {dosage}
 ⏰ שעות נטילה: {schedules_text}
 📦 מלאי התחלתי: 0 כדורים (ניתן לעדכן דרך "עדכן מלאי")
 
@@ -345,7 +345,7 @@ class MedicineHandler:
 {config.EMOJIS['success']} <b>התרופה נוספה בהצלחה!</b>
 
 {config.EMOJIS['medicine']} <b>{medicine_data['name']}</b>
-💊 מינון: {medicine_data['dosage']}
+⚖️ מינון: {medicine_data['dosage']}
 ⏰ שעות נטילה: {', '.join([t.strftime('%H:%M') for t in medicine_data['schedules']])}
 📦 מלאי: {inventory_count} יחידות
 
@@ -433,12 +433,11 @@ class MedicineHandler:
             message = f"""
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
 
-💊 <b>מינון:</b> {medicine.dosage}
+⚖️ <b>מינון:</b> {medicine.dosage}
 ⏰ <b>שעות נטילה:</b> {', '.join(schedule_times) if schedule_times else 'לא מוגדר'}
 📦 <b>מלאי:</b> {medicine.inventory_count} כדורים
 📊 <b>השבוע:</b> נלקח {taken_count}/{total_count} פעמים
 📅 <b>נוצר:</b> {medicine.created_at.strftime('%d/%m/%Y')}
-🟢 <b>פעיל:</b> {'כן' if medicine.is_active else 'לא'}
 
 {medicine.notes or ''}{inventory_status}
             """

@@ -116,6 +116,20 @@ class ReportsHandler:
             report = await self._generate_adherence_report(user.id, start_date, end_date)
             symptoms_report = await self._generate_symptoms_report(user.id, start_date, end_date)
 
+            # Diagnostics: count dose logs and symptom logs in range
+            dose_count = 0
+            symptom_count = 0
+            try:
+                meds_all = await DatabaseManager.get_user_medicines(user.id, active_only=False)
+                for med in meds_all:
+                    doses = await DatabaseManager.get_medicine_doses_in_range(med.id, start_date, end_date)
+                    dose_count += len(doses)
+                symptoms = await DatabaseManager.get_symptom_logs_in_range(user.id, start_date, end_date)
+                symptom_count = len(symptoms)
+            except Exception:
+                # Keep diagnostics optional; if any error, leave zeros
+                pass
+
             # Combine reports
             full_report = self._combine_reports([report, symptoms_report])
 
@@ -131,6 +145,8 @@ class ReportsHandler:
             message = f"""
 {config.EMOJIS['report']} <b>דוח שבועי</b>
 📅 {format_date_hebrew(start_date)} - {format_date_hebrew(end_date)}
+
+{config.EMOJIS['info']} אבחון: {dose_count} רשומות נטילה, {symptom_count} רישומי תסמינים
 
 {full_report}
 
