@@ -649,8 +649,7 @@ class MedicineReminderBot:
                 await self._handle_inventory_controls(query, context)
                 return
             elif data.startswith("inventory_"):
-                from handlers.medicine_handler import medicine_handler
-                await medicine_handler.handle_inventory_update(update, context)
+                # Handled by medicine handler conversation entry points
                 return
             elif data.startswith("caregiver_"):
                 # Routed by caregiver handler; do nothing here

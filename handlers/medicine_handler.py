@@ -52,6 +52,8 @@ class MedicineHandler:
                 CallbackQueryHandler(self.start_add_medicine, pattern="^medicine_add$"),
                 CallbackQueryHandler(self.view_medicine, pattern="^medicine_view_"),
                 CallbackQueryHandler(self.edit_medicine, pattern="^medicine_edit_"),
+                # Inventory per-medicine actions (only those with an ID)
+                CallbackQueryHandler(self.handle_inventory_update, pattern=r"^inventory_\d+_")
             ],
             states={
                 MEDICINE_NAME: [
@@ -581,6 +583,10 @@ class MedicineHandler:
             query = update.callback_query
             await query.answer()
             
+            # Clear any lingering edit states to avoid misinterpreting numeric input as rename
+            context.user_data.pop('editing_medicine_for', None)
+            context.user_data.pop('editing_field_for', None)
+
             data_parts = query.data.split("_")
             medicine_id = int(data_parts[1])
             operation = data_parts[2]
