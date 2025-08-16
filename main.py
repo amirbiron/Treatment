@@ -975,7 +975,7 @@ class MedicineReminderBot:
                     med = await DatabaseManager.get_medicine_by_id(medicine_id)
                     pack = med.pack_size if med and med.pack_size else 28
                     await query.edit_message_text(
-                        f"{config.EMOJES['inventory']} עדכון מלאי: {med.name}\nמלאי נוכחי: {med.inventory_count} כדורים\n\nבחרו עדכון מהיר למלאי או הזינו כמות מדויקת:",
+                        f"{config.EMOJES['inventory']} עדכון מלאי: {med.name}\nמלאי נוכחי: {med.inventory_count} כדורים\n\nבחרו הוספת כמות או הזינו סך מלאי מדויק:",
                         reply_markup=get_inventory_update_keyboard(medicine_id, pack)
                     )
                     return

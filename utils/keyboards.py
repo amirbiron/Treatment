@@ -572,9 +572,17 @@ def get_inventory_update_keyboard(medicine_id: int, pack_size: int = None) -> In
     fixed_steps = [28, 56, 84]
     pack_steps = [pack, pack * 2, pack * 3]
     show_fixed = len(set(pack_steps) & set(fixed_steps)) == 0
-    
+ 
     keyboard: List[List[InlineKeyboardButton]] = []
-    
+ 
+    # Add-quantity explicit button at the top
+    keyboard.append([
+        InlineKeyboardButton(
+            f"➕ הוסף כמות כדורים",
+            callback_data=f"inventory_{medicine_id}_add_dialog"
+        )
+    ])
+
     # Add fixed increments only if they do not duplicate pack-based steps
     if show_fixed:
         keyboard.append([
@@ -582,32 +590,17 @@ def get_inventory_update_keyboard(medicine_id: int, pack_size: int = None) -> In
             InlineKeyboardButton(f"+56", callback_data=f"inventory_{medicine_id}_+56"),
             InlineKeyboardButton(f"+84", callback_data=f"inventory_{medicine_id}_+84")
         ])
-    
+ 
     # Pack-based increments
     keyboard.append([
         InlineKeyboardButton(f"+1 חבילה (+{pack})", callback_data=f"inventory_{medicine_id}_+{pack}"),
         InlineKeyboardButton(f"+2 חבילות (+{pack*2})", callback_data=f"inventory_{medicine_id}_+{pack*2}"),
         InlineKeyboardButton(f"+3 חבילות (+{pack*3})", callback_data=f"inventory_{medicine_id}_+{pack*3}")
     ])
-    
-    # Add fixed decrements only if they do not duplicate pack-based steps
-    if show_fixed:
-        keyboard.append([
-            InlineKeyboardButton(f"-28", callback_data=f"inventory_{medicine_id}_-28"),
-            InlineKeyboardButton(f"-56", callback_data=f"inventory_{medicine_id}_-56"),
-            InlineKeyboardButton(f"-84", callback_data=f"inventory_{medicine_id}_-84")
-        ])
-    
-    # Pack-based decrements
-    keyboard.append([
-        InlineKeyboardButton(f"-1 חבילה (-{pack})", callback_data=f"inventory_{medicine_id}_-{pack}"),
-        InlineKeyboardButton(f"-2 חבילות (-{pack*2})", callback_data=f"inventory_{medicine_id}_-{pack*2}"),
-        InlineKeyboardButton(f"-3 חבילות (-{pack*3})", callback_data=f"inventory_{medicine_id}_-{pack*3}")
-    ])
-    
+ 
     keyboard.append([
         InlineKeyboardButton(
-            f"{config.EMOJIS['settings']} הזן כמות מדויקת",
+            f"{config.EMOJIS['settings']} הזן כמות מלאי",
             callback_data=f"inventory_{medicine_id}_custom"
         )
     ])
@@ -617,7 +610,7 @@ def get_inventory_update_keyboard(medicine_id: int, pack_size: int = None) -> In
             callback_data=f"medicine_view_{medicine_id}"
         )
     ])
-    
+ 
     return InlineKeyboardMarkup(keyboard)
 
 

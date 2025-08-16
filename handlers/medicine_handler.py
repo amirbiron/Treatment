@@ -599,7 +599,7 @@ class MedicineHandler:
 
 מלאי נוכחי: {medicine.inventory_count} כדורים
 
-אנא הזינו את הכמות החדשה (במספר כדורים):
+אנא הזן את סך המלאי העדכני שברשותך (במספר כדורים):
                 """
                 
                 await query.edit_message_text(
@@ -610,6 +610,23 @@ class MedicineHandler:
                 
                 # Store medicine ID for later use
                 context.user_data['updating_inventory_for'] = medicine_id
+                return CUSTOM_INVENTORY_INPUT
+            elif operation == "add" or operation == "add_dialog":
+                # Ask user for quantity to add to current stock
+                message = f"""
+{config.EMOJIS['inventory']} <b>הוספת כמות למלאי: {medicine.name}</b>
+
+מלאי נוכחי: {medicine.inventory_count} כדורים
+
+אנא הזינו את מספר הכדורים שברצונך להוסיף למלאי הקיים:
+                """
+                await query.edit_message_text(
+                    message,
+                    parse_mode='HTML',
+                    reply_markup=get_cancel_keyboard()
+                )
+                context.user_data['adding_inventory_for'] = medicine_id
+                context.user_data['awaiting_add_quantity'] = True
                 return CUSTOM_INVENTORY_INPUT
             
             else:
@@ -655,7 +672,8 @@ class MedicineHandler:
     async def handle_custom_inventory(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle custom inventory count input"""
         try:
-            medicine_id = context.user_data.get('updating_inventory_for')
+            # Two modes: replacing total stock or adding to existing
+            medicine_id = context.user_data.get('updating_inventory_for') or context.user_data.get('adding_inventory_for')
             if not medicine_id:
                 await update.message.reply_text(
                     f"{config.EMOJIS['error']} שגיאה: לא נמצא מזהה התרופה"
@@ -676,19 +694,25 @@ class MedicineHandler:
                 )
                 return CUSTOM_INVENTORY_INPUT
             
-            # Update inventory
-            await DatabaseManager.update_inventory(medicine_id, new_count)
+            # Decide whether to add or set absolute
+            if context.user_data.get('awaiting_add_quantity'):
+                med = await DatabaseManager.get_medicine_by_id(medicine_id)
+                final_count = float(med.inventory_count) + new_count
+                await DatabaseManager.update_inventory(medicine_id, final_count)
+            else:
+                final_count = new_count
+                await DatabaseManager.update_inventory(medicine_id, final_count)
             
             medicine = await DatabaseManager.get_medicine_by_id(medicine_id)
             status_msg = ""
-            if new_count <= medicine.low_stock_threshold:
+            if final_count <= medicine.low_stock_threshold:
                 status_msg = f"\n{config.EMOJIS['warning']} מלאי נמוך!"
             
             message = f"""
 {config.EMOJIS['success']} <b>מלאי עודכן בהצלחה!</b>
 
 {config.EMOJIS['medicine']} {medicine.name}
-📦 מלאי חדש: {int(new_count)} כדורים{status_msg}
+📦 מלאי חדש: {int(final_count)} כדורים{status_msg}
             """
             
             await update.message.reply_text(
@@ -698,7 +722,9 @@ class MedicineHandler:
             )
             
             # Clean up
-            del context.user_data['updating_inventory_for']
+            context.user_data.pop('updating_inventory_for', None)
+            context.user_data.pop('adding_inventory_for', None)
+            context.user_data.pop('awaiting_add_quantity', None)
             
             return ConversationHandler.END
             
