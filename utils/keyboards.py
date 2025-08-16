@@ -215,7 +215,7 @@ def get_medicines_keyboard(medicines: List, offset: int = 0) -> InlineKeyboardMa
             ),
             InlineKeyboardButton(
                 f"{config.EMOJIS['settings']} פרטים",
-                callback_data=f"medicine_edit_{medicine.id}"
+                callback_data=f"medicine_view_{medicine.id}"
             ),
             InlineKeyboardButton(
                 f"{config.EMOJIS['report']} היסטוריה",
