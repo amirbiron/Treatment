@@ -142,6 +142,25 @@ class MedicineReminderBot:
         """Handle /start command"""
         try:
             user = update.effective_user
+            # Deep-link args: /start invite_CODE
+            text = (update.message.text or "").strip()
+            if text.startswith("/start ") and "invite_" in text:
+                code = text.split("invite_", 1)[-1].strip()
+                inv = await DatabaseManager.get_invite_by_code(code)
+                if not inv or getattr(inv, 'status', 'active') != 'active' or (getattr(inv, 'expires_at', None) and getattr(inv, 'expires_at') < datetime.utcnow()):
+                    await update.message.reply_text("קוד הזמנה לא תקין או פג תוקף.")
+                else:
+                    # Ask confirmation
+                    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                    context.user_data['pending_invite_code'] = code
+                    await update.message.reply_text(
+                        f"התבקשת להצטרף כמטפל עבור משתמש {inv.user_id}. לאשר?",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("אישור", callback_data="invite_accept")],
+                            [InlineKeyboardButton("ביטול", callback_data="invite_reject")],
+                        ])
+                    )
+                return
             # Show main menu immediately for faster UX
             from utils.keyboards import get_main_menu_keyboard
             await update.message.reply_text(
@@ -730,6 +749,37 @@ class MedicineReminderBot:
                     context.user_data['editing_symptom_log'] = log_id
                     await query.edit_message_text("שלחו את הטקסט המעודכן לרישום זה:")
                     return
+                return
+            elif data in ("invite_accept", "invite_reject"):
+                code = context.user_data.get('pending_invite_code')
+                if not code:
+                    await query.edit_message_text("אין הזמנה ממתינה.")
+                    return
+                inv = await DatabaseManager.get_invite_by_code(code)
+                if not inv or getattr(inv, 'status', 'active') != 'active':
+                    await query.edit_message_text("קוד לא תקף.")
+                    return
+                if data == "invite_reject":
+                    await DatabaseManager.cancel_invite(code)
+                    context.user_data.pop('pending_invite_code', None)
+                    await query.edit_message_text("הזמנה בוטלה.")
+                    return
+                # accept: create caregiver linked to inv.user_id and set telegram id
+                try:
+                    # fetch or create caregiver with provided name
+                    name = getattr(inv, 'caregiver_name', None) or (query.from_user.full_name or "מטפל")
+                    cg = await DatabaseManager.create_caregiver(
+                        user_id=int(getattr(inv, 'user_id')),
+                        caregiver_telegram_id=query.from_user.id,
+                        caregiver_name=name,
+                        relationship="מטפל",
+                        permissions="view"
+                    )
+                    await DatabaseManager.mark_invite_used(code)
+                    context.user_data.pop('pending_invite_code', None)
+                    await query.edit_message_text(f"{config.EMOJES['success']} הצטרפת כמטפל")
+                except Exception:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
                 return
             else:
                 # Ignore unknown callbacks silently to reduce confusion
