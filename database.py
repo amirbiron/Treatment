@@ -1439,6 +1439,10 @@ class DatabaseManagerMongo:
             log.id = d.get("_id")
             log.medicine_id = d.get("medicine_id")
             log.scheduled_time = d.get("scheduled_time")
+            log.taken_at = d.get("taken_at")
+            log.status = d.get("status", "pending")
+            log.notes = d.get("notes")
+            log.created_at = d.get("created_at") or datetime.utcnow()
             result.append(log)
         return result
 
