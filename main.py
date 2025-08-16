@@ -590,6 +590,10 @@ class MedicineReminderBot:
                 # Avoid main-menu text mapping hijacking next text
                 context.user_data['suppress_menu_mapping'] = True
                 return
+            elif data == "reminders_menu":
+                from handlers import reminder_handler
+                await reminder_handler.show_next_reminders(update, context)
+                return
             elif data.startswith("settings_") or data.startswith("tz_"):
                 await self._handle_settings_action(update, context)
             elif data.startswith("report_") or data.startswith("report_action_") or data.startswith("export_report_"):
