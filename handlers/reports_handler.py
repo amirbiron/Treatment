@@ -360,8 +360,8 @@ class ReportsHandler:
                     loading_msg = await update.message.reply_text("⏳ טוען דוח…")
             
             if data == "report_weekly":
-                await self.generate_weekly_report(update, context)
-                return ConversationHandler.END
+                # Avoid double-loading: generate directly with the same update
+                return await self.generate_weekly_report(update, context)
             if data == "report_monthly":
                 await self.generate_monthly_report(update, context)
                 return ConversationHandler.END

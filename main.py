@@ -975,7 +975,7 @@ class MedicineReminderBot:
                     med = await DatabaseManager.get_medicine_by_id(medicine_id)
                     pack = med.pack_size if med and med.pack_size else 28
                     await query.edit_message_text(
-                        f"{config.EMOJES['inventory']} עדכון מלאי: {med.name}\nמלאי נוכחי: {med.inventory_count} כדורים\n\nבחרו עדכון מהיר למלאי או הזינו כמות מדויקת:",
+                        f"{config.EMOJES['inventory']} עדכון מלאי: {med.name}\nמלאי נוכחי: {med.inventory_count} כדורים\n\nבחרו הוספת כמות או הזינו סך מלאי מדויק:",
                         reply_markup=get_inventory_update_keyboard(medicine_id, pack)
                     )
                     return
@@ -1099,8 +1099,11 @@ class MedicineReminderBot:
             elif data == "settings_caregivers":
                 await query.edit_message_text("ניהול מטפלים זמין דרך תפריט 'מטפלים'.")
             elif data == "settings_reports":
-                from handlers import reports_handler
-                await reports_handler.show_reports_menu(update, context)
+                # Show report settings placeholder rather than opening reports center
+                await query.edit_message_text(
+                    f"{config.EMOJES['report']} הגדרות דוחות יתווספו בקרוב (בחירת תדירות, ערוצים)",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{config.EMOJES['back']} חזור", callback_data="settings_menu")]])
+                )
                 return
             elif data == "settings_appointments":
                 await appointments_handler.show_menu(query, context)
