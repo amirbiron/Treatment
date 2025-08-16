@@ -25,7 +25,7 @@ from utils.keyboards import (
     get_cancel_keyboard,
     get_confirmation_keyboard
 )
-from utils.helpers import validate_telegram_id, format_datetime_hebrew
+from utils.helpers import validate_telegram_id, format_datetime_hebrew, validate_phone_number
 
 logger = logging.getLogger(__name__)
 
@@ -298,9 +298,9 @@ class CaregiverHandler:
         try:
             user_id = update.effective_user.id
             phone = update.message.text.strip()
-            import re
-            if not re.match(r"^[+\d][\d\-\s]{6,}$", phone):
-                await update.message.reply_text(f"{config.EMOJIS['error']} אנא הזינו מספר טלפון תקין")
+            ok, err = validate_phone_number(phone)
+            if not ok:
+                await update.message.reply_text(f"{config.EMOJIS['error']} {err}")
                 return CAREGIVER_PHONE
             self.user_caregiver_data[user_id]['phone'] = phone
             message = f"""
@@ -757,9 +757,9 @@ class CaregiverHandler:
     async def _edit_all_set_phone(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             phone = update.message.text.strip()
-            import re
-            if not re.match(r"^[+\d][\d\-\s]{6,}$", phone):
-                await update.message.reply_text(f"{config.EMOJIS['error']} מספר טלפון לא תקין")
+            ok, err = validate_phone_number(phone)
+            if not ok:
+                await update.message.reply_text(f"{config.EMOJIS['error']} {err}")
                 return EDIT_ALL_PHONE
             data = context.user_data.get('edit_all', {})
             data['phone'] = phone
