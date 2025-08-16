@@ -90,9 +90,10 @@ class CaregiverHandler:
         return [
             CommandHandler("caregiver_settings", self.caregiver_settings),
             CommandHandler("send_report", self.send_manual_report),
-            CallbackQueryHandler(self.handle_caregiver_actions, pattern="^caregiver_"),
-            CallbackQueryHandler(self.confirm_remove_caregiver, pattern="^remove_caregiver_"),
-            CallbackQueryHandler(self.toggle_caregiver_status, pattern="^toggle_caregiver_"),
+            # Handle only specific caregiver actions here; let conversation handle add/manage/edit entries
+            CallbackQueryHandler(self.handle_caregiver_actions, pattern=r"^caregiver_(invite|send_report|copy_inv_code_.*|copy_inv_msg_.*)$"),
+            CallbackQueryHandler(self.confirm_remove_caregiver, pattern=r"^remove_caregiver_"),
+            CallbackQueryHandler(self.toggle_caregiver_status, pattern=r"^toggle_caregiver_"),
         ]
 
     async def start_add_caregiver(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

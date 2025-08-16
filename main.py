@@ -120,10 +120,10 @@ class MedicineReminderBot:
         # Reports handler already included above
 
         # Callback Query Handler for inline keyboards
-        app.add_handler(CallbackQueryHandler(self.button_callback))
+        app.add_handler(CallbackQueryHandler(self.button_callback), group=10)
 
         # Message handler for text input
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text_message))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text_message), group=10)
 
         # Error handler
         app.add_error_handler(self.error_handler)
