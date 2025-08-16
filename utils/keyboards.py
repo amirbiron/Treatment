@@ -641,7 +641,7 @@ def get_cancel_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [
             InlineKeyboardButton(
-                f"{config.EMOJIS['back']} ביטול",
+                f"{config.EMOJIS['back']} חזור",
                 callback_data="cancel"
             )
         ]
