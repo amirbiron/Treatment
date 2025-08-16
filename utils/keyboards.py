@@ -293,12 +293,6 @@ def get_medicine_detail_keyboard(medicine_id: int) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                f"{config.EMOJIS['error']} השבת/הפעל",
-                callback_data=f"medicine_toggle_{medicine_id}"
-            )
-        ],
-        [
-            InlineKeyboardButton(
                 f"{config.EMOJIS['error']} מחק תרופה",
                 callback_data=f"medicine_delete_{medicine_id}"
             )
@@ -575,40 +569,54 @@ def get_time_selection_keyboard() -> InlineKeyboardMarkup:
 def get_inventory_update_keyboard(medicine_id: int, pack_size: int = None) -> InlineKeyboardMarkup:
     """Keyboard for quick inventory updates (by packs)."""
     pack = int(pack_size) if pack_size else 28
-    keyboard = [
-        [
+    fixed_steps = [28, 56, 84]
+    pack_steps = [pack, pack * 2, pack * 3]
+    show_fixed = len(set(pack_steps) & set(fixed_steps)) == 0
+    
+    keyboard: List[List[InlineKeyboardButton]] = []
+    
+    # Add fixed increments only if they do not duplicate pack-based steps
+    if show_fixed:
+        keyboard.append([
             InlineKeyboardButton(f"+28", callback_data=f"inventory_{medicine_id}_+28"),
             InlineKeyboardButton(f"+56", callback_data=f"inventory_{medicine_id}_+56"),
             InlineKeyboardButton(f"+84", callback_data=f"inventory_{medicine_id}_+84")
-        ],
-        [
-            InlineKeyboardButton(f"+1 חבילה (+{pack})", callback_data=f"inventory_{medicine_id}_+{pack}"),
-            InlineKeyboardButton(f"+2 חבילות (+{pack*2})", callback_data=f"inventory_{medicine_id}_+{pack*2}"),
-            InlineKeyboardButton(f"+3 חבילות (+{pack*3})", callback_data=f"inventory_{medicine_id}_+{pack*3}")
-        ],
-        [
+        ])
+    
+    # Pack-based increments
+    keyboard.append([
+        InlineKeyboardButton(f"+1 חבילה (+{pack})", callback_data=f"inventory_{medicine_id}_+{pack}"),
+        InlineKeyboardButton(f"+2 חבילות (+{pack*2})", callback_data=f"inventory_{medicine_id}_+{pack*2}"),
+        InlineKeyboardButton(f"+3 חבילות (+{pack*3})", callback_data=f"inventory_{medicine_id}_+{pack*3}")
+    ])
+    
+    # Add fixed decrements only if they do not duplicate pack-based steps
+    if show_fixed:
+        keyboard.append([
             InlineKeyboardButton(f"-28", callback_data=f"inventory_{medicine_id}_-28"),
             InlineKeyboardButton(f"-56", callback_data=f"inventory_{medicine_id}_-56"),
             InlineKeyboardButton(f"-84", callback_data=f"inventory_{medicine_id}_-84")
-        ],
-        [
-            InlineKeyboardButton(f"-1 חבילה (-{pack})", callback_data=f"inventory_{medicine_id}_-{pack}"),
-            InlineKeyboardButton(f"-2 חבילות (-{pack*2})", callback_data=f"inventory_{medicine_id}_-{pack*2}"),
-            InlineKeyboardButton(f"-3 חבילות (-{pack*3})", callback_data=f"inventory_{medicine_id}_-{pack*3}")
-        ],
-        [
-            InlineKeyboardButton(
-                f"{config.EMOJIS['settings']} הזן כמות מדויקת",
-                callback_data=f"inventory_{medicine_id}_custom"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                f"{config.EMOJIS['back']} חזור",
-                callback_data=f"medicine_view_{medicine_id}"
-            )
-        ]
-    ]
+        ])
+    
+    # Pack-based decrements
+    keyboard.append([
+        InlineKeyboardButton(f"-1 חבילה (-{pack})", callback_data=f"inventory_{medicine_id}_-{pack}"),
+        InlineKeyboardButton(f"-2 חבילות (-{pack*2})", callback_data=f"inventory_{medicine_id}_-{pack*2}"),
+        InlineKeyboardButton(f"-3 חבילות (-{pack*3})", callback_data=f"inventory_{medicine_id}_-{pack*3}")
+    ])
+    
+    keyboard.append([
+        InlineKeyboardButton(
+            f"{config.EMOJIS['settings']} הזן כמות מדויקת",
+            callback_data=f"inventory_{medicine_id}_custom"
+        )
+    ])
+    keyboard.append([
+        InlineKeyboardButton(
+            f"{config.EMOJIS['back']} חזור",
+            callback_data=f"medicine_view_{medicine_id}"
+        )
+    ])
     
     return InlineKeyboardMarkup(keyboard)
 

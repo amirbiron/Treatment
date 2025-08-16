@@ -116,7 +116,7 @@ class ReportsHandler:
                 await self._send_error_message(update, "משתמש לא נמצא")
                 return
             
-            # Show loading indication
+            # Show loading indication (single message)
             loading_msg = None
             if getattr(update, 'callback_query', None):
                 await update.callback_query.answer()
@@ -185,7 +185,7 @@ class ReportsHandler:
                     )
             
             # Send to caregivers
-            await self._send_report_to_caregivers(user.id, "דוח שבועי", full_report)
+            await self._send_report_to_caregivers(user.id, "דוח שבועי", full_report, context)
             
         except Exception as e:
             logger.error(f"Error generating weekly report: {e}")
@@ -605,17 +605,29 @@ class ReportsHandler:
     async def export_report(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Export report placeholder. Will eventually generate and send a file."""
         try:
+            # Build a simple comprehensive text from last 30 days
+            user_id = update.effective_user.id
+            user = await DatabaseManager.get_user_by_telegram_id(user_id)
+            end_date = date.today()
+            start_date = end_date - timedelta(days=30)
+            report = await self._generate_adherence_report(user.id, start_date, end_date)
+            symptoms_report = await self._generate_symptoms_report(user.id, start_date, end_date)
+            inventory_report = await self._generate_inventory_report(user.id)
+            trends_report = await self._generate_trends_report(user.id, start_date, end_date)
+            full_report = self._combine_reports([report, symptoms_report, inventory_report, trends_report])
+            filename = create_report_filename("full_report", end_date, ext="txt")
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(full_report)
             if update.callback_query:
                 await update.callback_query.answer()
                 await update.callback_query.edit_message_text(
-                    f"{config.EMOJIS['info']} יצוא דוחות לקובץ יהיה זמין בקרוב",
+                    f"{config.EMOJIS['success']} הדוח נשמר ונשלח כקובץ מצורף",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(f"{config.EMOJIS['home']} תפריט ראשי", callback_data="main_menu")]])
                 )
+                await update.callback_query.message.reply_document(document=open(filename, "rb"), filename=filename)
             else:
-                await update.message.reply_text(
-                    f"{config.EMOJIS['info']} יצוא דוחות לקובץ יהיה זמין בקרוב",
-                    reply_markup=get_main_menu_keyboard()
-                )
+                await update.message.reply_text(f"{config.EMOJIS['success']} הדוח נשמר ונשלח כקובץ מצורף")
+                await update.message.reply_document(document=open(filename, "rb"), filename=filename)
             return ConversationHandler.END
         except Exception as e:
             logger.error(f"Error in export_report: {e}")
@@ -873,15 +885,13 @@ class ReportsHandler:
             logger.error(f"Error generating trends report: {e}")
             return f"{config.EMOJIS['error']} שגיאה ביצירת ניתוח מגמות"
     
-    async def _send_report_to_caregivers(self, user_id: int, report_title: str, report_content: str):
+    async def _send_report_to_caregivers(self, user_id: int, report_title: str, report_content: str, context: ContextTypes.DEFAULT_TYPE = None):
         """Send report to all caregivers"""
         try:
             caregivers = await DatabaseManager.get_user_caregivers(user_id, active_only=True)
             user = await DatabaseManager.get_user_by_id(user_id)
-            
             if not caregivers or not user:
                 return
-            
             message = f"""
 {config.EMOJIS['report']} <b>{report_title}</b>
 👤 <b>מטופל:</b> {user.first_name} {user.last_name or ''}
@@ -891,20 +901,13 @@ class ReportsHandler:
 
 {config.EMOJIS['info']} לשיתוף עם מטפל יש להשתמש ב"שלח לרופא" או לשתף ידנית.
             """
-            
             for caregiver in caregivers:
-                if 'view' in caregiver.permissions or 'manage' in caregiver.permissions:
+                if (getattr(caregiver, 'permissions', 'view') in ('view', 'manage', 'admin')) and getattr(caregiver, 'caregiver_telegram_id', None):
                     try:
-                        from main import bot  # Avoid circular import
-                        if bot:
-                            await bot.send_message(
-                                chat_id=caregiver.caregiver_telegram_id,
-                                text=message,
-                                parse_mode='HTML'
-                            )
+                        if context and getattr(context, 'bot', None):
+                            await context.bot.send_message(chat_id=caregiver.caregiver_telegram_id, text=message, parse_mode='HTML')
                     except Exception as e:
                         logger.error(f"Failed to send report to caregiver {caregiver.id}: {e}")
-            
         except Exception as e:
             logger.error(f"Error sending report to caregivers: {e}")
     

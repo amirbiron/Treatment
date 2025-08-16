@@ -164,6 +164,20 @@ class Appointment(Base):
     user: Mapped["User"] = relationship("User")
 
 
+class Invite(Base):
+    """One-time caregiver invite token"""
+    __tablename__ = "invites"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
+    caregiver_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active, used, canceled, expired
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    user: Mapped["User"] = relationship("User")
+
+
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./medicine_bot.db")
 
@@ -773,6 +787,56 @@ class DatabaseManager:
             await session.commit()
             return True
 
+    @staticmethod
+    async def create_invite(user_id: int, caregiver_name: Optional[str] = None, ttl_hours: int = 72) -> "Invite":
+        """Create a one-time invite for caregiver onboarding."""
+        async with async_session() as session:
+            # generate simple code MED-XXXXX
+            import random
+            code = f"MED-{random.randint(10000, 99999)}"
+            # ensure uniqueness
+            while (await session.execute(select(Invite).where(Invite.code == code))).scalar_one_or_none():
+                code = f"MED-{random.randint(10000, 99999)}"
+            inv = Invite(
+                code=code,
+                user_id=int(user_id),
+                caregiver_name=caregiver_name,
+                status="active",
+                expires_at=datetime.utcnow() + timedelta(hours=max(1, int(ttl_hours)))
+            )
+            session.add(inv)
+            await session.commit()
+            await session.refresh(inv)
+            return inv
+
+    @staticmethod
+    async def get_invite_by_code(code: str) -> Optional["Invite"]:
+        async with async_session() as session:
+            result = await session.execute(select(Invite).where(Invite.code == code))
+            return result.scalar_one_or_none()
+
+    @staticmethod
+    async def mark_invite_used(code: str) -> bool:
+        async with async_session() as session:
+            result = await session.execute(select(Invite).where(Invite.code == code))
+            inv = result.scalar_one_or_none()
+            if not inv:
+                return False
+            inv.status = "used"
+            await session.commit()
+            return True
+
+    @staticmethod
+    async def cancel_invite(code: str) -> bool:
+        async with async_session() as session:
+            result = await session.execute(select(Invite).where(Invite.code == code))
+            inv = result.scalar_one_or_none()
+            if not inv:
+                return False
+            inv.status = "canceled"
+            await session.commit()
+            return True
+
 # ==============================
 # MongoDB Backend (Motor)
 # ==============================
@@ -1014,6 +1078,32 @@ class DatabaseManagerMongo:
 		s.time_to_take = time_to_take
 		s.is_active = is_active
 		return s
+
+	@staticmethod
+	async def replace_medicine_schedules(medicine_id: int, times: List[time]) -> None:
+		"""Replace all schedules for a medicine with provided times (Mongo)."""
+		await _init_mongo()
+		# Remove existing schedules for this medicine
+		await _mongo_db.medicine_schedules.delete_many({"medicine_id": int(medicine_id)})
+		# If no times provided, we are done (effectively clearing the schedule)
+		if not times:
+			return
+		# Generate sequential ids and insert new schedules
+		last = await _mongo_db.medicine_schedules.find().sort("_id", -1).limit(1).to_list(1)
+		next_id = (last[0]["_id"] + 1) if last else 1
+		docs = []
+		for t in times:
+			docs.append({
+				"_id": next_id,
+				"medicine_id": int(medicine_id),
+				"time_to_take": t.strftime('%H:%M'),
+				"is_active": True,
+				"reminder_minutes_before": 0,
+				"created_at": datetime.utcnow(),
+			})
+			next_id += 1
+		await _mongo_db.medicine_schedules.insert_many(docs)
+		return
 
 	@staticmethod
 	async def get_recent_doses(medicine_id: int, hours: int = None, days: int = None) -> List[DoseLog]:
@@ -1538,6 +1628,67 @@ class DatabaseManagerMongo:
 			await session.delete(log)
 			await session.commit()
 			return True
+
+	@staticmethod
+	async def get_caregiver_by_id(caregiver_id: int) -> Optional[Caregiver]:
+		await _init_mongo()
+		d = await _mongo_db.caregivers.find_one({"_id": int(caregiver_id)})
+		if not d:
+			return None
+		cg = Caregiver()
+		cg.id = d.get("_id")
+		cg.user_id = d.get("user_id")
+		cg.caregiver_telegram_id = d.get("caregiver_telegram_id")
+		cg.caregiver_name = d.get("caregiver_name")
+		# map field 'relationship' in Mongo to relationship_type in model
+		cg.relationship_type = d.get("relationship") or d.get("relationship_type")
+		cg.permissions = d.get("permissions")
+		cg.email = d.get("email")
+		cg.phone = d.get("phone")
+		cg.preferred_channel = d.get("preferred_channel")
+		cg.is_active = d.get("is_active", True)
+		cg.created_at = d.get("created_at") or datetime.utcnow()
+		return cg
+
+	@staticmethod
+	async def create_invite(user_id: int, caregiver_name: Optional[str] = None, ttl_hours: int = 72) -> "Invite":
+		await _init_mongo()
+		import random
+		code = f"MED-{random.randint(10000, 99999)}"
+		# ensure uniqueness
+		while await _mongo_db.invites.find_one({"code": code}):
+			code = f"MED-{random.randint(10000, 99999)}"
+		expires_at = datetime.utcnow() + timedelta(hours=max(1, int(ttl_hours)))
+		last = await _mongo_db.invites.find().sort("_id", -1).limit(1).to_list(1)
+		next_id = (last[0]["_id"] + 1) if last else 1
+		doc = {"_id": next_id, "code": code, "user_id": int(user_id), "caregiver_name": caregiver_name, "status": "active", "expires_at": expires_at, "created_at": datetime.utcnow()}
+		await _mongo_db.invites.insert_one(doc)
+		# Return lightweight object-like
+		class _Inv: pass
+		inv = _Inv(); inv.id = next_id; inv.code = code; inv.user_id = user_id; inv.caregiver_name = caregiver_name; inv.status = "active"; inv.expires_at = expires_at; inv.created_at = doc["created_at"]
+		return inv
+
+	@staticmethod
+	async def get_invite_by_code(code: str) -> Optional["Invite"]:
+		await _init_mongo()
+		d = await _mongo_db.invites.find_one({"code": code})
+		if not d:
+			return None
+		class _Inv: pass
+		inv = _Inv(); inv.id = d.get("_id"); inv.code = d.get("code"); inv.user_id = d.get("user_id"); inv.caregiver_name = d.get("caregiver_name"); inv.status = d.get("status"); inv.expires_at = d.get("expires_at"); inv.created_at = d.get("created_at")
+		return inv
+
+	@staticmethod
+	async def mark_invite_used(code: str) -> bool:
+		await _init_mongo()
+		res = await _mongo_db.invites.update_one({"code": code}, {"$set": {"status": "used"}})
+		return res.matched_count > 0
+
+	@staticmethod
+	async def cancel_invite(code: str) -> bool:
+		await _init_mongo()
+		res = await _mongo_db.invites.update_one({"code": code}, {"$set": {"status": "canceled"}})
+		return res.matched_count > 0
 
 # Select backend at runtime
 if config.DB_BACKEND == 'mongo':

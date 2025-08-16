@@ -142,6 +142,25 @@ class MedicineReminderBot:
         """Handle /start command"""
         try:
             user = update.effective_user
+            # Deep-link args: /start invite_CODE
+            text = (update.message.text or "").strip()
+            if text.startswith("/start ") and "invite_" in text:
+                code = text.split("invite_", 1)[-1].strip()
+                inv = await DatabaseManager.get_invite_by_code(code)
+                if not inv or getattr(inv, 'status', 'active') != 'active' or (getattr(inv, 'expires_at', None) and getattr(inv, 'expires_at') < datetime.utcnow()):
+                    await update.message.reply_text("קוד הזמנה לא תקין או פג תוקף.")
+                else:
+                    # Ask confirmation
+                    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+                    context.user_data['pending_invite_code'] = code
+                    await update.message.reply_text(
+                        f"התבקשת להצטרף כמטפל עבור משתמש {inv.user_id}. לאשר?",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("אישור", callback_data="invite_accept")],
+                            [InlineKeyboardButton("ביטול", callback_data="invite_reject")],
+                        ])
+                    )
+                return
             # Show main menu immediately for faster UX
             from utils.keyboards import get_main_menu_keyboard
             await update.message.reply_text(
@@ -548,22 +567,12 @@ class MedicineReminderBot:
                 await self.log_symptoms_command(update, context)
                 return
             elif data.startswith("mededit_"):
-                # mededit_name_<id>, mededit_dosage_<id>, mededit_notes_<id>, mededit_toggle_<id>, mededit_packsize_<id>
+                # mededit_name_<id>, mededit_dosage_<id>, mededit_notes_<id>, mededit_packsize_<id>
                 parts = data.split("_")
                 action = parts[1] if len(parts) > 1 else ""
                 mid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
                 if not mid:
                     await query.edit_message_text(config.ERROR_MESSAGES["general"])
-                    return
-                if action == "toggle":
-                    med = await DatabaseManager.get_medicine_by_id(mid)
-                    await DatabaseManager.set_medicine_active(mid, not med.is_active)
-                    from utils.keyboards import get_medicine_detail_keyboard
-                    med2 = await DatabaseManager.get_medicine_by_id(mid)
-                    await query.edit_message_text(
-                        f"{config.EMOJES['success']} הסטטוס עודכן ל{'פעילה' if med2.is_active else 'מושבתת'}",
-                        reply_markup=get_medicine_detail_keyboard(mid)
-                    )
                     return
                 if action == "packsize":
                     context.user_data['editing_field_for'] = {"id": mid, "field": "packsize"}
@@ -683,8 +692,23 @@ class MedicineReminderBot:
                     context.user_data['awaiting_symptom_text'] = True
                     return
                 if data == "symptoms_history":
-                    from utils.keyboards import get_symptoms_history_picker
+                    from utils.keyboards import get_symptoms_history_picker, get_symptom_logs_list_keyboard
                     user = await DatabaseManager.get_user_by_telegram_id(user_id)
+                    # If a medicine was selected earlier for symptoms, show its history directly
+                    med_selected = context.user_data.get('symptoms_for_medicine')
+                    if med_selected:
+                        from datetime import date, timedelta
+                        end_date = date.today(); start_date = end_date - timedelta(days=30)
+                        logs = await DatabaseManager.get_symptom_logs_in_range(user.id, start_date, end_date, medicine_id=int(med_selected))
+                        if not logs:
+                            await query.edit_message_text("אין רישומי תופעות לוואי ב-30 הימים האחרונים")
+                            return
+                        await query.edit_message_text(
+                            "רישומי 30 הימים האחרונים:",
+                            reply_markup=get_symptom_logs_list_keyboard(logs[-10:])
+                        )
+                        return
+                    # Otherwise, show the history filter picker
                     meds = await DatabaseManager.get_user_medicines(user.id) if user else []
                     await query.edit_message_text(
                         "בחרו סינון להיסטוריית תופעות לוואי:",
@@ -725,6 +749,37 @@ class MedicineReminderBot:
                     context.user_data['editing_symptom_log'] = log_id
                     await query.edit_message_text("שלחו את הטקסט המעודכן לרישום זה:")
                     return
+                return
+            elif data in ("invite_accept", "invite_reject"):
+                code = context.user_data.get('pending_invite_code')
+                if not code:
+                    await query.edit_message_text("אין הזמנה ממתינה.")
+                    return
+                inv = await DatabaseManager.get_invite_by_code(code)
+                if not inv or getattr(inv, 'status', 'active') != 'active':
+                    await query.edit_message_text("קוד לא תקף.")
+                    return
+                if data == "invite_reject":
+                    await DatabaseManager.cancel_invite(code)
+                    context.user_data.pop('pending_invite_code', None)
+                    await query.edit_message_text("הזמנה בוטלה.")
+                    return
+                # accept: create caregiver linked to inv.user_id and set telegram id
+                try:
+                    # fetch or create caregiver with provided name
+                    name = getattr(inv, 'caregiver_name', None) or (query.from_user.full_name or "מטפל")
+                    cg = await DatabaseManager.create_caregiver(
+                        user_id=int(getattr(inv, 'user_id')),
+                        caregiver_telegram_id=query.from_user.id,
+                        caregiver_name=name,
+                        relationship="מטפל",
+                        permissions="view"
+                    )
+                    await DatabaseManager.mark_invite_used(code)
+                    context.user_data.pop('pending_invite_code', None)
+                    await query.edit_message_text(f"{config.EMOJES['success']} הצטרפת כמטפל")
+                except Exception:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"]) 
                 return
             else:
                 # Ignore unknown callbacks silently to reduce confusion
@@ -985,13 +1040,6 @@ class MedicineReminderBot:
                 )
                 return
             # Add manage schedules and delete actions (via simple keywords)
-            if data.startswith("medicine_toggle_"):
-                await query.edit_message_text("כיבוי/הפעלה מתקדמים יתווספו בהמשך. השתמשו ב'ערוך פרטים' > 'הפעל/השבת'.")
-                return
- 
-            if data.startswith("medicine_toggle_"):
-                await query.edit_message_text("הפעלת/השבתת תרופה תתווסף בקרוב")
-                return
             
             # Fallback
             await query.edit_message_text("פעולת תרופות לא נתמכת")
@@ -1056,6 +1104,14 @@ class MedicineReminderBot:
                 return
             elif data == "settings_appointments":
                 await appointments_handler.show_menu(query, context)
+                return
+            elif data == "settings_menu":
+                from utils.keyboards import get_settings_keyboard
+                await query.edit_message_text(
+                    f"{config.EMOJES['settings']} *הגדרות אישיות*",
+                    parse_mode='Markdown',
+                    reply_markup=get_settings_keyboard()
+                )
                 return
             else:
                 await query.edit_message_text("הגדרות לא נתמכות")
@@ -1278,13 +1334,7 @@ class MedicineReminderBot:
                     user_data.pop('editing_medicine_for', None)
                     await self.my_medicines_command(update, context)
                     return
-                if lower in ('השבת', 'הפעל'):
-                    is_active = (lower == 'הפעל')
-                    await DatabaseManager.set_medicine_active(mid, is_active)
-                    await update.message.reply_text(f"{config.EMOJES['success']} הסטטוס עודכן")
-                    user_data.pop('editing_medicine_for', None)
-                    await self.my_medicines_command(update, context)
-                    return
+
                 # Otherwise treat as rename
                 if len(text.strip()) >= 2:
                     await DatabaseManager.update_medicine(mid, name=text.strip())
