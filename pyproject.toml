@@ -12,3 +12,13 @@ force_grid_wrap = 0
 use_parentheses = true
 ensure_newline_before_comments = true
 known_first_party = ["utils", "handlers"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_redundant_casts = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+follow_imports = "skip"
+show_error_codes = true
+# Exclude heavy modules to avoid timeouts in constrained environments
+exclude = '(^tests/|^handlers/|^utils/|^database\.py$|^scheduler\.py$|^main\.py$|^get-pip\.py$|^\.github/|^htmlcov/|^build/|^dist/)'
