@@ -135,13 +135,22 @@ class ReportsHandler:
             # Combine reports
             full_report = self._combine_reports([report, symptoms_report])
             
+            # Cache last report for export/share
+            context.user_data['last_report'] = {
+                'type': 'weekly',
+                'start': start_date,
+                'end': end_date,
+                'title': 'דוח שבועי',
+                'content': full_report,
+            }
+            
             message = f"""
 {config.EMOJIS['report']} <b>דוח שבועי</b>
 📅 {format_date_hebrew(start_date)} - {format_date_hebrew(end_date)}
 
 {full_report}
 
-{config.EMOJIS['info']} ניתן לשתף דוח זה ידנית עם הרופא/המטפל בלחיצה על "שלח לרופא".
+{config.EMOJIS['info']} ניתן לשתף דוח זה ידנית עם הרופא/המטפל בלחיצה על "שמור כקובץ".
             """
             
             keyboard = [
@@ -151,8 +160,8 @@ class ReportsHandler:
                         callback_data="report_action_send_doctor"
                     ),
                     InlineKeyboardButton(
-                        f"📱 שתף",
-                        callback_data="report_action_share"
+                        f"💾 שמור כקובץ",
+                        callback_data="export_report_weekly"
                     )
                 ],
                 [
@@ -218,6 +227,15 @@ class ReportsHandler:
                 inventory_report,
                 trends_report
             ])
+            
+            # Cache last report for export/share
+            context.user_data['last_report'] = {
+                'type': 'monthly',
+                'start': start_date,
+                'end': end_date,
+                'title': 'דוח חודשי מקיף',
+                'content': full_report,
+            }
             
             message = f"""
 {config.EMOJIS['report']} <b>דוח חודשי מקיף</b>
@@ -353,7 +371,7 @@ class ReportsHandler:
             
             # For heavy reports show loading animation
             loading_msg = None
-            if data in ("report_full", "report_weekly"):
+            if data == "report_full":
                 if callback_query:
                     loading_msg = await callback_query.message.reply_text("⏳ טוען דוח…")
                 elif getattr(update, 'message', None):
@@ -368,7 +386,7 @@ class ReportsHandler:
             if data == "report_send_doctor":
                 await self.send_to_doctor_flow(update, context)
                 return ConversationHandler.END
-            if data == "reports_advanced":
+            if data in ("reports_advanced", "report_detailed"):
                 adv_msg = """
 ⚙️ <b>דוחות מתקדמים</b>
 
@@ -415,6 +433,14 @@ class ReportsHandler:
                 await self.show_reports_menu(update, context)
                 return ConversationHandler.END
             
+            # Cache last report for export/share
+            context.user_data['last_report'] = {
+                'type': data.replace('report_', ''),
+                'start': start_date,
+                'end': end_date,
+                'title': report_title,
+                'content': report_content,
+            }
             message = f"""
 {config.EMOJIS['report']} <b>{report_title}</b>
 📅 {format_date_hebrew(start_date)} - {format_date_hebrew(end_date)}
@@ -585,14 +611,19 @@ class ReportsHandler:
             if data == "report_action_send_doctor":
                 await self.send_to_doctor_flow(update, context)
             elif data == "report_action_share":
-                from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-                kb = InlineKeyboardMarkup([
-                    [InlineKeyboardButton(f"{config.EMOJIS['home']} תפריט ראשי", callback_data="main_menu")]
-                ])
-                await update.callback_query.edit_message_text(
-                    f"{config.EMOJIS['info']} אפשרויות שיתוף יתמכו בקרוב",
-                    reply_markup=kb
-                )
+                # Send the last generated report as a text file for easy sharing
+                lr = context.user_data.get('last_report', {})
+                content = lr.get('content') or ""
+                title = lr.get('title') or "דוח"
+                end_date = lr.get('end') or date.today()
+                filename = create_report_filename("shared_report", end_date, ext="txt")
+                try:
+                    with open(filename, "w", encoding="utf-8") as f:
+                        f.write(content or title)
+                    await update.callback_query.message.reply_document(document=open(filename, "rb"), filename=filename, caption="קובץ דוח לשיתוף")
+                except Exception as ex:
+                    logger.error(f"Error sharing report file: {ex}")
+                    await update.callback_query.edit_message_text(f"{config.EMOJIS['error']} שגיאה בשיתוף הדוח")
             else:
                 # Unknown -> back to reports menu
                 await self.show_reports_menu(update, context)
@@ -606,18 +637,37 @@ class ReportsHandler:
         """Export report placeholder. Will eventually generate and send a file."""
         try:
             # Build a simple comprehensive text from last 30 days
-            user_id = update.effective_user.id
-            user = await DatabaseManager.get_user_by_telegram_id(user_id)
-            end_date = date.today()
-            start_date = end_date - timedelta(days=30)
-            report = await self._generate_adherence_report(user.id, start_date, end_date)
-            symptoms_report = await self._generate_symptoms_report(user.id, start_date, end_date)
-            inventory_report = await self._generate_inventory_report(user.id)
-            trends_report = await self._generate_trends_report(user.id, start_date, end_date)
-            full_report = self._combine_reports([report, symptoms_report, inventory_report, trends_report])
-            filename = create_report_filename("full_report", end_date, ext="txt")
+            lr = context.user_data.get('last_report', {})
+            cb = update.callback_query.data if update.callback_query else ""
+            if lr:
+                content = lr.get('content') or ""
+                end_date = lr.get('end') or date.today()
+                filename = create_report_filename("report", end_date, ext="txt")
+                text_to_write = content
+            else:
+                # Fallback: generate based on the button
+                user_id = update.effective_user.id
+                user = await DatabaseManager.get_user_by_telegram_id(user_id)
+                if 'weekly' in cb:
+                    end_date = date.today(); start_date = end_date - timedelta(days=7)
+                    content = self._combine_reports([
+                        await self._generate_adherence_report(user.id, start_date, end_date),
+                        await self._generate_symptoms_report(user.id, start_date, end_date),
+                    ])
+                    filename = create_report_filename("weekly_report", end_date, ext="txt")
+                    text_to_write = content
+                else:
+                    end_date = date.today(); start_date = end_date - timedelta(days=30)
+                    content = self._combine_reports([
+                        await self._generate_adherence_report(user.id, start_date, end_date),
+                        await self._generate_symptoms_report(user.id, start_date, end_date),
+                        await self._generate_inventory_report(user.id),
+                        await self._generate_trends_report(user.id, start_date, end_date),
+                    ])
+                    filename = create_report_filename("full_report", end_date, ext="txt")
+                    text_to_write = content
             with open(filename, "w", encoding="utf-8") as f:
-                f.write(full_report)
+                f.write(text_to_write)
             if update.callback_query:
                 await update.callback_query.answer()
                 await update.callback_query.edit_message_text(
