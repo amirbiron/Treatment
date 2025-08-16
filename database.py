@@ -1565,6 +1565,27 @@ class DatabaseManagerMongo:
 			await session.commit()
 			return True
 
+	@staticmethod
+	async def get_caregiver_by_id(caregiver_id: int) -> Optional[Caregiver]:
+		await _init_mongo()
+		d = await _mongo_db.caregivers.find_one({"_id": int(caregiver_id)})
+		if not d:
+			return None
+		cg = Caregiver()
+		cg.id = d.get("_id")
+		cg.user_id = d.get("user_id")
+		cg.caregiver_telegram_id = d.get("caregiver_telegram_id")
+		cg.caregiver_name = d.get("caregiver_name")
+		# map field 'relationship' in Mongo to relationship_type in model
+		cg.relationship_type = d.get("relationship") or d.get("relationship_type")
+		cg.permissions = d.get("permissions")
+		cg.email = d.get("email")
+		cg.phone = d.get("phone")
+		cg.preferred_channel = d.get("preferred_channel")
+		cg.is_active = d.get("is_active", True)
+		cg.created_at = d.get("created_at") or datetime.utcnow()
+		return cg
+
 # Select backend at runtime
 if config.DB_BACKEND == 'mongo':
 	if not _mongo_available:

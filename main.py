@@ -673,8 +673,23 @@ class MedicineReminderBot:
                     context.user_data['awaiting_symptom_text'] = True
                     return
                 if data == "symptoms_history":
-                    from utils.keyboards import get_symptoms_history_picker
+                    from utils.keyboards import get_symptoms_history_picker, get_symptom_logs_list_keyboard
                     user = await DatabaseManager.get_user_by_telegram_id(user_id)
+                    # If a medicine was selected earlier for symptoms, show its history directly
+                    med_selected = context.user_data.get('symptoms_for_medicine')
+                    if med_selected:
+                        from datetime import date, timedelta
+                        end_date = date.today(); start_date = end_date - timedelta(days=30)
+                        logs = await DatabaseManager.get_symptom_logs_in_range(user.id, start_date, end_date, medicine_id=int(med_selected))
+                        if not logs:
+                            await query.edit_message_text("אין רישומי תופעות לוואי ב-30 הימים האחרונים")
+                            return
+                        await query.edit_message_text(
+                            "רישומי 30 הימים האחרונים:",
+                            reply_markup=get_symptom_logs_list_keyboard(logs[-10:])
+                        )
+                        return
+                    # Otherwise, show the history filter picker
                     meds = await DatabaseManager.get_user_medicines(user.id) if user else []
                     await query.edit_message_text(
                         "בחרו סינון להיסטוריית תופעות לוואי:",
