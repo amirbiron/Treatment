@@ -22,3 +22,6 @@ follow_imports = "skip"
 show_error_codes = true
 # Exclude heavy modules to avoid timeouts in constrained environments
 exclude = '(^tests/|^handlers/|^utils/|^database\.py$|^scheduler\.py$|^main\.py$|^get-pip\.py$|^\.github/|^htmlcov/|^build/|^dist/)'
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "venv", "htmlcov", ".github", "build", "dist"]
