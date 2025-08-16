@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 # Conversation states
 CAREGIVER_NAME, CAREGIVER_PHONE, CAREGIVER_EMAIL = range(3)
 EDIT_CAREGIVER_NAME, EDIT_CAREGIVER_PHONE, EDIT_CAREGIVER_EMAIL = range(3, 6)
+# Edit-all wizard states
+EDIT_ALL_NAME, EDIT_ALL_PHONE, EDIT_ALL_EMAIL, EDIT_ALL_PERMS = range(6, 10)
 # Removed EDIT_*_PERMISSIONS states
 
 
@@ -72,6 +74,36 @@ class CaregiverHandler:
                 ],
                 CAREGIVER_EMAIL: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_caregiver_email)
+                ],
+                # Edit choices via inline buttons within the conversation
+                EDIT_CAREGIVER_NAME: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_caregiver_name)
+                ],
+                EDIT_CAREGIVER_PHONE: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_caregiver_phone)
+                ],
+                EDIT_CAREGIVER_EMAIL: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_caregiver_email)
+                ],
+                # Edit-all wizard
+                EDIT_ALL_NAME: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._edit_all_set_name)
+                ],
+                EDIT_ALL_PHONE: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._edit_all_set_phone)
+                ],
+                EDIT_ALL_EMAIL: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._edit_all_set_email)
+                ],
+                EDIT_ALL_PERMS: [
+                    CallbackQueryHandler(self._edit_all_set_perms, pattern="^perm_")
+                ],
+                # Inline callbacks to start edit flows
+                0: [
+                    CallbackQueryHandler(self._start_edit_all, pattern="^caregiver_edit_all_\d+$"),
+                    CallbackQueryHandler(self._start_edit_name, pattern="^caregiver_edit_name_\d+$"),
+                    CallbackQueryHandler(self._start_edit_phone, pattern="^caregiver_edit_phone_\d+$"),
+                    CallbackQueryHandler(self._start_edit_email, pattern="^caregiver_edit_email_\d+$"),
                 ],
             },
             fallbacks=[
@@ -298,6 +330,18 @@ class CaregiverHandler:
         try:
             user_id = update.effective_user.id
             phone = update.message.text.strip()
+            # If in edit mode for phone
+            editing = context.user_data.get('editing_caregiver')
+            if editing and editing.get('field') == 'phone':
+                ok, err = validate_phone_number(phone)
+                if not ok:
+                    await update.message.reply_text(f"{config.EMOJIS['error']} {err}")
+                    return EDIT_CAREGIVER_PHONE
+                caregiver_id = editing['id']
+                await DatabaseManager.update_caregiver(caregiver_id, phone=phone)
+                context.user_data.pop('editing_caregiver', None)
+                await update.message.reply_text(f"{config.EMOJIS['success']} מספר הטלפון עודכן")
+                return ConversationHandler.END
             ok, err = validate_phone_number(phone)
             if not ok:
                 await update.message.reply_text(f"{config.EMOJIS['error']} {err}")
@@ -321,6 +365,22 @@ class CaregiverHandler:
         try:
             user_id = update.effective_user.id
             email = update.message.text.strip()
+            # If in edit mode for email
+            editing = context.user_data.get('editing_caregiver')
+            if editing and editing.get('field') == 'email':
+                if email.lower() in ("דלג", "skip", "אין", "-"):
+                    email_val = None
+                else:
+                    import re
+                    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+                        await update.message.reply_text(f"{config.EMOJIS['error']} אימייל לא תקין")
+                        return EDIT_CAREGIVER_EMAIL
+                    email_val = email
+                caregiver_id = editing['id']
+                await DatabaseManager.update_caregiver(caregiver_id, email=email_val)
+                context.user_data.pop('editing_caregiver', None)
+                await update.message.reply_text(f"{config.EMOJIS['success']} האימייל עודכן")
+                return ConversationHandler.END
             if email.lower() in ("דלג", "skip", "אין", "-"):
                 email = None
             elif email:
@@ -329,46 +389,12 @@ class CaregiverHandler:
                     await update.message.reply_text(f"{config.EMOJIS['error']} אימייל לא תקין או השאירו ריק וכתבו 'דלג'")
                     return CAREGIVER_EMAIL
             self.user_caregiver_data[user_id]['email'] = email
-            # After collecting email, save caregiver with default permissions
-            caregiver = await DatabaseManager.create_caregiver(
-                user_id=self.user_caregiver_data[user_id]['user_id'],
-                caregiver_name=self.user_caregiver_data[user_id]['caregiver_name'],
-                phone=self.user_caregiver_data[user_id]['phone'],
-                email=self.user_caregiver_data[user_id]['email'],
-                permissions=self.user_caregiver_data[user_id]['permissions']
-            )
-            
-            if caregiver:
-                data = self.user_caregiver_data[user_id]
-                message = f"""
-{config.EMOJIS['success']} <b>המטפל נשמר!</b>
-
-👤 <b>שם:</b> {data.get('caregiver_name','')}\n
-📞 <b>טלפון:</b> {data.get('phone') or '-'}\n
-✉️ <b>אימייל:</b> {data.get('email') or '-'}
-            """
-                keyboard = [[InlineKeyboardButton(f"{config.EMOJIS['caregiver']} נהל מטפלים", callback_data="caregiver_manage")]]
-            else:
-                message = f"{config.EMOJIS['error']} שגיאה בשמירת המטפל. אנא נסו שוב."
-                keyboard = [[
-                    InlineKeyboardButton(
-                        f"{config.EMOJIS['back']} חזור",
-                        callback_data="main_menu"
-                    )
-                ]]
-            
+            # Confirm and summary will be shown at save step
             await update.message.reply_text(
-                message,
-                parse_mode='HTML',
-                reply_markup=InlineKeyboardMarkup(keyboard)
+                f"{config.EMOJIS['caregiver']} בחרו הרשאות:",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(desc, callback_data=f"perm_{key}")] for key, desc in self.permission_levels.items()])
             )
-            
-            # Clean up
-            if user_id in self.user_caregiver_data:
-                del self.user_caregiver_data[user_id]
-            
-            return ConversationHandler.END
-
+            return EDIT_ALL_PERMS
         except Exception as e:
             logger.error(f"Error getting caregiver email: {e}")
             await self._send_error_message(update, "שגיאה בקבלת האימייל")
@@ -817,6 +843,59 @@ class CaregiverHandler:
             return ConversationHandler.END
         except Exception as e:
             logger.error(f"Error in _edit_all_set_perms: {e}")
+            await update.callback_query.edit_message_text(config.ERROR_MESSAGES['general'])
+            return ConversationHandler.END
+
+    async def _start_edit_all(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            query = update.callback_query
+            await query.answer()
+            caregiver_id = int(query.data.split('_')[-1])
+            # Initialize edit-all context with caregiver ID
+            context.user_data['edit_all'] = {'id': caregiver_id}
+            await query.edit_message_text(f"{config.EMOJIS['caregiver']} הזינו שם חדש למטפל:", reply_markup=get_cancel_keyboard())
+            return EDIT_ALL_NAME
+        except Exception as e:
+            logger.error(f"Error starting edit-all: {e}")
+            await update.callback_query.edit_message_text(config.ERROR_MESSAGES['general'])
+            return ConversationHandler.END
+
+    async def _start_edit_name(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            query = update.callback_query
+            await query.answer()
+            caregiver_id = int(query.data.split('_')[-1])
+            context.user_data['editing_caregiver'] = {'id': caregiver_id, 'field': 'name'}
+            await query.edit_message_text("הקלידו שם חדש למטפל:", reply_markup=get_cancel_keyboard())
+            return EDIT_CAREGIVER_NAME
+        except Exception as e:
+            logger.error(f"Error starting name edit: {e}")
+            await update.callback_query.edit_message_text(config.ERROR_MESSAGES['general'])
+            return ConversationHandler.END
+
+    async def _start_edit_phone(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            query = update.callback_query
+            await query.answer()
+            caregiver_id = int(query.data.split('_')[-1])
+            context.user_data['editing_caregiver'] = {'id': caregiver_id, 'field': 'phone'}
+            await query.edit_message_text("הקלידו מספר טלפון חדש:", reply_markup=get_cancel_keyboard())
+            return EDIT_CAREGIVER_PHONE
+        except Exception as e:
+            logger.error(f"Error starting phone edit: {e}")
+            await update.callback_query.edit_message_text(config.ERROR_MESSAGES['general'])
+            return ConversationHandler.END
+
+    async def _start_edit_email(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            query = update.callback_query
+            await query.answer()
+            caregiver_id = int(query.data.split('_')[-1])
+            context.user_data['editing_caregiver'] = {'id': caregiver_id, 'field': 'email'}
+            await query.edit_message_text("הקלידו אימייל חדש (או כתבו דלג):", reply_markup=get_cancel_keyboard())
+            return EDIT_CAREGIVER_EMAIL
+        except Exception as e:
+            logger.error(f"Error starting email edit: {e}")
             await update.callback_query.edit_message_text(config.ERROR_MESSAGES['general'])
             return ConversationHandler.END
 
