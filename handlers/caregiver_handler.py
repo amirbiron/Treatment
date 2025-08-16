@@ -30,9 +30,9 @@ from utils.helpers import validate_telegram_id, format_datetime_hebrew
 logger = logging.getLogger(__name__)
 
 # Conversation states
-CAREGIVER_NAME, CAREGIVER_PHONE, CAREGIVER_EMAIL, CAREGIVER_PERMISSIONS = range(4)
-EDIT_CAREGIVER_NAME, EDIT_CAREGIVER_PHONE, EDIT_CAREGIVER_EMAIL, EDIT_CAREGIVER_PERMISSIONS = range(4, 8)
-EDIT_ALL_NAME, EDIT_ALL_PHONE, EDIT_ALL_EMAIL, EDIT_ALL_PERMS = range(8, 12)
+CAREGIVER_NAME, CAREGIVER_PHONE, CAREGIVER_EMAIL = range(3)
+EDIT_CAREGIVER_NAME, EDIT_CAREGIVER_PHONE, EDIT_CAREGIVER_EMAIL = range(3, 6)
+# Removed EDIT_*_PERMISSIONS states
 
 
 class CaregiverHandler:
@@ -73,21 +73,6 @@ class CaregiverHandler:
                 CAREGIVER_EMAIL: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_caregiver_email)
                 ],
-                CAREGIVER_PERMISSIONS: [
-                    CallbackQueryHandler(self.handle_permissions_selection, pattern="^perm_")
-                ],
-                EDIT_ALL_NAME: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._edit_all_set_name)
-                ],
-                EDIT_ALL_PHONE: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._edit_all_set_phone)
-                ],
-                EDIT_ALL_EMAIL: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._edit_all_set_email)
-                ],
-                EDIT_ALL_PERMS: [
-                    CallbackQueryHandler(self._edit_all_set_perms, pattern="^perm_")
-                ],
             },
             fallbacks=[
                 CommandHandler("cancel", self.cancel_operation),
@@ -124,13 +109,14 @@ class CaregiverHandler:
                 'user_id': user.id,
                 'step': 'name',
                 'email': None,
-                'phone': None
+                'phone': None,
+                'permissions': 'view'
             }
             
             message = f"""
   {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
   
-  🔹 <b>שלב 1/4:</b> שם המטפל
+  🔹 <b>שלב 1/3:</b> שם המטפל
   
   אנא הזינו את שם המטפל:
   (לדוגמה: ד"ר כהן, אמא, אחות שרה)
@@ -171,7 +157,7 @@ class CaregiverHandler:
                 message = f"""
 {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
 
-🔹 <b>שלב 2/4:</b> שם המטפל
+🔹 <b>שלב 2/3:</b> שם המטפל
 
 אנא הזינו את שם המטפל:
 (לדוגמה: ד"ר כהן, אמא, אחות שרה)
@@ -187,7 +173,7 @@ class CaregiverHandler:
                 await update.message.reply_text(
                     f"{config.EMOJIS['info']} אם אין מזהה מספרי ניתן לכתוב 'דלג' ולהמשיך ללא טלגרם"
                 )
-                return CAREGIVER_TELEGRAM_ID
+                return CAREGIVER_PHONE # Changed from CAREGIVER_TELEGRAM_ID to CAREGIVER_PHONE
             
             # Validate Telegram ID
             is_valid, error_msg = validate_telegram_id(telegram_id_str)
@@ -195,7 +181,7 @@ class CaregiverHandler:
                 await update.message.reply_text(
                     f"{config.EMOJIS['error']} {error_msg} | ניתן גם לכתוב 'דלג'"
                 )
-                return CAREGIVER_TELEGRAM_ID
+                return CAREGIVER_PHONE # Changed from CAREGIVER_TELEGRAM_ID to CAREGIVER_PHONE
             
             caregiver_telegram_id = int(telegram_id_str)
             
@@ -204,7 +190,7 @@ class CaregiverHandler:
                 await update.message.reply_text(
                     f"{config.EMOJIS['error']} לא ניתן להוסיף את עצמכם כמטפל"
                 )
-                return CAREGIVER_TELEGRAM_ID
+                return CAREGIVER_PHONE # Changed from CAREGIVER_TELEGRAM_ID to CAREGIVER_PHONE
             
             # Check if caregiver already exists
             user = await DatabaseManager.get_user_by_telegram_id(user_id)
@@ -215,7 +201,7 @@ class CaregiverHandler:
                     await update.message.reply_text(
                         f"{config.EMOJIS['warning']} מטפל זה כבר קיים ברשימה"
                     )
-                    return CAREGIVER_TELEGRAM_ID
+                    return CAREGIVER_PHONE # Changed from CAREGIVER_TELEGRAM_ID to CAREGIVER_PHONE
              
             # Store Telegram ID
             self.user_caregiver_data[user_id]['caregiver_telegram_id'] = caregiver_telegram_id
@@ -225,7 +211,7 @@ class CaregiverHandler:
  
  ✅ <b>מזהה טלגרם:</b> {caregiver_telegram_id}
  
- 🔹 <b>שלב 2/4:</b> שם המטפל
+ 🔹 <b>שלב 2/3:</b> שם המטפל
  
  אנא הזינו את שם המטפל:
  (לדוגמה: ד"ר כהן, אמא, אחות שרה)
@@ -289,9 +275,7 @@ class CaregiverHandler:
             message = f"""
 {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
 
-✅ <b>שם המטפל:</b> {caregiver_name}
-
-🔹 <b>שלב 2/4:</b> מספר טלפון (חובה)
+🔹 <b>שלב 2/3:</b> מספר טלפון (חובה)
 
 אנא הזינו מספר טלפון של המטפל:
             """
@@ -322,9 +306,7 @@ class CaregiverHandler:
             message = f"""
 {config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>
 
-✅ <b>טלפון:</b> {phone}
-
-🔹 <b>שלב 3/4:</b> אימייל (לא חובה)
+🔹 <b>שלב 3/3:</b> אימייל (לא חובה)
 (אפשר לכתוב דלג)
             """
             await update.message.reply_text(message, parse_mode='HTML', reply_markup=get_cancel_keyboard())
@@ -347,18 +329,46 @@ class CaregiverHandler:
                     await update.message.reply_text(f"{config.EMOJIS['error']} אימייל לא תקין או השאירו ריק וכתבו 'דלג'")
                     return CAREGIVER_EMAIL
             self.user_caregiver_data[user_id]['email'] = email
-            # Permissions keyboard
-            keyboard = [[InlineKeyboardButton(desc, callback_data=f"perm_{key}")] for key, desc in self.permission_levels.items()]
-            email_line = f"✅ <b>אימייל:</b> {email}\n" if email else ""
-            message = (
-                f"{config.EMOJIS['caregiver']} <b>הוספת מטפל חדש</b>\n\n"
-                f"✅ <b>טלפון:</b> {self.user_caregiver_data[user_id]['phone']}\n"
-                f"{email_line}"
-                f"🔹 <b>שלב 4/4:</b> הרשאות\n"
-                f"בחרו את רמת ההרשאות של המטפל:"
+            # After collecting email, save caregiver with default permissions
+            caregiver = await DatabaseManager.create_caregiver(
+                user_id=self.user_caregiver_data[user_id]['user_id'],
+                caregiver_name=self.user_caregiver_data[user_id]['caregiver_name'],
+                phone=self.user_caregiver_data[user_id]['phone'],
+                email=self.user_caregiver_data[user_id]['email'],
+                permissions=self.user_caregiver_data[user_id]['permissions']
             )
-            await update.message.reply_text(message, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
-            return CAREGIVER_PERMISSIONS
+            
+            if caregiver:
+                data = self.user_caregiver_data[user_id]
+                message = f"""
+{config.EMOJIS['success']} <b>המטפל נשמר!</b>
+
+👤 <b>שם:</b> {data.get('caregiver_name','')}\n
+📞 <b>טלפון:</b> {data.get('phone') or '-'}\n
+✉️ <b>אימייל:</b> {data.get('email') or '-'}
+            """
+                keyboard = [[[InlineKeyboardButton(f"{config.EMOJIS['caregiver']} נהל מטפלים", callback_data="caregiver_manage")]]]
+            else:
+                message = f"{config.EMOJIS['error']} שגיאה בשמירת המטפל. אנא נסו שוב."
+                keyboard = [[
+                    InlineKeyboardButton(
+                        f"{config.EMOJIS['back']} חזור",
+                        callback_data="main_menu"
+                    )
+                ]]
+            
+            await update.message.reply_text(
+                message,
+                parse_mode='HTML',
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            
+            # Clean up
+            if user_id in self.user_caregiver_data:
+                del self.user_caregiver_data[user_id]
+            
+            return ConversationHandler.END
+
         except Exception as e:
             logger.error(f"Error getting caregiver email: {e}")
             await self._send_error_message(update, "שגיאה בקבלת האימייל")
@@ -473,9 +483,8 @@ class CaregiverHandler:
                 message = f"{config.EMOJIS['caregiver']} <b>המטפלים שלכם ({len(caregivers)}):</b>\n\n"
                 for c in caregivers[offset:offset+page_size]:
                     status_emoji = config.EMOJIS['success'] if c.is_active else config.EMOJIS['error']
-                    perm_desc = self.permission_levels.get(c.permissions, c.permissions)
                     created_txt = c.created_at.strftime('%d/%m/%Y') if getattr(c, 'created_at', None) else ''
-                    message += f"{status_emoji} <b>{c.caregiver_name}</b>\n   👤 {c.relationship_type}\n   🔐 {perm_desc}\n   📅 נוסף: {created_txt}\n\n"
+                    message += f"{status_emoji} <b>{c.caregiver_name}</b>\n   👤 {c.relationship_type}\n   📅 נוסף: {created_txt}\n\n"
                 keyboard = []
                 for c in caregivers[offset:offset+page_size]:
                     keyboard.append([InlineKeyboardButton(f"✏️ {c.caregiver_name}", callback_data=f"caregiver_edit_{c.id}")])
@@ -512,7 +521,8 @@ class CaregiverHandler:
                 user_id=data['user_id'],
                 caregiver_name=data['caregiver_name'],
                 phone=data.get('phone'),
-                email=data.get('email')
+                email=data.get('email'),
+                permissions=data.get('permissions', 'view')
             )
             
             return caregiver is not None
@@ -706,7 +716,7 @@ class CaregiverHandler:
             # Edit permissions: show options
             if data.startswith('caregiver_edit_perm_'):
                 caregiver_id = int(data.split('_')[-1])
-                keyboard = [[InlineKeyboardButton(desc, callback_data=f"caregiver_permset_{key}_{caregiver_id}")] for key, desc in self.permission_levels.items()]
+                keyboard = [[InlineKeyboardButton(desc, callback_data=f"perm_{key}")] for key, desc in self.permission_levels.items()]
                 await query.edit_message_text(
                     f"{config.EMOJIS['caregiver']} בחרו הרשאות:",
                     reply_markup=InlineKeyboardMarkup(keyboard)
@@ -780,12 +790,11 @@ class CaregiverHandler:
 <b>{caregiver.caregiver_name}</b> {status_emoji}
 📞 {caregiver.phone or ''}
 ✉️ {caregiver.email or ''}
-🔐 {perm_desc}
             """
             keyboard = [
                 [InlineKeyboardButton("🧩 עריכה מרוכזת", callback_data=f"caregiver_edit_all_{caregiver_id}")],
                 [InlineKeyboardButton("✏️ שנה שם", callback_data=f"caregiver_edit_name_{caregiver_id}"), InlineKeyboardButton("📞 שנה טלפון", callback_data=f"caregiver_edit_phone_{caregiver_id}")],
-                [InlineKeyboardButton("✉️ שנה אימייל", callback_data=f"caregiver_edit_email_{caregiver_id}"), InlineKeyboardButton("🔐 שנה הרשאות", callback_data=f"caregiver_edit_perm_{caregiver_id}")],
+                [InlineKeyboardButton("✉️ שנה אימייל", callback_data=f"caregiver_edit_email_{caregiver_id}")],
                 [InlineKeyboardButton(f"{'🟢 הפעל' if not caregiver.is_active else '🔴 השבת'}", callback_data=f"toggle_caregiver_{caregiver_id}")],
                 [InlineKeyboardButton("🗑️ הסר מטפל", callback_data=f"remove_caregiver_{caregiver_id}")],
                 [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")]
