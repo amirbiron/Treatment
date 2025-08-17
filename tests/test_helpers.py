@@ -331,18 +331,22 @@ class TestFormattingFunctions:
         """Test progress bar creation"""
         # Half progress
         result = create_progress_bar(5, 10, 10)
-        assert "🟦" in result
-        assert "⬜" in result
+        inner = result[result.find("[")+1: result.find("]")]
+        assert inner.count("🟦") == 5
+        assert len(inner) == 10
         assert "50.0%" in result
 
         # Full progress
         result = create_progress_bar(10, 10, 10)
-        assert result.count("🟦") == 10
+        inner = result[result.find("[")+1: result.find("]")]
+        assert inner.count("🟦") == 10
         assert "100.0%" in result
 
         # Empty progress
         result = create_progress_bar(0, 10, 10)
-        assert result.count("⬜") == 10
+        inner = result[result.find("[")+1: result.find("]")]
+        assert inner.strip() == ""
+        assert len(inner) == 10
         assert "0.0%" in result
 
 
