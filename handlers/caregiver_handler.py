@@ -91,6 +91,7 @@ class CaregiverHandler:
             # Handle only specific caregiver actions here; let conversation handle add/manage/edit entries
             CallbackQueryHandler(self.handle_caregiver_actions, pattern=r"^caregiver_(invite|send_report|copy_inv_msg_.*)$"),
             CallbackQueryHandler(self.confirm_remove_caregiver, pattern=r"^remove_caregiver_"),
+            CallbackQueryHandler(self.execute_remove_caregiver, pattern=r"^confirm_remove_caregiver_"),
             CallbackQueryHandler(self.toggle_caregiver_status, pattern=r"^toggle_caregiver_"),
         ]
 
@@ -606,9 +607,11 @@ class CaregiverHandler:
                     f"כדי להצטרף, לחצו על הקישור והאשרו: {deep_link}"
                 ).strip()
                 msg = (
-                    f"{config.EMOJIS['caregiver']} יצירת הזמנה למטפל\n\n"
+                    f"{config.EMOJIS['caregiver']} <b>יצירת הזמנה למטפל</b>\n\n"
                     f"מטרת הפונקציה: לשלוח למטפל/ת שלך קישור הצטרפות פשוט, כדי שיוכלו לקבל ממך דוחות מעקב.\n\n"
-                    f"לחצו על הכפתור כדי לקבל הודעה מוכנה להעברה למטפל/ת.\n"
+                    f"לחצו על הכפתור כדי לקבל הודעה מוכנה להעברה למטפל/ת.\n\n"
+                    f"להעתקה ושליחה למטפל/ת:\n"
+                    f"<pre>{caregiver_msg}</pre>"
                 )
                 kb = [
                     [InlineKeyboardButton("📋 העתק הודעה למטפל", callback_data=f"copy_inv_msg_{inv.code}")],
@@ -631,8 +634,8 @@ class CaregiverHandler:
                         f"להצטרפות כמטפל/ת שלי, פשוט לחצו והאשרו: {link}"
                     ).strip()
                 await query.answer(text="✔️ הודעה מוכנה להעתקה נשלחה בצ׳אט", show_alert=False)
-                # Send the copyable message as a new message the user can forward
-                await context.bot.send_message(chat_id=query.message.chat_id, text=text)
+                # Send the copyable message as a new message the user can forward (code-style block)
+                await context.bot.send_message(chat_id=query.message.chat_id, text=f"<pre>{text}</pre>", parse_mode="HTML")
                 return
             if data == "caregiver_send_report":
                 # Send latest weekly report to all active caregivers with Telegram ID
@@ -702,13 +705,45 @@ class CaregiverHandler:
             await update.callback_query.edit_message_text(config.ERROR_MESSAGES["general"])
 
     async def confirm_remove_caregiver(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Confirm caregiver removal (placeholder)."""
+        """Confirm caregiver removal with a yes/no prompt."""
         try:
             query = update.callback_query
             await query.answer()
-            await query.edit_message_text(f"{config.EMOJIS['warning']} הסרת מטפל תיתמך בהמשך")
+            data = query.data
+            caregiver_id = int(data.split("_")[-1])
+            caregiver = await DatabaseManager.get_caregiver_by_id(caregiver_id)
+            if not caregiver:
+                await query.edit_message_text(f"{config.EMOJIS['error']} מטפל לא נמצא")
+                return
+            msg = (
+                f"{config.EMOJIS['warning']} האם להסיר לצמיתות את המטפל:\n\n"
+                f"<b>{caregiver.caregiver_name}</b>?\n\n"
+                f"הפעולה אינה ניתנת לשחזור."
+            )
+            kb = [
+                [InlineKeyboardButton("כן, הסר", callback_data=f"confirm_remove_caregiver_{caregiver_id}")],
+                [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data=f"caregiver_edit_{caregiver_id}")],
+            ]
+            await query.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
         except Exception as e:
             logger.error(f"Error in confirm_remove_caregiver: {e}")
+            await update.callback_query.edit_message_text(config.ERROR_MESSAGES["general"])
+
+    async def execute_remove_caregiver(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Execute caregiver deletion and refresh the caregivers list."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            data = query.data
+            caregiver_id = int(data.split("_")[-1])
+            ok = await DatabaseManager.delete_caregiver(caregiver_id)
+            if ok:
+                # Refresh the caregivers list
+                await self.view_caregivers(update, context)
+            else:
+                await query.edit_message_text(f"{config.EMOJIS['error']} לא נמצא מטפל להסרה")
+        except Exception as e:
+            logger.error(f"Error in execute_remove_caregiver: {e}")
             await update.callback_query.edit_message_text(config.ERROR_MESSAGES["general"])
 
     async def toggle_caregiver_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

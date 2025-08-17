@@ -510,6 +510,17 @@ class DatabaseManager:
             return True
 
     @staticmethod
+    async def delete_caregiver(caregiver_id: int) -> bool:
+        """Permanently delete a caregiver by id (SQL backend)."""
+        async with async_session() as session:
+            caregiver = await session.get(Caregiver, caregiver_id)
+            if not caregiver:
+                return False
+            await session.delete(caregiver)
+            await session.commit()
+            return True
+
+    @staticmethod
     async def get_all_active_users() -> List[User]:
         """Return all active users"""
         async with async_session() as session:
@@ -1794,6 +1805,13 @@ class DatabaseManagerMongo:
         cg.is_active = d.get("is_active", True)
         cg.created_at = d.get("created_at") or datetime.utcnow()
         return cg
+
+    @staticmethod
+    async def delete_caregiver(caregiver_id: int) -> bool:
+        """Permanently delete a caregiver by id (Mongo backend)."""
+        await _init_mongo()
+        res = await _mongo_db.caregivers.delete_one({"_id": int(caregiver_id)})
+        return res.deleted_count > 0
 
     @staticmethod
     async def create_invite(user_id: int, caregiver_name: Optional[str] = None, ttl_hours: int = 72) -> "Invite":
