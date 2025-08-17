@@ -331,13 +331,13 @@ class TestFormattingFunctions:
         """Test progress bar creation"""
         # Half progress
         result = create_progress_bar(5, 10, 10)
-        assert "🟦" in result
+        assert "▒" in result
         assert "░" in result
         assert "50.0%" in result
 
         # Full progress
         result = create_progress_bar(10, 10, 10)
-        assert result.count("🟦") == 10
+        assert result.count("▒") == 10
         assert "100.0%" in result
 
         # Empty progress
