@@ -356,7 +356,7 @@ def create_progress_bar(current: int, total: int, width: int = 10) -> str:
     else:
         percent = (current / total) * 100
         filled = int(round(width * current / float(total)))
-    bar = "█" * filled + "░" * (width - filled)
+    bar = "🟦" * filled + "⬜" * (width - filled)
     return f"[{bar}] {percent:.1f}%"
 
 

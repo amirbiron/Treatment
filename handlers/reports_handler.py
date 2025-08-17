@@ -146,7 +146,7 @@ class ReportsHandler:
 {config.EMOJIS['report']} <b>דוח שבועי</b>
 📅 {format_date_hebrew(start_date)} - {format_date_hebrew(end_date)}
 
-{config.EMOJIS['info']} אבחון: {dose_count} רשומות נטילה, {symptom_count} רישומי תסמינים
+
 
 {full_report}
 
