@@ -209,18 +209,16 @@ class MedicineReminderBot:
     async def add_medicine_command(self, update: Update, context):
         """Handle /add_medicine command"""
         try:
-            from utils.keyboards import get_cancel_keyboard
+            from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
-            message = f"""
-{config.EMOJES['medicine']} <b>הוספת תרופה חדשה</b>
-
-אנא שלחו את שם התרופה:
-            """
-
-            await update.message.reply_text(message, parse_mode="HTML")
-
-            # Store conversation state (in real implementation, use ConversationHandler)
-            context.user_data["adding_medicine"] = {"step": "name"}
+            # Delegate add flow to the ConversationHandler via inline callback
+            kb = InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton(f"{config.EMOJES['medicine']} התחל הוספה", callback_data="medicine_add")],
+                    [InlineKeyboardButton(f"{config.EMOJES['back']} חזור", callback_data="main_menu")],
+                ]
+            )
+            await update.message.reply_text(f"{config.EMOJES['medicine']} הוספת תרופה", reply_markup=kb)
 
         except Exception as e:
             logger.error(f"Error in add_medicine command: {e}")
