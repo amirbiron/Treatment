@@ -94,8 +94,15 @@ class MedicineScheduler:
             if self.scheduler.get_job(job_id):
                 self.scheduler.remove_job(job_id)
 
-            # Create cron trigger for daily reminder
-            trigger = CronTrigger(hour=reminder_time.hour, minute=reminder_time.minute, timezone=timezone)
+            # Create cron trigger for daily reminder in the user's timezone
+            # Use pytz for DST-aware timezone handling
+            from utils.time import get_timezone
+
+            trigger = CronTrigger(
+                hour=reminder_time.hour,
+                minute=reminder_time.minute,
+                timezone=get_timezone(timezone),
+            )
 
             # Schedule the job
             self.scheduler.add_job(
@@ -119,11 +126,18 @@ class MedicineScheduler:
         if snooze_minutes is None:
             snooze_minutes = config.REMINDER_SNOOZE_MINUTES
 
-        job_id = f"snooze_reminder_{user_id}_{medicine_id}_{datetime.now().timestamp()}"
-        remind_time = datetime.now() + timedelta(minutes=snooze_minutes)
+        job_id = f"snooze_reminder_{user_id}_{medicine_id}_{datetime.utcnow().timestamp()}"
+        # Schedule snooze in the user's timezone (default Asia/Jerusalem)
+        from utils.time import ensure_aware, get_timezone
+
+        user = await DatabaseManager.get_user_by_id(user_id)
+        user_tz = getattr(user, "timezone", None) or "Asia/Jerusalem"
+        remind_time = ensure_aware(datetime.utcnow(), "UTC").astimezone(get_timezone(user_tz)) + timedelta(
+            minutes=snooze_minutes
+        )
 
         try:
-            trigger = DateTrigger(run_date=remind_time)
+            trigger = DateTrigger(run_date=remind_time, timezone=get_timezone(user_tz))
 
             self.scheduler.add_job(
                 func=self._send_snoozed_reminder,
@@ -325,7 +339,7 @@ class MedicineScheduler:
     async def _mark_dose_missed(self, user_id: int, medicine_id: int):
         """Mark a dose as missed in the database"""
         try:
-            await DatabaseManager.log_dose_missed(medicine_id, datetime.now())
+            await DatabaseManager.log_dose_missed(medicine_id, datetime.utcnow())
         except Exception as e:
             logger.error(f"Failed to mark dose as missed: {e}")
 

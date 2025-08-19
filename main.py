@@ -617,6 +617,7 @@ class MedicineReminderBot:
                             message += f"{status_emoji} <b>{med.name}</b>\n   💊 {med.dosage}\n   📦 מלאי: {med.inventory_count}{inv_warn}\n\n"
                     from utils.keyboards import get_medicines_keyboard
 
+                    # Replace current message with updated list; avoid sending extra echo messages
                     await query.edit_message_text(
                         message, parse_mode="HTML", reply_markup=get_medicines_keyboard(meds if meds else [], offset=offset)
                     )
