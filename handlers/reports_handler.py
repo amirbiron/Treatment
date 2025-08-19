@@ -76,7 +76,7 @@ class ReportsHandler:
                 CommandHandler("cancel", self.cancel_report),
                 CallbackQueryHandler(self.cancel_report, pattern="^cancel$"),
             ],
-            per_message=False,
+            per_message=True,
         )
 
     def get_handlers(self) -> List:
