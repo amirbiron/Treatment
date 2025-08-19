@@ -65,8 +65,8 @@ class MedicineHandler:
                 CallbackQueryHandler(self.cancel_operation, pattern="^cancel$"),
                 CallbackQueryHandler(self.cancel_operation, pattern="^time_cancel$"),
             ],
-            # Important: allow CallbackQuery -> Message sequences in same conversation
-            per_message=True,
+            # Track conversation per chat to persist across messages/callbacks
+            per_message=False,
         )
 
     async def start_add_medicine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
