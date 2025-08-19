@@ -48,6 +48,11 @@ class MedicineHandler:
                 # Delete confirmation flow
                 CallbackQueryHandler(self.confirm_delete_medicine, pattern=r"^medicine_delete_\d+$"),
                 CallbackQueryHandler(self.handle_delete_confirmation, pattern=r"^meddel_"),
+                # Main menu reply button: "💊 התרופות שלי"
+                MessageHandler(
+                    filters.Regex(fr"^{re.escape(config.EMOJIS['medicine'])}\\s+התרופות שלי$"),
+                    self.show_my_medicines,
+                ),
                 # Inventory per-medicine actions (only those with an ID)
                 CallbackQueryHandler(self.handle_inventory_update, pattern=r"^inventory_\d+_"),
             ],
@@ -101,6 +106,30 @@ class MedicineHandler:
             logger.error(f"Error starting add medicine: {e}")
             await self._send_error_message(update, "שגיאה בתחילת הוספת התרופה")
             return ConversationHandler.END
+
+    async def show_my_medicines(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle the main menu button '💊 התרופות שלי' without echoing the label."""
+        try:
+            user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
+            medicines = await DatabaseManager.get_user_medicines(user.id) if user else []
+            if not medicines:
+                message = f"{config.EMOJIS['info']} אין תרופות רשומות\n\nלחצו על /add_medicine כדי להוסיף תרופה ראשונה."
+            else:
+                message = f"{config.EMOJIS['medicine']} <b>התרופות שלכם:</b>\n\n"
+                for medicine in medicines[: config.MAX_MEDICINES_PER_PAGE]:
+                    status_emoji = config.EMOJIS['success'] if medicine.is_active else config.EMOJIS['error']
+                    inventory_warning = (
+                        f" {config.EMOJIS['warning']}" if medicine.inventory_count <= medicine.low_stock_threshold else ""
+                    )
+                    message += (
+                        f"{status_emoji} <b>{medicine.name}</b>\n   💊 {medicine.dosage}\n   📦 מלאי: {medicine.inventory_count}{inventory_warning}\n\n"
+                    )
+            await update.message.reply_text(
+                message, parse_mode="HTML", reply_markup=get_medicines_keyboard(medicines if medicines else [], offset=0)
+            )
+        except Exception as e:
+            logger.error(f"Error in show_my_medicines: {e}")
+            await update.message.reply_text(config.ERROR_MESSAGES.get("general", "אירעה שגיאה"))
 
     async def confirm_delete_medicine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Prompt user to confirm medicine deletion."""
