@@ -85,6 +85,9 @@ class MedicineHandler:
 (לדוגמה: אקמול, ויטמין D, לבופה וכו')
             """
 
+            # Mark conversation active so generic text handler won't interfere
+            context.user_data["conv_add_medicine"] = True
+
             # Handle both command and callback query
             if update.callback_query:
                 await update.callback_query.answer()
@@ -239,14 +242,10 @@ class MedicineHandler:
 התזכורות הופעלו אוטומטית!
                     """
                     await query.edit_message_text(message, parse_mode="HTML")
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id, text="תפריט ראשי:", reply_markup=get_main_menu_keyboard()
-                    )
+                    context.user_data.pop("conv_add_medicine", None)
                 else:
                     await query.edit_message_text(f"{config.EMOJIS['error']} שגיאה בשמירת התרופה. אנא נסו שוב.")
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id, text="תפריט ראשי:", reply_markup=get_main_menu_keyboard()
-                    )
+                    context.user_data.pop("conv_add_medicine", None)
                 # Clean up and end
                 if user_id in self.user_medicine_data:
                     del self.user_medicine_data[user_id]
@@ -301,11 +300,13 @@ class MedicineHandler:
 
 התזכורות הופעלו אוטומטית!
                 """
-                await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+                await update.message.reply_text(message, parse_mode="HTML")
+                context.user_data.pop("conv_add_medicine", None)
             else:
                 await update.message.reply_text(
-                    f"{config.EMOJIS['error']} שגיאה בשמירת התרופה. אנא נסו שוב.", reply_markup=get_main_menu_keyboard()
+                    f"{config.EMOJIS['error']} שגיאה בשמירת התרופה. אנא נסו שוב."
                 )
+                context.user_data.pop("conv_add_medicine", None)
             if user_id in self.user_medicine_data:
                 del self.user_medicine_data[user_id]
             return ConversationHandler.END
