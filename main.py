@@ -57,6 +57,12 @@ class MedicineReminderBot:
         if self.application is None:
             raise RuntimeError("Bot is not initialized. Call initialize() first.")
 
+        # Ensure a current event loop exists (Python 3.13 no longer creates one implicitly)
+        try:
+            asyncio.get_event_loop()
+        except RuntimeError:
+            asyncio.set_event_loop(asyncio.new_event_loop())
+
         # Delete webhook if was set previously and start polling
         self.application.run_polling(allowed_updates=["message", "callback_query"], drop_pending_updates=True)
 
@@ -64,6 +70,12 @@ class MedicineReminderBot:
         """Run the bot in webhook mode (production)."""
         if self.application is None:
             raise RuntimeError("Bot is not initialized. Call initialize() first.")
+
+        # Ensure a current event loop exists (Python 3.13 no longer creates one implicitly)
+        try:
+            asyncio.get_event_loop()
+        except RuntimeError:
+            asyncio.set_event_loop(asyncio.new_event_loop())
 
         from config import config
 
