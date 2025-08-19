@@ -79,6 +79,35 @@ class MedicineReminderBot:
 
         from config import config
 
+        # Expose simple health endpoints for Render (GET / and /healthz return 200)
+        try:
+            from telegram.ext._utils import webhookhandler as _wh  # type: ignore
+            import tornado.web  # type: ignore
+
+            class _HealthHandler(tornado.web.RequestHandler):  # type: ignore
+                def get(self):  # type: ignore[override]
+                    self.set_status(200)
+                    self.finish("ok")
+
+                def head(self):  # type: ignore[override]
+                    self.set_status(200)
+                    self.finish()
+
+            class _HealthWebhookApp(_wh.WebhookAppClass):  # type: ignore
+                def __init__(self, webhook_path, bot, update_queue, secret_token=None):  # type: ignore[no-untyped-def]
+                    super().__init__(webhook_path, bot, update_queue, secret_token)
+                    # Add health endpoints on any host
+                    self.add_handlers(r".*$", [
+                        (r"/", _HealthHandler, {}),
+                        (r"/healthz", _HealthHandler, {}),
+                        (r"/readyz", _HealthHandler, {}),
+                    ])
+
+            # Monkeypatch PTB to use our extended app class
+            _wh.WebhookAppClass = _HealthWebhookApp  # type: ignore[assignment]
+        except Exception as exc:
+            logging.warning("Unable to add health endpoints: %s", exc)
+
         webhook_url = config.get_webhook_url() or None
         url_path = config.WEBHOOK_PATH.lstrip("/")
 
