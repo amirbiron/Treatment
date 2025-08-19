@@ -627,10 +627,9 @@ class MedicineReminderBot:
                     meds = await DatabaseManager.get_user_medicines(db_user.id) if db_user else []
                     message = (
                         f"{config.EMOJES['success']} התרופה נמחקה" if ok else f"{config.EMOJES['error']} התרופה לא נמצאה"
-                    ) + "\n\n"
-                    if not meds:
-                        message += f"{config.EMOJES['info']} אין תרופות רשומות"
-                    else:
+                    )
+                    if meds:
+                        message += "\n\n"
                         message += f"{config.EMOJES['medicine']} <b>התרופות שלכם:</b>\n\n"
                         slice_start = max(0, int(offset))
                         slice_end = slice_start + config.MAX_MEDICINES_PER_PAGE
