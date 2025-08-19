@@ -22,6 +22,20 @@ class MedicineReminderBot:
         """Build the Application and register handlers.
         Returns the constructed Application instance.
         """
+        # Suppress noisy PTB warning about CallbackQueryHandler + per_message=False
+        # This preserves mixed text/callback conversations while keeping logs clean.
+        from warnings import filterwarnings
+        try:
+            from telegram.warnings import PTBUserWarning
+            filterwarnings(
+                action="ignore",
+                message=r".*CallbackQueryHandler.*will not be tracked for every message.*",
+                category=PTBUserWarning,
+            )
+        except Exception:
+            # If telegram.warnings isn't available yet, continue without filtering
+            pass
+
         # Lazy imports to keep module import cheap/safe
         import os
         from telegram.ext import Application
