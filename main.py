@@ -999,21 +999,8 @@ class MedicineReminderBot:
                 await query.edit_message_text(message, parse_mode="HTML")
                 return
 
-            # View one medicine details
+            # View one medicine details is handled by handlers.medicine_handler
             if data.startswith("medicine_view_"):
-                medicine_id = int(data.split("_")[2])
-                medicine = await DatabaseManager.get_medicine_by_id(medicine_id)
-                if not medicine:
-                    await query.edit_message_text(config.ERROR_MESSAGES["medicine_not_found"])
-                    return
-                details = [
-                    f"{config.EMOJES['medicine']} <b>{medicine.name}</b>",
-                    f"⚖️ מינון: {medicine.dosage}",
-                    f"📦 מלאי: {medicine.inventory_count}",
-                ]
-                await query.edit_message_text(
-                    "\n".join(details), parse_mode="HTML", reply_markup=get_medicine_detail_keyboard(medicine.id)
-                )
                 return
 
             # Inventory/schedule/edit/history/toggle actions - improved
