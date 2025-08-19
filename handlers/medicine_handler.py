@@ -73,7 +73,7 @@ class MedicineHandler:
                 CallbackQueryHandler(self.cancel_operation, pattern="^cancel$"),
                 CallbackQueryHandler(self.cancel_operation, pattern="^time_cancel$"),
             ],
-            per_message=False,
+            per_message=True,
         )
 
     async def start_add_medicine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
