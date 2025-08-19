@@ -68,6 +68,9 @@ class Config:
 
     APPOINTMENTS_HELP: str = "קבעו תור לרופא, בדיקת דם, טיפול או בדיקה. ניתן גם להזין נושא חופשי."
 
+    # Admin settings
+    ADMIN_TELEGRAM_ID: int = int(os.getenv("ADMIN_TELEGRAM_ID", "0"))
+
     # Message Templates
     WELCOME_MESSAGE: str = """
 🏥 *ברוכים הבאים לבוט תזכורת התרופות!*

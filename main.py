@@ -94,6 +94,7 @@ class MedicineReminderBot:
         # Medicine Management Commands
         app.add_handler(CommandHandler("add_medicine", self.add_medicine_command))
         app.add_handler(CommandHandler("my_medicines", self.my_medicines_command))
+        app.add_handler(CommandHandler("admin_usage", self.admin_usage_command))
         app.add_handler(CommandHandler("update_inventory", self.update_inventory_command))
 
         # Reminder Commands
@@ -315,6 +316,50 @@ class MedicineReminderBot:
             await update.message.reply_text("להשהיית תזכורת, השתמשו בכפתור דחייה שמופיע בהתראה.")
         except Exception as e:
             logger.error(f"Error in snooze command: {e}")
+            await update.message.reply_text(config.ERROR_MESSAGES["general"])
+
+    async def admin_usage_command(self, update: Update, context):
+        """Show weekly usage stats (admin only)."""
+        try:
+            if update.effective_user.id != config.ADMIN_TELEGRAM_ID or config.ADMIN_TELEGRAM_ID == 0:
+                await update.message.reply_text("פקודה זו למנהל בלבד.")
+                return
+            from datetime import timedelta
+            since = datetime.utcnow() - timedelta(days=7)
+            # Count distinct active users
+            try:
+                total_active = await DatabaseManager.count_users_active_since(since)
+            except Exception:
+                total_active = 0
+            # Build per-user stats (approximate)
+            from collections import defaultdict
+            user_actions = defaultdict(int)
+            try:
+                # Count recent dose logs by user (via medicine->user)
+                # Fallback approach: iterate medicines and sum recent doses
+                users = await DatabaseManager.get_all_active_users()
+                for u in users:
+                    meds = await DatabaseManager.get_user_medicines(u.id, active_only=False)
+                    count = 0
+                    for m in meds:
+                        doses = await DatabaseManager.get_medicine_doses_in_range(m.id, since.date(), datetime.utcnow().date())
+                        count += len(doses)
+                    user_actions[u.telegram_id] = count
+            except Exception:
+                pass
+            lines = [
+                f"📊 שימוש בשבוע האחרון",
+                f"משתמשים פעילים: {total_active}",
+            ]
+            # Top 10 by actions
+            top = sorted(user_actions.items(), key=lambda kv: kv[1], reverse=True)[:10]
+            if top:
+                lines.append("\n10 הפעילים ביותר:")
+                for uid, cnt in top:
+                    lines.append(f"• {uid}: {cnt} פעולות")
+            await update.message.reply_text("\n".join(lines))
+        except Exception as e:
+            logger.error(f"Error in admin_usage command: {e}")
             await update.message.reply_text(config.ERROR_MESSAGES["general"])
 
     async def log_symptoms_command(self, update: Update, context):
