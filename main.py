@@ -119,6 +119,9 @@ class MedicineReminderBot:
             port=config.WEBHOOK_PORT,
             url_path=url_path,
             webhook_url=webhook_url,
+            # On some PaaS (e.g., Render) a SIGTERM may be sent during deploy probes.
+            # Avoid stopping the app prematurely by disabling stop signals here.
+            stop_signals=None,
             drop_pending_updates=True,
         )
 
