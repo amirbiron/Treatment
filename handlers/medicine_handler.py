@@ -45,6 +45,9 @@ class MedicineHandler:
                 CallbackQueryHandler(self.start_add_medicine, pattern="^medicine_add$"),
                 CallbackQueryHandler(self.view_medicine, pattern="^medicine_view_"),
                 CallbackQueryHandler(self.edit_medicine, pattern="^medicine_edit_"),
+                # Delete confirmation flow
+                CallbackQueryHandler(self.confirm_delete_medicine, pattern=r"^medicine_delete_\d+$"),
+                CallbackQueryHandler(self.handle_delete_confirmation, pattern=r"^meddel_"),
                 # Inventory per-medicine actions (only those with an ID)
                 CallbackQueryHandler(self.handle_inventory_update, pattern=r"^inventory_\d+_"),
             ],
@@ -98,6 +101,45 @@ class MedicineHandler:
             logger.error(f"Error starting add medicine: {e}")
             await self._send_error_message(update, "שגיאה בתחילת הוספת התרופה")
             return ConversationHandler.END
+
+    async def confirm_delete_medicine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Prompt user to confirm medicine deletion."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            medicine_id = int(query.data.split("_")[2])
+            await query.edit_message_text(
+                "האם למחוק את התרופה?", reply_markup=get_confirmation_keyboard("meddel", medicine_id)
+            )
+        except Exception as e:
+            logger.error(f"Error prompting delete medicine: {e}")
+            await query.edit_message_text(f"{config.EMOJIS['error']} שגיאה במחיקת התרופה")
+
+    async def handle_delete_confirmation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle confirmation callbacks for medicine deletion (meddel_<id>_confirm/cancel)."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            parts = query.data.split("_")
+            if parts[-1] == "confirm":
+                medicine_id = int(parts[-2])
+                user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+                await medicine_scheduler.cancel_medicine_reminders(user.id, medicine_id)
+                ok = await DatabaseManager.delete_medicine(medicine_id)
+                # After deletion, show the medicines list
+                meds = await DatabaseManager.get_user_medicines(user.id) if user else []
+                message = (
+                    f"{config.EMOJIS['success']} התרופה נמחקה" if ok else f"{config.EMOJIS['error']} התרופה לא נמצאה"
+                )
+                from utils.keyboards import get_medicines_keyboard
+                await query.edit_message_text(
+                    message, parse_mode="HTML", reply_markup=get_medicines_keyboard(meds if meds else [], offset=0)
+                )
+            else:
+                await query.edit_message_text("בוטל")
+        except Exception as e:
+            logger.error(f"Error handling delete confirmation: {e}")
+            await update.callback_query.edit_message_text(config.ERROR_MESSAGES["general"])
 
     async def get_medicine_name(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Get medicine name from user"""
@@ -391,7 +433,7 @@ class MedicineHandler:
 
                 # Schedule reminders
                 await medicine_scheduler.schedule_medicine_reminder(
-                    user_id=user_id,
+                    user_id=user.id,
                     medicine_id=medicine.id,
                     reminder_time=schedule_time,
                     timezone=user.timezone or config.DEFAULT_TIMEZONE,
