@@ -559,7 +559,7 @@ class MedicineHandler:
 {config.EMOJIS['success']} <b>מלאי עודכן!</b>
 
 {config.EMOJIS['medicine']} {medicine.name}
-📦 מלאי חדש: {int(new_count)} כדורים{status_msg}
+{config.EMOJES['inventory']} מלאי חדש: {int(new_count)} כדורים{status_msg}
                 """
 
                 await query.edit_message_text(
@@ -609,7 +609,7 @@ class MedicineHandler:
 {config.EMOJIS['success']} <b>מלאי עודכן בהצלחה!</b>
 
 {config.EMOJIS['medicine']} {medicine.name}
-📦 מלאי חדש: {int(final_count)} כדורים{status_msg}
+{config.EMOJES['inventory']} מלאי חדש: {int(final_count)} כדורים{status_msg}
             """
 
             await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_medicine_detail_keyboard(medicine_id))
