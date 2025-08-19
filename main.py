@@ -493,6 +493,29 @@ class MedicineReminderBot:
                 await self.application.bot.send_message(
                     chat_id=query.message.chat_id, text="בחרו פעולה:", reply_markup=get_main_menu_keyboard()
                 )
+                return
+            elif data == "inventory_main":
+                # Open inventory center via inline (avoid reply keyboard echo)
+                from utils.keyboards import get_inventory_main_keyboard
+                try:
+                    user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+                    meds = await DatabaseManager.get_user_medicines(user.id)
+                    low = [m for m in meds if m.inventory_count <= m.low_stock_threshold]
+                    msg = f"{config.EMOJES['inventory']} מרכז המלאי\n\n"
+                    if not meds:
+                        msg += "אין תרופות במערכת. הוסיפו תרופה דרך 'התרופות שלי'."
+                    else:
+                        msg += f"סה\"כ תרופות: {len(meds)} | נמוך: {len(low)}\n"
+                        for m in meds[:10]:
+                            warn = f" {config.EMOJES['warning']}" if m.inventory_count <= m.low_stock_threshold else ""
+                            msg += f"• {m.name} — {m.inventory_count} {warn}\n"
+                        if len(meds) > 10:
+                            msg += f"ועוד {len(meds)-10}...\n"
+                    await query.edit_message_text(msg, reply_markup=get_inventory_main_keyboard())
+                except Exception as exc:
+                    logger.error(f"Error opening inventory center inline: {exc}")
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                return
             elif data.startswith("medicine_") or data.startswith("medicines_"):
                 # Route to internal medicine action handler which covers all medicine flows
                 await self._handle_medicine_action(update, query, context)

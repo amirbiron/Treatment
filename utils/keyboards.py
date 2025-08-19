@@ -9,19 +9,28 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMa
 from config import config
 
 
-def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
-    """Main menu keyboard with large, clear buttons"""
+def get_main_menu_keyboard() -> InlineKeyboardMarkup:
+    """Inline main menu to avoid echoing user messages in the chat."""
     keyboard = [
-        [KeyboardButton(f"{config.EMOJIS['medicine']} התרופות שלי"), KeyboardButton(f"{config.EMOJIS['reminder']} תזכורות")],
-        [KeyboardButton(f"{config.EMOJIS['inventory']} מלאי"), KeyboardButton(f"{config.EMOJIS['symptoms']} תופעות לוואי")],
-        [KeyboardButton(f"{config.EMOJIS['report']} דוחות"), KeyboardButton(f"{config.EMOJIS['caregiver']} מטפלים")],
-        [KeyboardButton(f"{config.EMOJIS['calendar']} הוספת תור")],
-        [KeyboardButton(f"{config.EMOJIS['settings']} הגדרות"), KeyboardButton(f"{config.EMOJIS['info']} עזרה")],
+        [
+            InlineKeyboardButton(f"{config.EMOJIS['medicine']} התרופות שלי", callback_data="medicines_list"),
+            InlineKeyboardButton(f"{config.EMOJIS['reminder']} תזכורות", callback_data="reminders_menu"),
+        ],
+        [
+            InlineKeyboardButton(f"{config.EMOJIS['inventory']} מלאי", callback_data="inventory_main"),
+            InlineKeyboardButton(f"{config.EMOJIS['symptoms']} תופעות לוואי", callback_data="symptoms_menu"),
+        ],
+        [
+            InlineKeyboardButton(f"{config.EMOJIS['report']} דוחות", callback_data="reports_menu"),
+            InlineKeyboardButton(f"{config.EMOJIS['caregiver']} מטפלים", callback_data="caregiver_manage"),
+        ],
+        [InlineKeyboardButton(f"{config.EMOJIS['calendar']} הוספת תור", callback_data="appt_pick_month")],
+        [
+            InlineKeyboardButton(f"{config.EMOJIS['settings']} הגדרות", callback_data="settings_menu"),
+            InlineKeyboardButton(f"{config.EMOJIS['info']} עזרה", callback_data="help_menu"),
+        ],
     ]
-
-    return ReplyKeyboardMarkup(
-        keyboard, resize_keyboard=True, one_time_keyboard=False, input_field_placeholder="בחרו פעולה..."
-    )
+    return InlineKeyboardMarkup(keyboard)
 
 
 def get_appointments_menu_keyboard() -> InlineKeyboardMarkup:
@@ -202,12 +211,9 @@ def get_medicines_keyboard(medicines: List, offset: int = 0) -> InlineKeyboardMa
         keyboard.append(nav_row)
 
     # Back to main menu
-    keyboard.append(
-        [
-            InlineKeyboardButton(f"{config.EMOJIS['back']} חזור לתפריט", callback_data="main_menu"),
-            InlineKeyboardButton(f"{config.EMOJIS['symptoms']} תופעות לוואי", callback_data="symptoms_menu"),
-        ]
-    )
+    keyboard.append([
+        InlineKeyboardButton(f"{config.EMOJIS['back']} חזור לתפריט", callback_data="main_menu")
+    ])
 
     return InlineKeyboardMarkup(keyboard)
 
