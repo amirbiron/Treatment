@@ -79,27 +79,19 @@ class MedicineReminderBot:
         )
 
 
-async def _async_entry() -> None:
-    """Async entry used by __main__ to run the bot."""
+if __name__ == "__main__":
     # Basic logging setup
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
     # Build bot
     bot = MedicineReminderBot()
-    await bot.initialize()
+    # Initialize asynchronously, then run in chosen mode synchronously
+    asyncio.run(bot.initialize())
 
-    # Choose mode by environment
     from config import config
 
     if config.is_production():
-        # In production, run webhook (blocking call)
         bot.run_webhook()
     else:
-        # In development, run polling (blocking call)
         bot.run_polling()
-
-
-if __name__ == "__main__":
-    # Run the async entrypoint
-    asyncio.run(_async_entry())
 
