@@ -482,7 +482,7 @@ class MedicineReminderBot:
                 if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
                     try:
                         if not context.user_data.get("editing_schedule_for"):
-                            await query.edit_message_text("שגיאה: אין תרופה נבחרת. חזרו ל'שנה שעות' ונסו שוב.")
+                            # Let conversation handlers process time selection during add flow
                             return
                         h = int(parts[1])
                         m = int(parts[2])
