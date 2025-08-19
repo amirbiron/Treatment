@@ -1176,6 +1176,17 @@ class DatabaseManagerMongo:
         return await DatabaseManagerMongo.get_medicine_by_id(medicine_id)
 
     @staticmethod
+    async def delete_medicine(medicine_id: int) -> bool:
+        """Delete a medicine and its related schedules and dose logs (Mongo)."""
+        await _init_mongo()
+        mid = int(medicine_id)
+        # Remove related entities first to keep data tidy
+        await _mongo_db.medicine_schedules.delete_many({"medicine_id": mid})
+        await _mongo_db.dose_logs.delete_many({"medicine_id": mid})
+        res = await _mongo_db.medicines.delete_one({"_id": mid})
+        return res.deleted_count > 0
+
+    @staticmethod
     async def log_dose_taken(medicine_id: int, scheduled_time: datetime, taken_at: datetime = None) -> DoseLog:
         await _init_mongo()
         if taken_at is None:
