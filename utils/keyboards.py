@@ -24,7 +24,7 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(f"{config.EMOJIS['report']} דוחות", callback_data="reports_menu"),
             InlineKeyboardButton(f"{config.EMOJIS['caregiver']} מטפלים", callback_data="caregiver_manage"),
         ],
-        [InlineKeyboardButton(f"{config.EMOJIS['calendar']} הוספת תור", callback_data="appt_pick_month")],
+        [InlineKeyboardButton(f"{config.EMOJIS['calendar']} הוספת תור", callback_data="appt_menu")],
         [
             InlineKeyboardButton(f"{config.EMOJIS['settings']} הגדרות", callback_data="settings_menu"),
             InlineKeyboardButton(f"{config.EMOJIS['info']} עזרה", callback_data="help_menu"),
