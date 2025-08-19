@@ -467,11 +467,8 @@ class MedicineReminderBot:
                 from utils.keyboards import get_main_menu_keyboard
 
                 context.user_data.pop("editing_schedule_for", None)
-                # Telegram edit_message_text cannot attach ReplyKeyboardMarkup. Send a new message instead.
-                await query.edit_message_text(f"{config.EMOJES['info']} הפעולה בוטלה")
-                await self.application.bot.send_message(
-                    chat_id=query.message.chat_id, text="בחרו פעולה:", reply_markup=get_main_menu_keyboard()
-                )
+                # Return to main menu inline (avoid stacking extra messages)
+                await query.edit_message_text("בחרו פעולה:", reply_markup=get_main_menu_keyboard())
                 return
             if data == "time_custom":
                 await query.edit_message_text("הקלידו שעה בפורמט HH:MM (למשל 08:30)")
@@ -534,9 +531,7 @@ class MedicineReminderBot:
                 context.user_data.pop("editing_symptom_log", None)
                 context.user_data.pop("suppress_menu_mapping", None)
                 context.user_data.pop("adding_medicine", None)
-                await self.application.bot.send_message(
-                    chat_id=query.message.chat_id, text="בחרו פעולה:", reply_markup=get_main_menu_keyboard()
-                )
+                await query.edit_message_text("בחרו פעולה:", reply_markup=get_main_menu_keyboard())
                 return
             elif data == "inventory_main":
                 # Open inventory center via inline (avoid reply keyboard echo)
