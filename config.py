@@ -16,6 +16,10 @@ class Config:
     # Bot Configuration
     BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
     BOT_USERNAME: str = os.getenv("BOT_USERNAME", "medicine_reminder_bot")
+    # Comma-separated Telegram user IDs that are considered global admins
+    ADMIN_TELEGRAM_IDS: List[int] = [
+        int(x) for x in os.getenv("ADMIN_TELEGRAM_IDS", "").replace(" ", "").split(",") if x.strip().isdigit()
+    ]
 
     # Webhook Configuration (for Render deployment)
     WEBHOOK_URL: str = os.getenv("WEBHOOK_URL", "")  # e.g., "https://your-app.onrender.com"

@@ -32,6 +32,8 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     timezone: Mapped[Optional[str]] = mapped_column(String(50), default="UTC")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # Last time the user interacted with the bot (updated on any command/callback)
+    last_active_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     # Relationships
     medicines: Mapped[List["Medicine"]] = relationship("Medicine", back_populates="user", cascade="all, delete-orphan")
@@ -84,7 +86,7 @@ class DoseLog(Base):
 
     __tablename__ = "dose_logs"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary key=True)
     medicine_id: Mapped[int] = mapped_column(Integer, ForeignKey("medicines.id"))
     scheduled_time: Mapped[datetime] = mapped_column(DateTime)
     taken_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -240,6 +242,14 @@ async def init_database():
                 await conn.exec_driver_sql("ALTER TABLE caregivers ADD COLUMN phone VARCHAR(50) NULL")
             if "preferred_channel" not in cols4:
                 await conn.exec_driver_sql("ALTER TABLE caregivers ADD COLUMN preferred_channel VARCHAR(20) NULL")
+        except Exception:
+            pass
+        # Add last_active_at to users if missing
+        try:
+            res5 = await conn.exec_driver_sql("PRAGMA table_info(users)")
+            cols5 = [row[1] for row in res5.fetchall()]
+            if "last_active_at" not in cols5:
+                await conn.exec_driver_sql("ALTER TABLE users ADD COLUMN last_active_at DATETIME NULL")
         except Exception:
             pass
 
@@ -526,6 +536,37 @@ class DatabaseManager:
         async with async_session() as session:
             result = await session.execute(select(User).where(User.is_active == True))
             return list(result.scalars().all())
+
+    @staticmethod
+    async def count_users_active_since(since: datetime) -> int:
+        """Count distinct users with any activity since 'since'.
+        Activity sources: dose logs (via medicines), symptom logs, or new user created.
+        """
+        async with async_session() as session:
+            # Users with dose activity
+            res_dose = await session.execute(
+                select(Medicine.user_id)
+                .join(DoseLog, DoseLog.medicine_id == Medicine.id)
+                .where(DoseLog.scheduled_time >= since)
+                .distinct()
+            )
+            user_ids = set(int(uid) for uid in res_dose.scalars().all())
+
+            # Users with symptom activity
+            res_sym = await session.execute(
+                select(SymptomLog.user_id)
+                .where(SymptomLog.log_date >= since)
+                .distinct()
+            )
+            user_ids.update(int(uid) for uid in res_sym.scalars().all())
+
+            # New users created recently
+            res_new = await session.execute(
+                select(User.id).where(User.created_at >= since).distinct()
+            )
+            user_ids.update(int(uid) for uid in res_new.scalars().all())
+
+            return len(user_ids)
 
     @staticmethod
     async def get_all_active_caregivers() -> List[Caregiver]:
@@ -1134,7 +1175,6 @@ class DatabaseManagerMongo:
             log.taken_at = d.get("taken_at")
             log.status = d.get("status", "pending")
             log.notes = d.get("notes")
-            log.created_at = d.get("created_at")
             result.append(log)
         return result
 
@@ -1390,498 +1430,22 @@ class DatabaseManagerMongo:
         return result
 
     @staticmethod
-    async def get_all_active_caregivers() -> List[Caregiver]:
+    async def count_users_active_since(since: datetime) -> int:
         await _init_mongo()
-        rows = await _mongo_db.caregivers.find({"is_active": True}).to_list(10000)
-        result = []
-        for d in rows:
-            cg = Caregiver()
-            cg.id = d.get("_id")
-            cg.user_id = d.get("user_id")
-            cg.caregiver_telegram_id = d.get("caregiver_telegram_id")
-            cg.caregiver_name = d.get("caregiver_name")
-            cg.relationship_type = d.get("relationship_type")
-            cg.permissions = d.get("permissions")
-            cg.is_active = d.get("is_active", True)
-            result.append(cg)
-        return result
-
-    @staticmethod
-    async def get_low_stock_medicines() -> List[Medicine]:
-        await _init_mongo()
-        rows = await _mongo_db.medicines.find(
-            {"is_active": True, "inventory_count": {"$lte": {"$sum": "$low_stock_threshold"}}}
-        ).to_list(1000)
-        result = []
-        for d in rows:
-            m = Medicine()
-            m.id = d.get("_id")
-            m.user_id = d.get("user_id")
-            m.name = d.get("name")
-            m.dosage = d.get("dosage")
-            m.inventory_count = float(d.get("inventory_count", 0))
-            m.low_stock_threshold = float(d.get("low_stock_threshold", 5))
-            m.pack_size = int(d.get("pack_size")) if d.get("pack_size") is not None else None
-            m.is_active = bool(d.get("is_active", True))
-            m.notes = d.get("notes")
-            m.created_at = d.get("created_at") or datetime.utcnow()
-            result.append(m)
-        return result
-
-    @staticmethod
-    async def get_medicine_doses_in_range(medicine_id: int, start_date, end_date) -> List[DoseLog]:
-        await _init_mongo()
-        rows = (
-            await _mongo_db.dose_logs.find(
-                {
-                    "medicine_id": int(medicine_id),
-                    "scheduled_time": {
-                        "$gte": datetime.combine(start_date, datetime.min.time()),
-                        "$lte": datetime.combine(end_date, datetime.max.time()),
-                    },
-                }
-            )
-            .sort("scheduled_time", 1)
-            .to_list(1000)
-        )
-        result = []
-        for d in rows:
-            log = DoseLog()
-            log.id = d.get("_id")
-            log.medicine_id = d.get("medicine_id")
-            log.scheduled_time = d.get("scheduled_time")
-            log.taken_at = d.get("taken_at")
-            log.status = d.get("status", "pending")
-            log.notes = d.get("notes")
-            log.created_at = d.get("created_at") or datetime.utcnow()
-            result.append(log)
-        return result
-
-    @staticmethod
-    async def get_symptom_logs_in_range(
-        user_id: int, start_date, end_date, medicine_id: Optional[int] = None
-    ) -> List["SymptomLog"]:
-        await _init_mongo()
-        start_dt = datetime.combine(start_date, datetime.min.time())
-        end_dt = datetime.combine(end_date, datetime.max.time())
-        query = {"user_id": int(user_id), "log_date": {"$gte": start_dt, "$lte": end_dt}}
-        if medicine_id is not None:
-            query["medicine_id"] = int(medicine_id)
-        rows = await _mongo_db.symptom_logs.find(query).sort("log_date", 1).to_list(10000)
-        result = []
-
-        class _Sym:
-            pass
-
-        for d in rows:
-            obj = _Sym()
-            obj.id = d.get("_id")
-            obj.user_id = d.get("user_id")
-            obj.log_date = d.get("log_date")
-            obj.symptoms = d.get("symptoms")
-            obj.side_effects = d.get("side_effects")
-            obj.mood_score = d.get("mood_score")
-            obj.notes = d.get("notes")
-            obj.medicine_id = d.get("medicine_id")
-            result.append(obj)
-        return result
-
-    @staticmethod
-    async def create_symptom_log(
-        user_id: int,
-        log_date: datetime,
-        symptoms: str = None,
-        side_effects: str = None,
-        mood_score: int = None,
-        notes: str = None,
-        medicine_id: Optional[int] = None,
-    ) -> "SymptomLog":
-        await _init_mongo()
-        last = await _mongo_db.symptom_logs.find().sort("_id", -1).limit(1).to_list(1)
-        next_id = (last[0]["_id"] + 1) if last else 1
-        doc = {
-            "_id": next_id,
-            "user_id": int(user_id),
-            "log_date": log_date,
-            "symptoms": symptoms,
-            "side_effects": side_effects,
-            "mood_score": mood_score,
-            "notes": notes,
-        }
-        if medicine_id is not None:
-            doc["medicine_id"] = int(medicine_id)
-        await _mongo_db.symptom_logs.insert_one(doc)
-
-        class _S:
-            pass
-
-        s = _S()
-        s.id = next_id
-        s.user_id = user_id
-        s.log_date = log_date
-        s.symptoms = symptoms
-        s.side_effects = side_effects
-        s.mood_score = mood_score
-        s.notes = notes
-        s.medicine_id = medicine_id
-        return s  # type: ignore
-
-    @staticmethod
-    async def create_appointment(
-        user_id: int,
-        category: str,
-        title: str,
-        when_at: datetime,
-        remind_day_before: bool = True,
-        remind_3days_before: bool = False,
-        remind_same_day: bool = True,
-        same_day_reminder_time: Optional[time] = None,
-        notes: Optional[str] = None,
-    ):
-        await _init_mongo()
-        last = await _mongo_db.appointments.find().sort("_id", -1).limit(1).to_list(1)
-        next_id = (last[0]["_id"] + 1) if last else 1
-        doc = {
-            "_id": next_id,
-            "user_id": user_id,
-            "category": category,
-            "title": title,
-            "when_at": when_at,
-            "remind_day_before": bool(remind_day_before),
-            "remind_3days_before": bool(remind_3days_before),
-            "remind_same_day": bool(remind_same_day),
-            "notes": notes,
-            "created_at": datetime.utcnow(),
-        }
-        # optional same-day reminder time stored as HH:MM string in Mongo
-        if isinstance(remind_same_day, bool) and remind_same_day and hasattr(config, "APPOINTMENT_SAME_DAY_REMINDER_HOUR"):
-            default_hh = int(getattr(config, "APPOINTMENT_SAME_DAY_REMINDER_HOUR", 8))
-            doc["same_day_reminder_time"] = f"{default_hh:02d}:00"
-        await _mongo_db.appointments.insert_one(doc)
-        # Return lightweight object
-        appt = Appointment()
-        appt.id = next_id
-        appt.user_id = user_id
-        appt.category = category
-        appt.title = title
-        appt.when_at = when_at
-        appt.remind_day_before = bool(remind_day_before)
-        appt.remind_3days_before = bool(remind_3days_before)
-        appt.remind_same_day = bool(remind_same_day)
-        # parse same_day_reminder_time
-        val = doc.get("same_day_reminder_time")
-        if isinstance(val, str) and ":" in val:
-            hh, mm = map(int, val.split(":"))
-            appt.same_day_reminder_time = time(hour=hh, minute=mm)
-        return appt
-
-    @staticmethod
-    async def get_appointment_by_id(appointment_id: int) -> Optional["Appointment"]:
-        await _init_mongo()
-        d = await _mongo_db.appointments.find_one({"_id": int(appointment_id)})
-        if not d:
-            return None
-        appt = Appointment()
-        appt.id = d.get("_id")
-        appt.user_id = d.get("user_id")
-        appt.category = d.get("category", "custom")
-        appt.title = d.get("title")
-        appt.when_at = d.get("when_at")
-        appt.remind_day_before = bool(d.get("remind_day_before", True))
-        appt.remind_3days_before = bool(d.get("remind_3days_before", False))
-        appt.remind_same_day = bool(d.get("remind_same_day", True))
-        # parse time
-        val = d.get("same_day_reminder_time")
-        if isinstance(val, str) and ":" in val:
-            hh, mm = map(int, val.split(":"))
-            appt.same_day_reminder_time = time(hour=hh, minute=mm)
-        appt.notes = d.get("notes")
-        return appt
-
-    @staticmethod
-    async def update_appointment(
-        appointment_id: int,
-        when_at: datetime = None,
-        title: str = None,
-        category: str = None,
-        remind_day_before: bool = None,
-        remind_3days_before: bool = None,
-        remind_same_day: bool = None,
-        same_day_reminder_time: str = None,
-        notes: str = None,
-    ):
-        await _init_mongo()
-        updates = {}
-        if when_at is not None:
-            updates["when_at"] = when_at
-        if title is not None:
-            updates["title"] = title
-        if category is not None:
-            updates["category"] = category
-        if remind_day_before is not None:
-            updates["remind_day_before"] = bool(remind_day_before)
-        if remind_3days_before is not None:
-            updates["remind_3days_before"] = bool(remind_3days_before)
-        if remind_same_day is not None:
-            updates["remind_same_day"] = bool(remind_same_day)
-        if same_day_reminder_time is not None:
-            updates["same_day_reminder_time"] = same_day_reminder_time
-        if notes is not None:
-            updates["notes"] = notes
-        if not updates:
-            return await DatabaseManagerMongo.get_appointment_by_id(appointment_id)
-        await _mongo_db.appointments.update_one({"_id": int(appointment_id)}, {"$set": updates})
-        return await DatabaseManagerMongo.get_appointment_by_id(appointment_id)
-
-    @staticmethod
-    async def get_upcoming_appointments(user_id: int, until_days: int = 60):
-        await _init_mongo()
-        now = datetime.utcnow()
-        until = now + timedelta(days=until_days)
-        rows = (
-            await _mongo_db.appointments.find({"user_id": user_id, "when_at": {"$gte": now, "$lte": until}})
-            .sort("when_at", 1)
-            .to_list(1000)
-        )
-        result = []
-        for d in rows:
-            appt = Appointment()
-            appt.id = d.get("_id")
-            appt.user_id = d.get("user_id")
-            appt.category = d.get("category", "custom")
-            appt.title = d.get("title")
-            appt.when_at = d.get("when_at")
-            appt.remind_day_before = bool(d.get("remind_day_before", True))
-            appt.remind_3days_before = bool(d.get("remind_3days_before", False))
-            appt.remind_same_day = bool(d.get("remind_same_day", True))
-            val = d.get("same_day_reminder_time")
-            if isinstance(val, str) and ":" in val:
-                hh, mm = map(int, val.split(":"))
-                appt.same_day_reminder_time = time(hour=hh, minute=mm)
-            result.append(appt)
-        return result
-
-    @staticmethod
-    async def get_all_upcoming_appointments(until_days: int = 60) -> List["Appointment"]:
-        await _init_mongo()
-        now = datetime.utcnow()
-        until = now + timedelta(days=until_days)
-        rows = await _mongo_db.appointments.find({"when_at": {"$gte": now, "$lte": until}}).sort("when_at", 1).to_list(1000)
-        result = []
-        for d in rows:
-            appt = Appointment()
-            appt.id = d.get("_id")
-            appt.user_id = d.get("user_id")
-            appt.category = d.get("category", "custom")
-            appt.title = d.get("title")
-            appt.when_at = d.get("when_at")
-            appt.remind_day_before = bool(d.get("remind_day_before", False))
-            appt.remind_3days_before = bool(d.get("remind_3days_before", False))
-            val = d.get("same_day_reminder_time")
-            if isinstance(val, str) and ":" in val:
-                hh, mm = map(int, val.split(":"))
-                appt.same_day_reminder_time = time(hour=hh, minute=mm)
-            result.append(appt)
-        return result
-
-    @staticmethod
-    async def get_user_appointments(
-        user_id: int, start_date: date = None, end_date: date = None, offset: int = 0, limit: int = 10
-    ) -> List[Appointment]:
-        await _init_mongo()
-        query = {"user_id": int(user_id)}
-        if start_date is not None or end_date is not None:
-            rng = {}
-            if start_date is not None:
-                rng["$gte"] = datetime.combine(start_date, datetime.min.time())
-            if end_date is not None:
-                rng["$lte"] = datetime.combine(end_date, datetime.max.time())
-            query["when_at"] = rng
-        cursor = _mongo_db.appointments.find(query).sort("when_at", 1).skip(int(max(0, offset))).limit(int(max(1, limit)))
-        rows = await cursor.to_list(limit)
-        result = []
-        for d in rows:
-            appt = Appointment()
-            appt.id = d.get("_id")
-            appt.user_id = d.get("user_id")
-            appt.category = d.get("category", "custom")
-            appt.title = d.get("title")
-            appt.when_at = d.get("when_at")
-            appt.remind_day_before = bool(d.get("remind_day_before", True))
-            appt.remind_3days_before = bool(d.get("remind_3days_before", False))
-            appt.remind_same_day = bool(d.get("remind_same_day", True))
-            val = d.get("same_day_reminder_time")
-            if isinstance(val, str) and ":" in val:
-                hh, mm = map(int, val.split(":"))
-                appt.same_day_reminder_time = time(hour=hh, minute=mm)
-            result.append(appt)
-        return result
-
-    @staticmethod
-    async def delete_appointment(appointment_id: int) -> bool:
-        await _init_mongo()
-        res = await _mongo_db.appointments.delete_one({"_id": int(appointment_id)})
-        return res.deleted_count > 0
-
-    @staticmethod
-    async def get_user_settings(user_id: int) -> UserSettings:
-        """Get or create user settings with defaults (Mongo)."""
-        await _init_mongo()
-        doc = await _mongo_db.user_settings.find_one({"user_id": int(user_id)})
-        if not doc:
-            default = {"user_id": int(user_id), "snooze_minutes": 10, "max_attempts": 3, "silent_mode": False}
-            await _mongo_db.user_settings.insert_one(default)
-            doc = default
-        # Minimal return object compatible with SQLAlchemy model fields
-        us = UserSettings()
-        us.user_id = int(user_id)
-        us.snooze_minutes = int(doc.get("snooze_minutes", 10))
-        us.max_attempts = int(doc.get("max_attempts", 3))
-        us.silent_mode = bool(doc.get("silent_mode", False))
-        return us
-
-    @staticmethod
-    async def update_user_settings(
-        user_id: int,
-        snooze_minutes: Optional[int] = None,
-        max_attempts: Optional[int] = None,
-        silent_mode: Optional[bool] = None,
-    ) -> UserSettings:
-        """Update user settings fields (Mongo)."""
-        await _init_mongo()
-        updates = {}
-        if snooze_minutes is not None:
-            updates["snooze_minutes"] = max(1, min(120, int(snooze_minutes)))
-        if max_attempts is not None:
-            updates["max_attempts"] = max(1, min(10, int(max_attempts)))
-        if silent_mode is not None:
-            updates["silent_mode"] = bool(silent_mode)
-        if updates:
-            await _mongo_db.user_settings.update_one({"user_id": int(user_id)}, {"$set": updates}, upsert=True)
-        return await DatabaseManagerMongo.get_user_settings(user_id)
-
-    @staticmethod
-    async def update_symptom_log(log_id: int, symptoms: Optional[str] = None, side_effects: Optional[str] = None) -> bool:
-        """Update a symptom log's text fields."""
-        async with async_session() as session:
-            log = await session.get(SymptomLog, log_id)
-            if not log:
-                return False
-            if symptoms is not None:
-                log.symptoms = symptoms
-            if side_effects is not None:
-                log.side_effects = side_effects
-            await session.commit()
-            return True
-
-    @staticmethod
-    async def delete_symptom_log(log_id: int) -> bool:
-        """Delete a symptom log by id."""
-        async with async_session() as session:
-            log = await session.get(SymptomLog, log_id)
-            if not log:
-                return False
-            await session.delete(log)
-            await session.commit()
-            return True
-
-    @staticmethod
-    async def get_caregiver_by_id(caregiver_id: int) -> Optional[Caregiver]:
-        await _init_mongo()
-        d = await _mongo_db.caregivers.find_one({"_id": int(caregiver_id)})
-        if not d:
-            return None
-        cg = Caregiver()
-        cg.id = d.get("_id")
-        cg.user_id = d.get("user_id")
-        cg.caregiver_telegram_id = d.get("caregiver_telegram_id")
-        cg.caregiver_name = d.get("caregiver_name")
-        # map field 'relationship' in Mongo to relationship_type in model
-        cg.relationship_type = d.get("relationship") or d.get("relationship_type")
-        cg.permissions = d.get("permissions")
-        cg.email = d.get("email")
-        cg.phone = d.get("phone")
-        cg.preferred_channel = d.get("preferred_channel")
-        cg.is_active = d.get("is_active", True)
-        cg.created_at = d.get("created_at") or datetime.utcnow()
-        return cg
-
-    @staticmethod
-    async def delete_caregiver(caregiver_id: int) -> bool:
-        """Permanently delete a caregiver by id (Mongo backend)."""
-        await _init_mongo()
-        res = await _mongo_db.caregivers.delete_one({"_id": int(caregiver_id)})
-        return res.deleted_count > 0
-
-    @staticmethod
-    async def create_invite(user_id: int, caregiver_name: Optional[str] = None, ttl_hours: int = 72) -> "Invite":
-        await _init_mongo()
-        import random
-
-        code = f"MED-{random.randint(10000, 99999)}"
-        # ensure uniqueness
-        while await _mongo_db.invites.find_one({"code": code}):
-            code = f"MED-{random.randint(10000, 99999)}"
-        expires_at = datetime.utcnow() + timedelta(hours=max(1, int(ttl_hours)))
-        last = await _mongo_db.invites.find().sort("_id", -1).limit(1).to_list(1)
-        next_id = (last[0]["_id"] + 1) if last else 1
-        doc = {
-            "_id": next_id,
-            "code": code,
-            "user_id": int(user_id),
-            "caregiver_name": caregiver_name,
-            "status": "active",
-            "expires_at": expires_at,
-            "created_at": datetime.utcnow(),
-        }
-        await _mongo_db.invites.insert_one(doc)
-
-        # Return lightweight object-like
-        class _Inv:
-            pass
-
-        inv = _Inv()
-        inv.id = next_id
-        inv.code = code
-        inv.user_id = user_id
-        inv.caregiver_name = caregiver_name
-        inv.status = "active"
-        inv.expires_at = expires_at
-        inv.created_at = doc["created_at"]
-        return inv
-
-    @staticmethod
-    async def get_invite_by_code(code: str) -> Optional["Invite"]:
-        await _init_mongo()
-        d = await _mongo_db.invites.find_one({"code": code})
-        if not d:
-            return None
-
-        class _Inv:
-            pass
-
-        inv = _Inv()
-        inv.id = d.get("_id")
-        inv.code = d.get("code")
-        inv.user_id = d.get("user_id")
-        inv.caregiver_name = d.get("caregiver_name")
-        inv.status = d.get("status")
-        inv.expires_at = d.get("expires_at")
-        inv.created_at = d.get("created_at")
-        return inv
-
-    @staticmethod
-    async def mark_invite_used(code: str) -> bool:
-        await _init_mongo()
-        res = await _mongo_db.invites.update_one({"code": code}, {"$set": {"status": "used"}})
-        return res.matched_count > 0
-
-    @staticmethod
-    async def cancel_invite(code: str) -> bool:
-        await _init_mongo()
-        res = await _mongo_db.invites.update_one({"code": code}, {"$set": {"status": "canceled"}})
-        return res.matched_count > 0
-
+        # Users with dose activity -> map medicine_id to user_id
+        dose_rows = await _mongo_db.dose_logs.find({"scheduled_time": {"$gte": since}}).project({"medicine_id": 1}).to_list(20000)
+        med_ids = list({int(d.get("medicine_id")) for d in dose_rows if d.get("medicine_id") is not None})
+        user_ids = set()
+        if med_ids:
+            meds = await _mongo_db.medicines.find({"_id": {"$in": med_ids}}).project({"user_id": 1}).to_list(20000)
+            user_ids.update(int(m.get("user_id")) for m in meds if m.get("user_id") is not None)
+        # Users with symptom logs
+        sym_rows = await _mongo_db.symptom_logs.find({"log_date": {"$gte": since}}).project({"user_id": 1}).to_list(20000)
+        user_ids.update(int(s.get("user_id")) for s in sym_rows if s.get("user_id") is not None)
+        # New users
+        new_users = await _mongo_db.users.find({"created_at": {"$gte": since}}).project({"_id": 1}).to_list(20000)
+        user_ids.update(int(u.get("_id")) for u in new_users if u.get("_id") is not None)
+        return len(user_ids)
 
 # Select backend at runtime
 if config.DB_BACKEND == "mongo":
