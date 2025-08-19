@@ -340,7 +340,7 @@ class MedicineScheduler:
                 return
 
             message = f"""
-{config.EMOJES['warning']} *התראה: תרופה לא נלקחה*
+{config.EMOJIS['warning']} *התראה: תרופה לא נלקחה*
 
 👤 מטופל: {user.first_name} {user.last_name or ''}
 💊 תרופה: {medicine.name}
