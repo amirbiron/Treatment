@@ -86,7 +86,7 @@ class DoseLog(Base):
 
     __tablename__ = "dose_logs"
 
-    id: Mapped[int] = mapped_column(Integer, primary key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     medicine_id: Mapped[int] = mapped_column(Integer, ForeignKey("medicines.id"))
     scheduled_time: Mapped[datetime] = mapped_column(DateTime)
     taken_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
