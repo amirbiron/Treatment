@@ -1227,7 +1227,7 @@ class MedicineReminderBot:
 
             text = (update.message.text or "").strip()
 
-            # Route main menu buttons by text
+            # Route main menu buttons by text (skip if a conversation is active)
             from utils.keyboards import (
                 get_main_menu_keyboard,
                 get_medicines_keyboard,
@@ -1250,8 +1250,8 @@ class MedicineReminderBot:
                 f"{config.EMOJES['info']} עזרה": "help",
             }
 
-            # If user pressed a main menu button, navigate immediately and clear edit states
-            if text in mapping:
+            # If user pressed a main menu button, navigate immediately (unless in add-medicine conversation)
+            if not user_data.get("conv_add_medicine") and text in mapping:
                 # Clear transient edit states to avoid misinterpreting navigation as edits
                 for k in (
                     "editing_medicine_for",

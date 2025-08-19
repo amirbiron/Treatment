@@ -86,6 +86,9 @@ class MedicineHandler:
 (לדוגמה: אקמול, ויטמין D, לבופה וכו')
             """
 
+            # Mark conversation active to suppress generic text handler
+            context.user_data["conv_add_medicine"] = True
+
             # Handle both command and callback query
             if update.callback_query:
                 await update.callback_query.answer()
@@ -97,6 +100,7 @@ class MedicineHandler:
 
         except Exception as e:
             logger.error(f"Error starting add medicine: {e}")
+            context.user_data.pop("conv_add_medicine", None)
             await self._send_error_message(update, "שגיאה בתחילת הוספת התרופה")
             return ConversationHandler.END
 
@@ -243,11 +247,13 @@ class MedicineHandler:
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id, text="תפריט ראשי:", reply_markup=get_main_menu_keyboard()
                     )
+                    context.user_data.pop("conv_add_medicine", None)
                 else:
                     await query.edit_message_text(f"{config.EMOJIS['error']} שגיאה בשמירת התרופה. אנא נסו שוב.")
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id, text="תפריט ראשי:", reply_markup=get_main_menu_keyboard()
                     )
+                    context.user_data.pop("conv_add_medicine", None)
                 # Clean up and end
                 if user_id in self.user_medicine_data:
                     del self.user_medicine_data[user_id]
@@ -303,16 +309,19 @@ class MedicineHandler:
 התזכורות הופעלו אוטומטית!
                 """
                 await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+                context.user_data.pop("conv_add_medicine", None)
             else:
                 await update.message.reply_text(
                     f"{config.EMOJIS['error']} שגיאה בשמירת התרופה. אנא נסו שוב.", reply_markup=get_main_menu_keyboard()
                 )
+                context.user_data.pop("conv_add_medicine", None)
             if user_id in self.user_medicine_data:
                 del self.user_medicine_data[user_id]
             return ConversationHandler.END
 
         except Exception as e:
             logger.error(f"Error getting custom time: {e}")
+            context.user_data.pop("conv_add_medicine", None)
             await self._send_error_message(update, "שגיאה בקבלת השעה")
             return ConversationHandler.END
 
@@ -365,6 +374,7 @@ class MedicineHandler:
 
         except Exception as e:
             logger.error(f"Error getting medicine inventory: {e}")
+            context.user_data.pop("conv_add_medicine", None)
             await self._send_error_message(update, "שגיאה בקבלת כמות המלאי")
             return ConversationHandler.END
 
@@ -459,6 +469,7 @@ class MedicineHandler:
                 del self.user_medicine_data[user_id]
 
             message = f"{config.EMOJIS['info']} הפעולה בוטלה"
+            context.user_data.pop("conv_add_medicine", None)
 
             if update.callback_query:
                 await update.callback_query.answer()
