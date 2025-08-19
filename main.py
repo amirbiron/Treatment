@@ -535,6 +535,7 @@ class MedicineReminderBot:
                 context.user_data.pop("awaiting_symptom_text", None)
                 context.user_data.pop("editing_symptom_log", None)
                 context.user_data.pop("suppress_menu_mapping", None)
+                context.user_data.pop("adding_medicine", None)
                 await self.application.bot.send_message(
                     chat_id=query.message.chat_id, text="בחרו פעולה:", reply_markup=get_main_menu_keyboard()
                 )
@@ -610,6 +611,8 @@ class MedicineReminderBot:
                 await query.edit_message_text(f"{config.EMOJES['success']} התזכורת בוטלה לתרופה {med.name}")
                 return
             elif data == "symptoms_menu":
+                # Navigating to symptoms should cancel any add-medicine text flow
+                context.user_data.pop("adding_medicine", None)
                 await self.log_symptoms_command(update, context)
                 return
             elif data.startswith("mededit_"):
@@ -1293,6 +1296,7 @@ class MedicineReminderBot:
                     await update.message.reply_text("ניהול מטפלים:", reply_markup=get_caregiver_keyboard())
                     return
                 if action == "symptoms":
+                    user_data.pop("adding_medicine", None)
                     await self.log_symptoms_command(update, context)
                     return
                 if action == "reports":
