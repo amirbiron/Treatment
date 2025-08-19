@@ -26,6 +26,9 @@ class ReminderHandler:
     def get_handlers(self) -> List:
         """Get all reminder-related handlers"""
         return [
+            # Basic commands
+            CommandHandler("start", self.start_command),
+            CommandHandler("help", self.help_command),
             # Dose confirmation handlers
             CallbackQueryHandler(self.handle_dose_taken, pattern="^dose_taken_"),
             CallbackQueryHandler(self.handle_dose_snooze, pattern="^dose_snooze_"),
@@ -40,6 +43,35 @@ class ReminderHandler:
             # Quick symptoms logging tied to a medicine
             CallbackQueryHandler(self.handle_quick_symptoms, pattern="^symptoms_quick_"),
         ]
+
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /start: ensure user exists and show welcome with main menu."""
+        try:
+            user_id = update.effective_user.id
+            # Ensure user exists (get-or-create)
+            await DatabaseManager.get_user_by_telegram_id(user_id)
+
+            from utils.keyboards import get_main_menu_keyboard
+            from config import config
+
+            await update.message.reply_text(
+                config.WELCOME_MESSAGE,
+                parse_mode="Markdown",
+                reply_markup=get_main_menu_keyboard(),
+            )
+        except Exception as exc:
+            logger.error(f"Error handling /start: {exc}")
+
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /help: show help message."""
+        try:
+            from config import config
+            await update.message.reply_text(
+                config.HELP_MESSAGE,
+                parse_mode="HTML",
+            )
+        except Exception as exc:
+            logger.error(f"Error handling /help: {exc}")
 
     async def handle_dose_taken(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle dose taken confirmation"""
