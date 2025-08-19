@@ -6,7 +6,7 @@ Handles all medicine-related operations: add, edit, view, schedule, inventory
 import logging
 import re
 from datetime import time, datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 
@@ -22,6 +22,7 @@ from utils.keyboards import (
     get_cancel_keyboard,
     get_main_menu_keyboard,
 )
+
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,18 @@ class MedicineHandler:
                 MEDICINE_INVENTORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_medicine_inventory)],
                 CUSTOM_TIME_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_custom_time)],
                 CUSTOM_INVENTORY_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_custom_inventory)],
+                # Always-on callbacks inside this conversation
+                0: [
+                    CallbackQueryHandler(self.handle_edit_callbacks, pattern=r"^(mededit_|medicine_schedule_)"),
+                ],
+                # Edit flows
+                EDIT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_edit_text)],
+                EDIT_DOSAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_edit_text)],
+                EDIT_INVENTORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_edit_text)],
+                EDIT_SCHEDULE: [
+                    CallbackQueryHandler(self.handle_schedule_edit, pattern=r"^(time_|time_custom|sched_save_)"),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_edit_text),
+                ],
             },
             fallbacks=[
                 CommandHandler("cancel", self.cancel_operation),
@@ -559,7 +572,7 @@ class MedicineHandler:
 {config.EMOJIS['success']} <b>מלאי עודכן!</b>
 
 {config.EMOJIS['medicine']} {medicine.name}
-{config.EMOJES['inventory']} מלאי חדש: {int(new_count)} כדורים{status_msg}
+{config.EMOJIS['inventory']} מלאי חדש: {int(new_count)} כדורים{status_msg}
                 """
 
                 await query.edit_message_text(
@@ -609,7 +622,7 @@ class MedicineHandler:
 {config.EMOJIS['success']} <b>מלאי עודכן בהצלחה!</b>
 
 {config.EMOJIS['medicine']} {medicine.name}
-{config.EMOJES['inventory']} מלאי חדש: {int(final_count)} כדורים{status_msg}
+{config.EMOJIS['inventory']} מלאי חדש: {int(final_count)} כדורים{status_msg}
             """
 
             await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_medicine_detail_keyboard(medicine_id))
@@ -654,6 +667,7 @@ class MedicineHandler:
                     InlineKeyboardButton("שנה שעות", callback_data=f"medicine_schedule_{medicine_id}"),
                 ],
                 [InlineKeyboardButton("שנה גודל חבילה", callback_data=f"mededit_packsize_{medicine_id}")],
+                [InlineKeyboardButton(f"{'🔴 השבת' if medicine.is_active else '🟢 הפעל'}", callback_data=f"mededit_toggle_{medicine_id}")],
                 [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data=f"medicine_view_{medicine_id}")],
             ]
             await query.edit_message_text(
@@ -666,6 +680,170 @@ class MedicineHandler:
                 await update.callback_query.edit_message_text(f"{config.EMOJIS['error']} שגיאה בעריכת התרופה")
             except Exception:
                 pass
+            return ConversationHandler.END
+
+    # --- Edit & schedule callbacks ---
+    async def handle_edit_callbacks(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Entry for mededit_* and medicine_schedule_* callbacks."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            data = query.data
+            if data.startswith("mededit_name_"):
+                medicine_id = int(data.split("_")[-1])
+                context.user_data["editing_medicine_for"] = medicine_id
+                context.user_data["editing_field_for"] = "name"
+                await query.edit_message_text("הקלידו שם חדש כדי לשנות שם:", reply_markup=get_cancel_keyboard())
+                return EDIT_NAME
+            if data.startswith("mededit_dosage_"):
+                medicine_id = int(data.split("_")[-1])
+                context.user_data["editing_medicine_for"] = medicine_id
+                context.user_data["editing_field_for"] = "dosage"
+                await query.edit_message_text("הקלידו: מינון <טקסט> כדי לשנות מינון:\nאו פשוט שלחו את המינון החדש:", reply_markup=get_cancel_keyboard())
+                return EDIT_DOSAGE
+            if data.startswith("mededit_notes_"):
+                medicine_id = int(data.split("_")[-1])
+                context.user_data["editing_medicine_for"] = medicine_id
+                context.user_data["editing_field_for"] = "notes"
+                await query.edit_message_text("הקלידו: הערות <טקסט> כדי לעדכן הערות:\nאו שלחו את ההערות החדשות:", reply_markup=get_cancel_keyboard())
+                return EDIT_NAME
+            if data.startswith("mededit_packsize_"):
+                medicine_id = int(data.split("_")[-1])
+                context.user_data["editing_medicine_for"] = medicine_id
+                context.user_data["editing_field_for"] = "packsize"
+                await query.edit_message_text("הקלידו גודל חבילה (מספר כדורים בחבילה):", reply_markup=get_cancel_keyboard())
+                return EDIT_INVENTORY
+            if data.startswith("mededit_toggle_"):
+                medicine_id = int(data.split("_")[-1])
+                med = await DatabaseManager.get_medicine_by_id(medicine_id)
+                if not med:
+                    await query.edit_message_text(config.ERROR_MESSAGES["medicine_not_found"])
+                    return ConversationHandler.END
+                await DatabaseManager.update_medicine(medicine_id, is_active=not bool(med.is_active))
+                await self.edit_medicine(update, context)
+                return ConversationHandler.END
+            if data.startswith("medicine_schedule_"):
+                medicine_id = int(data.split("_")[-1])
+                context.user_data["scheduling_for"] = medicine_id
+                context.user_data["new_schedule_times"] = []
+                await query.edit_message_text(
+                    "בחרו שעה ראשונה או הזינו בפורמט HH:MM. אפשר לבחור כמה ואז לשמור:",
+                    reply_markup=self._get_schedule_edit_keyboard(medicine_id),
+                )
+                return EDIT_SCHEDULE
+        except Exception as e:
+            logger.error(f"Error in handle_edit_callbacks: {e}")
+            await update.callback_query.edit_message_text(config.ERROR_MESSAGES["general"])
+            return ConversationHandler.END
+
+    def _get_schedule_edit_keyboard(self, medicine_id: int) -> InlineKeyboardMarkup:
+        # Reuse time selection + add Save/Cancel row
+        base = get_time_selection_keyboard()
+        rows = []
+        if isinstance(base.inline_keyboard, list):
+            for r in base.inline_keyboard:
+                rows.append(list(r))
+        rows.append([InlineKeyboardButton(f"{config.EMOJIS['success']} שמור שעות", callback_data=f"sched_save_{medicine_id}")])
+        rows.append([InlineKeyboardButton(f"{config.EMOJIS['back']} ביטול", callback_data=f"medicine_view_{medicine_id}")])
+        return InlineKeyboardMarkup(rows)
+
+    async def handle_schedule_edit(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle time button taps and save during schedule edit."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            data = query.data
+            ud = context.user_data
+            if data == "time_custom":
+                await query.edit_message_text("הקלידו שעה בפורמט HH:MM (למשל 09:30)", reply_markup=get_cancel_keyboard())
+                ud["awaiting_custom_sched_time"] = True
+                return EDIT_SCHEDULE
+            if data.startswith("time_"):
+                parts = data.replace("time_", "").split("_")
+                hour = int(parts[0])
+                minute = int(parts[1])
+                lst: List[time] = ud.get("new_schedule_times", [])
+                lst.append(time(hour, minute))
+                ud["new_schedule_times"] = lst
+                await query.edit_message_reply_markup(self._get_schedule_edit_keyboard(int(ud.get("scheduling_for"))))
+                return EDIT_SCHEDULE
+            if data.startswith("sched_save_"):
+                medicine_id = int(data.split("_")[-1])
+                times: List[time] = ud.get("new_schedule_times", [])
+                # Deduplicate and sort
+                uniq: Dict[str, time] = {t.strftime("%H:%M"): t for t in times}
+                ordered = [uniq[k] for k in sorted(uniq.keys())]
+                await DatabaseManager.replace_medicine_schedules(medicine_id, ordered)
+                # Reschedule reminders
+                user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
+                await medicine_scheduler.cancel_medicine_reminders(user.id, medicine_id)
+                for t in ordered:
+                    await medicine_scheduler.schedule_medicine_reminder(
+                        user.id, medicine_id, t, timezone=user.timezone or config.DEFAULT_TIMEZONE
+                    )
+                await query.edit_message_text(
+                    f"⏰ עודכנו {len(ordered)} שעות לנטילת התרופה.",
+                    reply_markup=get_medicine_detail_keyboard(medicine_id),
+                )
+                ud.pop("scheduling_for", None)
+                ud.pop("new_schedule_times", None)
+                ud.pop("awaiting_custom_sched_time", None)
+                return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Error in handle_schedule_edit: {e}")
+            await update.callback_query.edit_message_text(config.ERROR_MESSAGES["general"])
+            return ConversationHandler.END
+
+    async def handle_edit_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Capture text after user chose an edit field or custom schedule time."""
+        try:
+            ud = context.user_data
+            medicine_id = ud.get("editing_medicine_for") or ud.get("scheduling_for")
+            if not medicine_id:
+                await update.message.reply_text(config.ERROR_MESSAGES["general"])
+                return ConversationHandler.END
+            text = update.message.text.strip()
+
+            if ud.get("awaiting_custom_sched_time"):
+                match = re.match(r"^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$", text)
+                if not match:
+                    await update.message.reply_text(config.ERROR_MESSAGES["invalid_time"])
+                    return EDIT_SCHEDULE
+                hour = int(match.group(1))
+                minute = int(match.group(2))
+                lst: List[time] = ud.get("new_schedule_times", [])
+                lst.append(time(hour, minute))
+                ud["new_schedule_times"] = lst
+                ud.pop("awaiting_custom_sched_time", None)
+                await update.message.reply_text("נוספה שעה. בחרו עוד שעות או שמרו:")
+                return EDIT_SCHEDULE
+
+            field = ud.get("editing_field_for")
+            if field == "name":
+                if len(text) < 2:
+                    await update.message.reply_text(f"{config.EMOJIS['error']} שם קצר מדי")
+                    return EDIT_NAME
+                await DatabaseManager.update_medicine(int(medicine_id), name=text)
+            elif field == "dosage":
+                await DatabaseManager.update_medicine(int(medicine_id), dosage=text)
+            elif field == "notes":
+                await DatabaseManager.update_medicine(int(medicine_id), notes=text)
+            elif field == "packsize":
+                try:
+                    pack = float(text)
+                    await DatabaseManager.update_medicine(int(medicine_id), low_stock_threshold=pack)
+                except Exception:
+                    await update.message.reply_text(f"{config.EMOJIS['error']} אנא הזינו מספר תקין")
+                    return EDIT_INVENTORY
+
+            # Clear edit context and show details
+            ud.pop("editing_medicine_for", None)
+            ud.pop("editing_field_for", None)
+            await update.message.reply_text("עודכן.", reply_markup=get_medicine_detail_keyboard(int(medicine_id)))
+            return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Error in handle_edit_text: {e}")
+            await update.message.reply_text(config.ERROR_MESSAGES["general"])
             return ConversationHandler.END
 
 

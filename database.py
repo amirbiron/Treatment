@@ -210,6 +210,35 @@ class DatabaseManager:
         return med
 
     @classmethod
+    async def update_medicine(
+        cls,
+        medicine_id: int,
+        name: Optional[str] = None,
+        dosage: Optional[str] = None,
+        notes: Optional[str] = None,
+        is_active: Optional[bool] = None,
+        low_stock_threshold: Optional[float] = None,
+    ) -> Optional[Medicine]:
+        """Update mutable fields of a medicine and return the updated object."""
+        med = cls._medicines.get(int(medicine_id))
+        if not med:
+            return None
+        if name is not None:
+            med.name = name
+        if dosage is not None:
+            med.dosage = dosage
+        if notes is not None:
+            med.notes = notes
+        if is_active is not None:
+            med.is_active = bool(is_active)
+        if low_stock_threshold is not None:
+            try:
+                med.low_stock_threshold = float(low_stock_threshold)
+            except Exception:
+                pass
+        return med
+
+    @classmethod
     async def get_low_stock_medicines(cls) -> List[Medicine]:
         return [m for m in cls._medicines.values() if m.inventory_count <= m.low_stock_threshold and m.is_active]
 
@@ -227,6 +256,20 @@ class DatabaseManager:
         # Sort by time of day for consistent order
         lst.sort(key=lambda s: (s.time_to_take.hour, s.time_to_take.minute, s.id))
         return lst
+
+    @classmethod
+    async def replace_medicine_schedules(cls, medicine_id: int, times: List[time]) -> List[MedicineSchedule]:
+        """Replace all schedules for a medicine with the provided list of times."""
+        # Delete existing schedules
+        to_delete = [sid for sid, s in cls._schedules.items() if s.medicine_id == int(medicine_id)]
+        for sid in to_delete:
+            cls._schedules.pop(sid, None)
+        # Create new ones
+        created: List[MedicineSchedule] = []
+        for t in times:
+            sched = await cls.create_medicine_schedule(medicine_id=int(medicine_id), time_to_take=t)
+            created.append(sched)
+        return created
 
     # Dose logs
     @classmethod
