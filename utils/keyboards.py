@@ -33,6 +33,30 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_main_menu_reply_keyboard() -> ReplyKeyboardMarkup:
+    """Reply main menu for quick access under the input field."""
+    keyboard = [
+        [
+            KeyboardButton(f"{config.EMOJIS['medicine']} התרופות שלי"),
+            KeyboardButton(f"{config.EMOJIS['reminder']} תזכורות"),
+        ],
+        [
+            KeyboardButton(f"{config.EMOJIS['inventory']} מלאי"),
+            KeyboardButton(f"{config.EMOJIS['symptoms']} תופעות לוואי"),
+        ],
+        [
+            KeyboardButton(f"{config.EMOJIS['report']} דוחות"),
+            KeyboardButton(f"{config.EMOJIS['caregiver']} מטפלים"),
+        ],
+        [
+            KeyboardButton(f"{config.EMOJIS['calendar']} הוספת תור"),
+            KeyboardButton(f"{config.EMOJIS['settings']} הגדרות"),
+        ],
+        [KeyboardButton(f"{config.EMOJIS['info']} עזרה")],
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+
 def get_appointments_menu_keyboard() -> InlineKeyboardMarkup:
     """Inline menu for creating an appointment"""
     keyboard = [

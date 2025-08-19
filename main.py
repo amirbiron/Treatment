@@ -162,9 +162,9 @@ class MedicineReminderBot:
                     )
                 return
             # Show welcome and explicitly remove any reply keyboard, then show inline main menu (no echo)
-            from utils.keyboards import get_main_menu_keyboard
+            from utils.keyboards import get_main_menu_keyboard, get_main_menu_reply_keyboard
             await update.message.reply_text(
-                config.WELCOME_MESSAGE, parse_mode="Markdown", reply_markup=ReplyKeyboardRemove()
+                config.WELCOME_MESSAGE, parse_mode="Markdown", reply_markup=get_main_menu_reply_keyboard()
             )
             await update.message.reply_text("בחרו פעולה:", reply_markup=get_main_menu_keyboard())
             telegram_id = user.id
