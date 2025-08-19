@@ -161,12 +161,10 @@ class MedicineReminderBot:
                         ),
                     )
                 return
-            # Show main menu immediately for faster UX
+            # Show welcome, then inline main menu without reply keyboard echo
             from utils.keyboards import get_main_menu_keyboard
-
-            await update.message.reply_text(
-                config.WELCOME_MESSAGE, parse_mode="Markdown", reply_markup=get_main_menu_keyboard()
-            )
+            await update.message.reply_text(config.WELCOME_MESSAGE, parse_mode="Markdown")
+            await update.message.reply_text("בחרו פעולה:", reply_markup=get_main_menu_keyboard())
             telegram_id = user.id
 
             # Get or create user in database (after showing UI)
