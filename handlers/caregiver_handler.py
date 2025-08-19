@@ -80,7 +80,7 @@ class CaregiverHandler:
                 CommandHandler("cancel", self.cancel_operation),
                 CallbackQueryHandler(self.cancel_operation, pattern="^cancel$"),
             ],
-            per_message=True,
+            per_message=False,
         )
 
     def get_handlers(self) -> List:
