@@ -430,9 +430,11 @@ class MedicineScheduler:
                     run_time = when_at - timedelta(days=days_before)
                 if run_time <= datetime.utcnow():
                     continue
+                from utils.time import get_timezone
+
                 self.scheduler.add_job(
                     func=self._send_appointment_reminder,
-                    trigger=DateTrigger(run_date=run_time, timezone=timezone),
+                    trigger=DateTrigger(run_date=run_time, timezone=get_timezone(timezone)),
                     id=job_id,
                     args=[user_id, appointment_id, days_before],
                     name=f"Appointment reminder {appointment_id} ({days_before}d) for user {user_id}",
@@ -470,9 +472,11 @@ class MedicineScheduler:
         try:
             appts = await DatabaseManager.get_all_upcoming_appointments(until_days=90)
             for appt in appts:
-                # Assume user timezone
+                # Assume user timezone with default to Asia/Jerusalem
                 user = await DatabaseManager.get_user_by_id(appt.user_id)
-                tz = user.timezone or config.DEFAULT_TIMEZONE
+                from utils.time import DEFAULT_TZ_NAME
+
+                tz = user.timezone or DEFAULT_TZ_NAME
                 await self.schedule_appointment_reminders(
                     appt.user_id,
                     appt.id,
@@ -506,7 +510,7 @@ class MedicineScheduler:
                                 user_id=user.id,
                                 medicine_id=med.id,
                                 reminder_time=sch.time_to_take,
-                                timezone=user.timezone or config.DEFAULT_TIMEZONE,
+                                timezone=(user.timezone or __import__('utils.time', fromlist=['DEFAULT_TZ_NAME']).DEFAULT_TZ_NAME),
                             )
                             uploaded += 1
                 except Exception as inner_exc:

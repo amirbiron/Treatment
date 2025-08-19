@@ -394,7 +394,7 @@ class MedicineHandler:
                     user_id=user_id,
                     medicine_id=medicine.id,
                     reminder_time=schedule_time,
-                    timezone=user.timezone or config.DEFAULT_TIMEZONE,
+                    timezone=(user.timezone or __import__('utils.time', fromlist=['DEFAULT_TZ_NAME']).DEFAULT_TZ_NAME),
                 )
 
             return True
