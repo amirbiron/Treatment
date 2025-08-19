@@ -165,8 +165,8 @@ class Config:
         if not cls.BOT_TOKEN:
             errors.append("BOT_TOKEN is required")
 
-        if os.getenv("RENDER") and not (cls.WEBHOOK_URL or os.getenv("RENDER_EXTERNAL_URL")):
-            errors.append("WEBHOOK_URL or RENDER_EXTERNAL_URL is required for Render deployment")
+        if not cls.WEBHOOK_URL and os.getenv("RENDER"):
+            errors.append("WEBHOOK_URL is required for Render deployment")
 
         if cls.WEBHOOK_PORT < 1 or cls.WEBHOOK_PORT > 65535:
             errors.append("WEBHOOK_PORT must be between 1 and 65535")
@@ -190,9 +190,8 @@ class Config:
     @classmethod
     def get_webhook_url(cls) -> str:
         """Get full webhook URL"""
-        base_url = cls.WEBHOOK_URL or os.getenv("RENDER_EXTERNAL_URL", "")
-        if base_url:
-            return f"{base_url.rstrip('/')}{cls.WEBHOOK_PATH}"
+        if cls.WEBHOOK_URL:
+            return f"{cls.WEBHOOK_URL.rstrip('/')}{cls.WEBHOOK_PATH}"
         return ""
 
 

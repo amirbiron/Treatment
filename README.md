@@ -101,9 +101,7 @@
    ```
    BOT_TOKEN=your_bot_token_here
    BOT_USERNAME=your_bot_username
-   # Prefer setting RENDER_EXTERNAL_URL automatically provided by Render.
-   # If not available, set WEBHOOK_URL explicitly:
-   # WEBHOOK_URL=https://your-app-name.onrender.com
+   WEBHOOK_URL=https://your-app-name.onrender.com
    DEBUG=False
    LOG_LEVEL=INFO
    DATABASE_URL=sqlite+aiosqlite:///./medicine_bot.db
