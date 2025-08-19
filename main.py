@@ -323,27 +323,30 @@ class MedicineReminderBot:
                 return
             from datetime import timedelta
             since = datetime.utcnow() - timedelta(days=7)
-            # Count distinct active users
-            try:
-                total_active = await DatabaseManager.count_users_active_since(since)
-            except Exception:
-                total_active = 0
-            # Build per-user stats (approximate)
             from collections import defaultdict
             user_actions = defaultdict(int)
             try:
-                # Count recent dose logs by user (via medicine->user)
-                # Fallback approach: iterate medicines and sum recent doses
                 users = await DatabaseManager.get_all_active_users()
+                end_date = datetime.utcnow().date()
+                start_date = since.date()
                 for u in users:
+                    # Actions: dose logs + symptom logs in the window
                     meds = await DatabaseManager.get_user_medicines(u.id, active_only=False)
                     count = 0
                     for m in meds:
-                        doses = await DatabaseManager.get_medicine_doses_in_range(m.id, since.date(), datetime.utcnow().date())
+                        doses = await DatabaseManager.get_medicine_doses_in_range(m.id, start_date, end_date)
                         count += len(doses)
+                    # Add symptom logs count
+                    try:
+                        sym = await DatabaseManager.get_symptom_logs_in_range(u.id, start_date, end_date)
+                        count += len(sym)
+                    except Exception:
+                        pass
                     user_actions[u.telegram_id] = count
             except Exception:
                 pass
+            # Active users are those with >=1 action in the window
+            total_active = sum(1 for v in user_actions.values() if v > 0)
             lines = [
                 f"📊 שימוש בשבוע האחרון",
                 f"משתמשים פעילים: {total_active}",
