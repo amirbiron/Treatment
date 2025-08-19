@@ -49,6 +49,35 @@ class MedicineReminderBot:
 
         application = Application.builder().token(bot_token).build()
 
+        # Set admin-only bot commands (side menu) if admin IDs configured
+        try:
+            from config import config
+            if config.ADMIN_TELEGRAM_IDS:
+                from telegram import BotCommand, BotCommandScopeChat
+                async def _set_admin_commands(app):
+                    for admin_id in config.ADMIN_TELEGRAM_IDS:
+                        try:
+                            await app.bot.set_my_commands(
+                                commands=[BotCommand("admin_usage", "מספר משתמשים פעילים בשבוע האחרון")],
+                                scope=BotCommandScopeChat(chat_id=admin_id),
+                                language_code="he",
+                            )
+                        except Exception:
+                            pass
+                # schedule post init to set commands
+                async def _post_init_set_commands(_: Any):
+                    await _set_admin_commands(application)
+                # chain with existing post_init if any
+                prev_post_init = getattr(application, "post_init", None)
+                async def _combined_post_init(app):
+                    if prev_post_init:
+                        await prev_post_init(app)
+                    await _post_init_set_commands(app)
+                # compose with startup hook if already set later in run_* methods
+                application.post_init = _combined_post_init
+        except Exception:
+            pass
+
         # Register conversation handlers
         for conv in get_all_conversation_handlers():
             application.add_handler(conv)
@@ -70,10 +99,16 @@ class MedicineReminderBot:
 
         app = self.app or self.build()
 
-        async def _on_startup(_: Any):
+        prev_post_init = getattr(app, "post_init", None)
+        async def _on_startup(app_arg: Any):
+            if prev_post_init:
+                await prev_post_init(app_arg)
             await medicine_scheduler.start()
 
-        async def _on_shutdown(_: Any):
+        prev_post_shutdown = getattr(app, "post_shutdown", None)
+        async def _on_shutdown(app_arg: Any):
+            if prev_post_shutdown:
+                await prev_post_shutdown(app_arg)
             await medicine_scheduler.stop()
 
         app.post_init = _on_startup
@@ -90,10 +125,16 @@ class MedicineReminderBot:
 
         app = self.app or self.build()
 
-        async def _on_startup(_: Any):
+        prev_post_init = getattr(app, "post_init", None)
+        async def _on_startup(app_arg: Any):
+            if prev_post_init:
+                await prev_post_init(app_arg)
             await medicine_scheduler.start()
 
-        async def _on_shutdown(_: Any):
+        prev_post_shutdown = getattr(app, "post_shutdown", None)
+        async def _on_shutdown(app_arg: Any):
+            if prev_post_shutdown:
+                await prev_post_shutdown(app_arg)
             await medicine_scheduler.stop()
 
         app.post_init = _on_startup

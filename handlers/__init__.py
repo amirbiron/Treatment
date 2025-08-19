@@ -6,6 +6,7 @@ All conversation and callback handlers for Medicine Reminder Bot
 
 from .medicine_handler import MedicineHandler, medicine_handler
 from .reminder_handler import ReminderHandler, reminder_handler
+from .usage_admin_handler import UsageAdminHandler, usage_admin_handler
 
 # Import when available
 try:
@@ -33,6 +34,7 @@ handlers = {
 	'symptoms': symptoms_handler,
 	'caregiver': caregiver_handler,
 	'reports': reports_handler,
+	'usage_admin': usage_admin_handler,
 }
 
 
@@ -84,12 +86,17 @@ def get_all_callback_handlers():
 	if reports_handler:
 		callback_handlers.extend(reports_handler.get_handlers())
 
+	# Admin usage handlers
+	if usage_admin_handler:
+		callback_handlers.extend(usage_admin_handler.get_handlers())
+
 	return callback_handlers
 
 
 __all__ = [
 	"MedicineHandler", "medicine_handler",
 	"ReminderHandler", "reminder_handler",
+	"UsageAdminHandler", "usage_admin_handler",
 	"SymptomsHandler", "symptoms_handler",
 	"caregiver_handler", "reports_handler",
 	"handlers", "get_all_handlers",
