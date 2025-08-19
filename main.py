@@ -1033,18 +1033,8 @@ class MedicineReminderBot:
                 context.user_data["med_list_offset"] = offset
                 return
 
-            # Add medicine flow entry point (prompt via inline)
+            # Add medicine is handled by conversation handler in handlers.medicine_handler
             if data == "medicine_add":
-                from utils.keyboards import get_cancel_keyboard
-
-                message = f"""
-{config.EMOJES['medicine']} <b>הוספת תרופה חדשה</b>
-
-אנא שלחו את שם התרופה:
-                """
-                # Switch to conversation-like state
-                context.user_data["adding_medicine"] = {"step": "name"}
-                await query.edit_message_text(message, parse_mode="HTML")
                 return
 
             # View one medicine details is handled by handlers.medicine_handler
