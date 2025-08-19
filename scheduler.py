@@ -6,7 +6,7 @@ Using APScheduler 3.11.0 with async support
 import asyncio
 import logging
 from datetime import datetime, time, timedelta
-from typing import Dict, List, Optional, Callable, Any, Union
+from typing import Dict, List, Optional, Callable, Any
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
@@ -14,7 +14,6 @@ from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, JobExecutionEvent
-import pytz
 
 from config import config
 from database import DatabaseManager, MedicineSchedule, Medicine, User, Appointment
@@ -37,13 +36,7 @@ class MedicineScheduler:
 
         job_defaults = {"coalesce": True, "max_instances": 3, "misfire_grace_time": 30}
 
-        # Ensure scheduler uses a concrete tzinfo (UTC)
-        self.scheduler = AsyncIOScheduler(
-            jobstores=jobstores,
-            executors=executors,
-            job_defaults=job_defaults,
-            timezone=pytz.UTC,
-        )
+        self.scheduler = AsyncIOScheduler(jobstores=jobstores, executors=executors, job_defaults=job_defaults, timezone="UTC")
 
         # Add event listeners
         self.scheduler.add_listener(self._job_executed_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
@@ -101,12 +94,8 @@ class MedicineScheduler:
             if self.scheduler.get_job(job_id):
                 self.scheduler.remove_job(job_id)
 
-            # Create cron trigger for daily reminder (coerce timezone string to tzinfo)
-            trigger = CronTrigger(
-                hour=reminder_time.hour,
-                minute=reminder_time.minute,
-                timezone=self._coerce_timezone(timezone),
-            )
+            # Create cron trigger for daily reminder
+            trigger = CronTrigger(hour=reminder_time.hour, minute=reminder_time.minute, timezone=timezone)
 
             # Schedule the job
             self.scheduler.add_job(
@@ -130,12 +119,11 @@ class MedicineScheduler:
         if snooze_minutes is None:
             snooze_minutes = config.REMINDER_SNOOZE_MINUTES
 
-        job_id = f"snooze_reminder_{user_id}_{medicine_id}_{datetime.utcnow().timestamp()}"
-        # Use UTC for deterministic scheduling
-        remind_time = datetime.utcnow() + timedelta(minutes=snooze_minutes)
+        job_id = f"snooze_reminder_{user_id}_{medicine_id}_{datetime.now().timestamp()}"
+        remind_time = datetime.now() + timedelta(minutes=snooze_minutes)
 
         try:
-            trigger = DateTrigger(run_date=remind_time, timezone=self.scheduler.timezone)
+            trigger = DateTrigger(run_date=remind_time)
 
             self.scheduler.add_job(
                 func=self._send_snoozed_reminder,
@@ -243,7 +231,7 @@ class MedicineScheduler:
                 day_of_week=config.WEEKLY_REPORT_DAY,
                 hour=int(config.WEEKLY_REPORT_TIME.split(":")[0]),
                 minute=int(config.WEEKLY_REPORT_TIME.split(":")[1]),
-                timezone=pytz.UTC,
+                timezone="UTC",
             )
 
             self.scheduler.add_job(
@@ -265,7 +253,7 @@ class MedicineScheduler:
             trigger = CronTrigger(
                 hour=int(config.CAREGIVER_DAILY_REPORT_TIME.split(":")[0]),
                 minute=int(config.CAREGIVER_DAILY_REPORT_TIME.split(":")[1]),
-                timezone=pytz.UTC,
+                timezone="UTC",
             )
 
             self.scheduler.add_job(
@@ -352,7 +340,7 @@ class MedicineScheduler:
                 return
 
             message = f"""
-{config.EMOJIS['warning']} *התראה: תרופה לא נלקחה*
+{config.EMOJES['warning']} *התראה: תרופה לא נלקחה*
 
 👤 מטופל: {user.first_name} {user.last_name or ''}
 💊 תרופה: {medicine.name}
@@ -430,7 +418,7 @@ class MedicineScheduler:
                     continue
                 self.scheduler.add_job(
                     func=self._send_appointment_reminder,
-                    trigger=DateTrigger(run_date=run_time, timezone=self._coerce_timezone(timezone)),
+                    trigger=DateTrigger(run_date=run_time, timezone=timezone),
                     id=job_id,
                     args=[user_id, appointment_id, days_before],
                     name=f"Appointment reminder {appointment_id} ({days_before}d) for user {user_id}",
@@ -486,6 +474,8 @@ class MedicineScheduler:
     async def _reschedule_all_medicine_reminders(self):
         """Ensure all active medicines with schedules are scheduled after startup."""
         try:
+            from pytz import timezone as _tz  # optional, not strictly needed for UTC triggers
+
             uploaded = 0
             users = await DatabaseManager.get_all_active_users()
             for user in users:
@@ -510,17 +500,6 @@ class MedicineScheduler:
             logger.info(f"Rescheduled {uploaded} medicine reminders after startup")
         except Exception as exc:
             logger.error(f"Error in _reschedule_all_medicine_reminders: {exc}")
-
-    def _coerce_timezone(self, tz: Union[str, None, Any]) -> Any:
-        """Convert a timezone value (string name or tzinfo) into a tzinfo object. Fallback to UTC on error."""
-        try:
-            if tz is None:
-                return pytz.UTC
-            if hasattr(tz, "utcoffset"):
-                return tz
-            return pytz.timezone(str(tz))
-        except Exception:
-            return pytz.UTC
 
 
 # Global scheduler instance
