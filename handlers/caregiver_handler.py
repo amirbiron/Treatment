@@ -51,7 +51,10 @@ class CaregiverHandler:
     def get_handlers(self) -> List:
         """Callback handlers for inline flows."""
         return [
-            CallbackQueryHandler(self.handle_caregiver_actions, pattern=r"^(caregiver_|copy_inv_)")
+            CallbackQueryHandler(
+                self.handle_caregiver_actions,
+                pattern=r"^(caregiver_|copy_inv_|remove_caregiver_|remcg_)",
+            )
         ]
 
     # --- Entry points

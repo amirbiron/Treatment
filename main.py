@@ -486,6 +486,7 @@ class MedicineReminderBot:
                 await query.edit_message_text(config.WELCOME_MESSAGE, parse_mode="Markdown")
                 # Clear transient edit flags to avoid stray state
                 context.user_data.pop("editing_field_for", None)
+                context.user_data.pop("editing_caregiver_field", None)
                 context.user_data.pop("editing_schedule_for", None)
                 context.user_data.pop("awaiting_symptom_text", None)
                 context.user_data.pop("editing_symptom_log", None)
