@@ -160,7 +160,7 @@ class AppointmentsHandler:
                     when,
                     appt.remind_day_before,
                     appt.remind_3days_before,
-                    user.timezone or config.DEFAULT_TIMEZONE,
+                    user.timezone or 'Asia/Jerusalem',
                 )
                 context.user_data.pop("appt_state", None)
                 await query.edit_message_text(
