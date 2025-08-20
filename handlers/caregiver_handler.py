@@ -406,8 +406,18 @@ class CaregiverHandler:
             user_id = update.effective_user.id
             user = await DatabaseManager.get_user_by_telegram_id(user_id)
             if not user:
-                await self._send_error_message(update, "משתמש לא נמצא")
-                return ConversationHandler.END
+                # Auto-onboard user if not found (avoids requiring /start after deploy)
+                eu = update.effective_user
+                try:
+                    user = await DatabaseManager.create_user(
+                        telegram_id=eu.id,
+                        username=(eu.username or ""),
+                        first_name=(eu.first_name or "משתמש"),
+                        last_name=(eu.last_name or None),
+                    )
+                except Exception:
+                    await self._send_error_message(update, "משתמש לא נמצא")
+                    return ConversationHandler.END
             query = update.callback_query
             offset = 0
             if query and query.data.startswith("caregiver_page_"):
