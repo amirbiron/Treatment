@@ -1105,6 +1105,25 @@ class DatabaseManagerMongo:
         return
 
     @staticmethod
+    async def delete_medicine_schedule(schedule_id: int) -> bool:
+        await _init_mongo()
+        res = await _mongo_db.medicine_schedules.delete_one({"_id": int(schedule_id)})
+        return res.deleted_count > 0
+
+    @staticmethod
+    async def delete_medicine(medicine_id: int) -> bool:
+        """Delete a medicine and all its related data (Mongo)."""
+        await _init_mongo()
+        mid = int(medicine_id)
+        # Clean up related documents
+        await _mongo_db.medicine_schedules.delete_many({"medicine_id": mid})
+        await _mongo_db.dose_logs.delete_many({"medicine_id": mid})
+        # Keep symptom logs but remove the optional link to this medicine
+        await _mongo_db.symptom_logs.update_many({"medicine_id": mid}, {"$unset": {"medicine_id": ""}})
+        res = await _mongo_db.medicines.delete_one({"_id": mid})
+        return res.deleted_count > 0
+
+    @staticmethod
     async def get_recent_doses(medicine_id: int, hours: int = None, days: int = None) -> List[DoseLog]:
         await _init_mongo()
         assert hours is not None or days is not None
