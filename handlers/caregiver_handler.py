@@ -90,7 +90,7 @@ class CaregiverHandler:
         return [
             CommandHandler("caregiver_settings", self.caregiver_settings),
             CommandHandler("send_report", self.send_manual_report),
-            CallbackQueryHandler(self.handle_caregiver_actions, pattern="^caregiver_"),
+            CallbackQueryHandler(self.handle_caregiver_actions, pattern=r"^(caregiver_|copy_inv_)"),
             CallbackQueryHandler(self.confirm_remove_caregiver, pattern="^remove_caregiver_"),
             CallbackQueryHandler(self.toggle_caregiver_status, pattern="^toggle_caregiver_"),
         ]
@@ -613,19 +613,23 @@ class CaregiverHandler:
                 user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
                 inv = await DatabaseManager.create_invite(user.id)
                 deep_link = f"t.me/{config.BOT_USERNAME}?start=invite_{inv.code}"
-                # Compose concise message to forward to caregiver
+                full_name = f"{user.first_name} {user.last_name or ''}".strip()
+                # The message the user will forward to the caregiver
                 caregiver_msg = (
-                    f"שלום! הוזמנת להיות מטפל עבור {user.first_name} {user.last_name or ''}.\n"
+                    f"שלום! הוזמנת להיות מטפל עבור {full_name}.\n"
                     f"כדי להצטרף, לחצו על הקישור והאשרו: {deep_link}"
                 ).strip()
+                # Instructional invite screen
                 msg = (
                     f"{config.EMOJIS['caregiver']} יצירת הזמנה למטפל\n\n"
-                    f"קוד הזמנה: <b>{inv.code}</b>\n"
-                    f"קישור: <code>{deep_link}</code>\n\n"
-                    f"שלחו את הקוד או השתמשו בהעתקה של ההודעה למטה."
+                    "מטרת הפונקציה: לשלוח למטפל/ת שלך קישור הצטרפות פשוט, כדי שיוכלו לקבל ממך דוחות מעקב.\n\n"
+                    "לחצו על הכפתור כדי לקבל הודעה מוכנה להעברה למטפל/ת.\n\n"
+                    "להעתקה ושליחה למטפל/ת:\n"
+                    f"שלום! הוזמנת להיות מטפל עבור {full_name}.\n\n"
+                    f"כדי להצטרף, לחצו על הקישור והאשרו: <code>{deep_link}</code>"
                 )
                 kb = [
-                    [InlineKeyboardButton("📋 העתק הודעה למטפל", callback_data=f"copy_inv_msg_{inv.code}")],
+                    [InlineKeyboardButton("העתק", callback_data=f"copy_inv_msg_{inv.code}")],
                     [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")],
                 ]
                 # Save the composed message in user_data for copy callbacks
@@ -638,7 +642,7 @@ class CaregiverHandler:
                 await query.edit_message_reply_markup(
                     reply_markup=InlineKeyboardMarkup(
                         [
-                            [InlineKeyboardButton("📋 העתק הודעה למטפל", callback_data=f"copy_inv_msg_{code}")],
+                            [InlineKeyboardButton("העתק", callback_data=f"copy_inv_msg_{code}")],
                             [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")],
                         ]
                     )
@@ -657,7 +661,16 @@ class CaregiverHandler:
                     ).strip()
                 await query.answer(text="ההודעה להעתקה נשלחה למעלה בצ׳אט", show_alert=False)
                 # Send the copyable message as a new message the user can forward
-                await context.bot.send_message(chat_id=query.message.chat_id, text=text)
+                # Use preformatted block to enable easy copy in Telegram clients
+                copy_block = f"<pre>{text}</pre>"
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=copy_block,
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(
+                        [[InlineKeyboardButton("העתק", callback_data=f"copy_inv_msg_{code}")]]
+                    ),
+                )
                 return
             if data == "caregiver_send_report":
                 # Send latest weekly report to all active caregivers with Telegram ID
