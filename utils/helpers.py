@@ -347,7 +347,7 @@ def safe_str(value: Any, default: str = "") -> str:
     return str(value)
 
 
-def create_progress_bar(current: int, total: int, width: int = 10) -> str:
+def create_progress_bar(current: int, total: int, width: int = 10, style: str = "block") -> str:
     current = max(0, current)
     total = max(0, total)
     if total == 0:
@@ -356,7 +356,19 @@ def create_progress_bar(current: int, total: int, width: int = 10) -> str:
     else:
         percent = (current / total) * 100
         filled = int(round(width * current / float(total)))
-    bar = "█" * filled + "░" * (width - filled)
+
+    # Choose characters based on style
+    if style == "emoji":
+        fill_char = "🟩"
+        empty_char = "⬜"
+    elif style == "shade":
+        fill_char = "▓"
+        empty_char = "░"
+    else:  # default "block"
+        fill_char = "█"
+        empty_char = "░"
+
+    bar = fill_char * filled + empty_char * (width - filled)
     return f"[{bar}] {percent:.1f}%"
 
 

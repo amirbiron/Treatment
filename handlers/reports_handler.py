@@ -639,13 +639,13 @@ class ReportsHandler:
 • מנות שדולגו: {skipped_doses} ({skipped_doses/total_doses*100:.1f}%)
 • מנות שהוחמצו: {missed_doses} ({missed_doses/total_doses*100:.1f}%)
 
-🎯 <b>שיעור ציות כללי:</b> {create_progress_bar(taken_doses, total_doses)} {overall_adherence:.1f}%
+🎯 <b>שיעור ציות כללי:</b> {create_progress_bar(taken_doses, total_doses, 10, 'emoji')} {overall_adherence:.1f}%
 
 📋 <b>פירוט לפי תרופה:</b>
 """
 
             for stat in medicine_stats:
-                progress_bar = create_progress_bar(stat["taken"], stat["total"], 8)
+                progress_bar = create_progress_bar(stat["taken"], stat["total"], 8, 'emoji')
                 report += f"• <b>{stat['name']}:</b> {progress_bar} {stat['adherence']:.1f}%\n"
 
             # Add recommendations
