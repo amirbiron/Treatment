@@ -592,7 +592,12 @@ class ReportsHandler:
 
             for medicine in medicines:
                 # Get doses for this medicine in date range
-                doses = await DatabaseManager.get_medicine_doses_in_range(medicine.id, start_date, end_date)
+                # Use resilient fetch to cover scheduling vs creation timestamps
+                get_range = getattr(DatabaseManager, 'get_medicine_doses_in_range_anytime', None)
+                if callable(get_range):
+                    doses = await get_range(medicine.id, start_date, end_date)
+                else:
+                    doses = await DatabaseManager.get_medicine_doses_in_range(medicine.id, start_date, end_date)
 
                 med_taken = len([d for d in doses if d.status == "taken"])
                 med_missed = len([d for d in doses if d.status == "missed"])
@@ -876,7 +881,12 @@ class ReportsHandler:
 
             while current_date <= end_date:
                 # Get doses for this day
-                day_doses = await DatabaseManager.get_doses_for_date(user_id, current_date)
+                # Use resilient daily fetch that also considers created_at when available
+                get_daily = getattr(DatabaseManager, 'get_doses_for_date_anytime', None)
+                if callable(get_daily):
+                    day_doses = await get_daily(user_id, current_date)
+                else:
+                    day_doses = await DatabaseManager.get_doses_for_date(user_id, current_date)
 
                 if day_doses:
                     taken = len([d for d in day_doses if d.status == "taken"])
