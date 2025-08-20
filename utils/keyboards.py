@@ -14,8 +14,11 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(f"{config.EMOJIS['medicine']} התרופות שלי"), KeyboardButton(f"{config.EMOJIS['reminder']} תזכורות")],
         [KeyboardButton(f"{config.EMOJIS['inventory']} מלאי"), KeyboardButton(f"{config.EMOJIS['symptoms']} תופעות לוואי")],
-        [KeyboardButton(f"{config.EMOJIS['report']} דוחות"), KeyboardButton(f"{config.EMOJIS['caregiver']} מטפלים")],
-        [KeyboardButton(f"{config.EMOJIS['calendar']} הוספת תור")],
+        [
+            KeyboardButton(f"{config.EMOJIS['report']} דוחות"),
+            KeyboardButton(f"{config.EMOJIS['caregiver']} מטפלים"),
+            KeyboardButton(f"{config.EMOJIS['calendar']} הוספת תור"),
+        ],
         [KeyboardButton(f"{config.EMOJIS['settings']} הגדרות"), KeyboardButton(f"{config.EMOJIS['info']} עזרה")],
     ]
 
