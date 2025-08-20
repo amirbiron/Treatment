@@ -662,8 +662,10 @@ class MedicineReminderBot:
                         if not logs:
                             await query.edit_message_text("אין רישומי תופעות לוואי ב-30 הימים האחרונים")
                             return
+                        back_target = f"medicine_view_{med_selected}"
                         await query.edit_message_text(
-                            "רישומי 30 הימים האחרונים:", reply_markup=get_symptom_logs_list_keyboard(logs[-10:])
+                            "רישומי 30 הימים האחרונים:",
+                            reply_markup=get_symptom_logs_list_keyboard(logs[-10:], back_callback=back_target),
                         )
                         return
                     # Otherwise, show the history filter picker
@@ -693,8 +695,13 @@ class MedicineReminderBot:
                     # Show list with per-item actions
                     from utils.keyboards import get_symptom_logs_list_keyboard
 
+                    # If filtered by specific medicine, go back to that medicine; otherwise to history menu
+                    back_target = (
+                        f"medicine_view_{med_filter}" if med_filter is not None else "symptoms_history"
+                    )
                     await query.edit_message_text(
-                        "רישומי 30 הימים האחרונים:", reply_markup=get_symptom_logs_list_keyboard(logs[-10:])
+                        "רישומי 30 הימים האחרונים:",
+                        reply_markup=get_symptom_logs_list_keyboard(logs[-10:], back_callback=back_target),
                     )
                     return
                 if data.startswith("symptoms_delete_"):
@@ -989,9 +996,11 @@ class MedicineReminderBot:
                     await query.edit_message_text("אין היסטוריה 30 ימים לתרופה זו")
                     return
                 from utils.keyboards import get_symptom_logs_list_keyboard
-
+                # Set back target to medicine details for a better UX
+                back_target = f"medicine_view_{medicine_id}"
                 await query.edit_message_text(
-                    f"היסטוריה (30 ימים) לתרופה {medicine_id}:", reply_markup=get_symptom_logs_list_keyboard(logs[-10:])
+                    f"היסטוריה (30 ימים) לתרופה {medicine_id}:",
+                    reply_markup=get_symptom_logs_list_keyboard(logs[-10:], back_callback=back_target),
                 )
                 return
             # Add manage schedules and delete actions (via simple keywords)
@@ -1321,7 +1330,8 @@ class MedicineReminderBot:
                     else:
                         await update.message.reply_text(f"{config.EMOJES['error']} שגיאה במחיקה")
                     user_data.pop("editing_medicine_for", None)
-                    await self.my_medicines_command(update, context)
+                    from utils.keyboards import get_main_menu_keyboard
+                    await update.message.reply_text("תפריט ראשי:", reply_markup=get_main_menu_keyboard())
                     return
                 if lower.startswith("מינון "):
                     new_dosage = text.split(" ", 1)[1].strip()

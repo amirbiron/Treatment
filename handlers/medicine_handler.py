@@ -486,42 +486,16 @@ class MedicineHandler:
 
             # Delete from DB
             ok = await DatabaseManager.delete_medicine(medicine_id)
-
-            # Build updated list UI
-            meds = await DatabaseManager.get_user_medicines(db_user.id)
+            # Show short status and return to main menu (do not reopen medicines list)
             if ok:
-                header = f"{config.EMOJIS['success']} התרופה נמחקה\n\n"
+                message = f"{config.EMOJIS['success']} התרופה נמחקה"
             else:
-                header = f"{config.EMOJIS['error']} התרופה לא נמצאה\n\n"
-
-            if not meds:
-                message = header + "לחצו על 'הוסף תרופה' כדי להוסיף תרופה ראשונה."
-                kb = get_main_menu_keyboard()
-                await query.edit_message_text(message, parse_mode="HTML")
-                await context.bot.send_message(chat_id=update.effective_chat.id, text="תפריט ראשי:", reply_markup=kb)
-                return
-
-            # Respect pagination context if any
-            offset = context.user_data.get("med_list_offset", 0)
-            slice_start = max(0, int(offset))
-            slice_end = slice_start + config.MAX_MEDICINES_PER_PAGE
-            items = meds[slice_start:slice_end]
-
-            # Compose list content
-            lines = [f"{config.EMOJIS['medicine']} <b>התרופות שלכם:</b>"]
-            for m in items:
-                status_emoji = config.EMOJIS["success"] if m.is_active else config.EMOJIS["error"]
-                inv_warn = f" {config.EMOJIS['warning']}" if m.inventory_count <= m.low_stock_threshold else ""
-                lines.append(
-                    f"{status_emoji} <b>{m.name}</b>\n   🧪 {m.dosage}\n   📦 מלאי: {m.inventory_count}{inv_warn}"
-                )
-            message = header + "\n\n".join(lines)
-
-            from utils.keyboards import get_medicines_keyboard
-
-            await query.edit_message_text(
-                message, parse_mode="HTML", reply_markup=get_medicines_keyboard(meds if meds else [], offset=offset)
+                message = f"{config.EMOJIS['error']} התרופה לא נמצאה"
+            await query.edit_message_text(message)
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id, text="תפריט ראשי:", reply_markup=get_main_menu_keyboard()
             )
+            return
         except Exception as e:
             logger.error(f"Error confirming medicine delete: {e}")
             try:
