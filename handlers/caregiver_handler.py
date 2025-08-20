@@ -606,54 +606,20 @@ class CaregiverHandler:
                 user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
                 inv = await DatabaseManager.create_invite(user.id)
                 deep_link = f"t.me/{config.BOT_USERNAME}?start=invite_{inv.code}"
-                # Compose concise message to forward to caregiver
-                caregiver_msg = (
-                    f"שלום! הוזמנת להיות מטפל עבור {user.first_name} {user.last_name or ''}.\n"
+                # New descriptive message
+                msg = (
+                    f"{config.EMOJIS['caregiver']} <b>יצירת הזמנה למטפל</b>\n\n"
+                    f"מטרת הפונקציה: לשלוח למטפל/ת שלך קישור הצטרפות פשוט, כדי שיוכלו לקבל ממך דוחות מעקב.\n\n"
+                    f"לחצו על הכפתור כדי לקבל הודעה מוכנה להעברה למטפל/ת.\n\n"
+                    f"<b>להעתקה ושליחה למטפל/ת:</b>\n"
+                    f"שלום! הוזמנת להיות מטפל עבור {user.first_name} {user.last_name or ''} .\n"
                     f"כדי להצטרף, לחצו על הקישור והאשרו: {deep_link}"
                 ).strip()
-                msg = (
-                    f"{config.EMOJIS['caregiver']} יצירת הזמנה למטפל\n\n"
-                    f"קוד הזמנה: <b>{inv.code}</b>\n"
-                    f"קישור: <code>{deep_link}</code>\n\n"
-                    f"שלחו את הקוד או השתמשו בהעתקה של ההודעה למטה."
-                )
-                kb = [
-                    [InlineKeyboardButton("📋 העתק קוד", callback_data=f"copy_inv_code_{inv.code}")],
-                    [InlineKeyboardButton("📋 העתק הודעה למטפל", callback_data=f"copy_inv_msg_{inv.code}")],
-                    [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")],
-                ]
-                # Save the composed message in user_data for copy callbacks
-                context.user_data["last_invite"] = {"code": inv.code, "link": deep_link, "text": caregiver_msg}
+                # Only Back button (remove copy buttons)
+                kb = [[InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")]]
                 await query.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
                 return
-            if data.startswith("copy_inv_code_"):
-                code = data.split("_")[-1]
-                await query.answer(text=f"הועתק: {code}", show_alert=False)
-                await query.edit_message_reply_markup(
-                    reply_markup=InlineKeyboardMarkup(
-                        [
-                            [InlineKeyboardButton("✔️ הועתק קוד", callback_data="noop")],
-                            [InlineKeyboardButton("📋 העתק הודעה למטפל", callback_data=f"copy_inv_msg_{code}")],
-                            [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")],
-                        ]
-                    )
-                )
-                return
-            if data.startswith("copy_inv_msg_"):
-                code = data.split("_")[-1]
-                invite = context.user_data.get("last_invite", {})
-                text = invite.get("text") or ""
-                if not text:
-                    user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
-                    link = f"t.me/{config.BOT_USERNAME}?start=invite_{code}"
-                    text = (
-                        f"שלום! הוזמנת להיות מטפל עבור {user.first_name} {user.last_name or ''}.\n"
-                        f"כדי להצטרף, לחצו על הקישור והאשרו: {link}"
-                    ).strip()
-                await query.answer(text="ההודעה להעתקה נשלחה למעלה בצ׳אט", show_alert=False)
-                # Send the copyable message as a new message the user can forward
-                await context.bot.send_message(chat_id=query.message.chat_id, text=text)
-                return
+            # Removed copy_inv_* actions per request
             if data == "caregiver_send_report":
                 # Send latest weekly report to all active caregivers with Telegram ID
                 from handlers.reports_handler import reports_handler
