@@ -513,12 +513,10 @@ class MedicineHandler:
             message = f"""
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
 
-💊 <b>מינון:</b> {medicine.dosage}
+🧪 <b>מינון:</b> {medicine.dosage}
 ⏰ <b>שעות נטילה:</b> {', '.join(schedule_times) if schedule_times else 'לא מוגדר'}
 📦 <b>מלאי:</b> {medicine.inventory_count} כדורים
 📊 <b>השבוע:</b> נלקח {taken_count}/{total_count} פעמים
-📅 <b>נוצר:</b> {medicine.created_at.strftime('%d/%m/%Y')}
-🟢 <b>פעיל:</b> {'כן' if medicine.is_active else 'לא'}
 
 {medicine.notes or ''}{inventory_status}
             """
