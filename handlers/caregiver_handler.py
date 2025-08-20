@@ -426,7 +426,7 @@ class CaregiverHandler:
 מטפלים יכולים לעזור לכם לעקוב אחר נטילת התרופות ולקבל דוחות.
                 """
                 keyboard = [
-                    [InlineKeyboardButton(f"{config.EMOJIS['caregiver']} הוסף מטפל ראשון", callback_data="caregiver_add")]
+                    [InlineKeyboardButton("🔗 הזמן מטפל (קוד/קישור)", callback_data="caregiver_invite")]
                 ]
             else:
                 message = f"{config.EMOJIS['caregiver']} <b>המטפלים שלכם ({len(caregivers)}):</b>\n\n"
@@ -449,10 +449,7 @@ class CaregiverHandler:
                     nav.append(InlineKeyboardButton("הבא ›", callback_data=f"caregiver_page_{next_off}"))
                 if nav:
                     keyboard.append(nav)
-                # Actions
-                keyboard.append(
-                    [InlineKeyboardButton(f"{config.EMOJIS['caregiver']} הוסף מטפל", callback_data="caregiver_add")]
-                )
+                # Actions: רק הזמנה (ביטלנו הוספת מטפל ידנית)
                 keyboard.append([InlineKeyboardButton("🔗 הזמן מטפל (קוד/קישור)", callback_data="caregiver_invite")])
                 if caregivers:
                     keyboard.append([InlineKeyboardButton("📊 שלח דוח למטפלים", callback_data="caregiver_send_report")])
