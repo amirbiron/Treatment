@@ -594,9 +594,9 @@ class ReportsHandler:
                 # Get doses for this medicine in date range
                 doses = await DatabaseManager.get_medicine_doses_in_range(medicine.id, start_date, end_date)
 
-                med_taken = len([d for d in doses if d.status == "taken"])
-                med_missed = len([d for d in doses if d.status == "missed"])
-                med_skipped = len([d for d in doses if d.status == "skipped"])
+                med_taken = len([d for d in doses if getattr(d, status, None) == "taken"])
+                med_missed = len([d for d in doses if getattr(d, status, None) == "missed"])
+                med_skipped = len([d for d in doses if getattr(d, status, None) == "skipped"])
                 med_total = len(doses)
 
                 if med_total > 0:
@@ -879,7 +879,7 @@ class ReportsHandler:
                 day_doses = await DatabaseManager.get_doses_for_date(user_id, current_date)
 
                 if day_doses:
-                    taken = len([d for d in day_doses if d.status == "taken"])
+                    taken = len([d for d in day_doses if getattr(d, status, None) == "taken"])
                     total = len(day_doses)
                     daily_rates[current_date] = (taken / total) * 100 if total > 0 else 0
 

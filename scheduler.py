@@ -219,7 +219,7 @@ class MedicineScheduler:
             """
 
             if medicine.inventory_count <= medicine.low_stock_threshold:
-                message += f"\n{config.EMOJIS['warning']} *מלאי נמוך! כדאי להזמין עוד*"
+                message += f"\n{config.EMOJES['warning']} *מלאי נמוך! כדאי להזמין עוד*"
 
             # Send reminder with inline keyboard
             from utils.keyboards import get_reminder_keyboard
@@ -265,7 +265,7 @@ class MedicineScheduler:
                 day_of_week=config.WEEKLY_REPORT_DAY,
                 hour=int(config.WEEKLY_REPORT_TIME.split(":")[0]),
                 minute=int(config.WEEKLY_REPORT_TIME.split(":")[1]),
-                timezone="UTC",
+                timezone=get_timezone(getattr(config, "DEFAULT_TIMEZONE", "UTC")),
             )
 
             self.scheduler.add_job(
@@ -287,7 +287,7 @@ class MedicineScheduler:
             trigger = CronTrigger(
                 hour=int(config.CAREGIVER_DAILY_REPORT_TIME.split(":")[0]),
                 minute=int(config.CAREGIVER_DAILY_REPORT_TIME.split(":")[1]),
-                timezone="UTC",
+                timezone=get_timezone(getattr(config, "DEFAULT_TIMEZONE", "UTC")),
             )
 
             self.scheduler.add_job(
