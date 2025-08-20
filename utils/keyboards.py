@@ -549,8 +549,11 @@ def get_symptoms_history_picker(medicines: List) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_symptom_logs_list_keyboard(logs: List) -> InlineKeyboardMarkup:
-    """Build a keyboard listing recent symptom logs with per-item edit/delete actions."""
+def get_symptom_logs_list_keyboard(logs: List, back_callback: str = "symptoms_history") -> InlineKeyboardMarkup:
+    """Build a keyboard listing recent symptom logs with per-item edit/delete actions.
+
+    back_callback controls where the 'חזור' button returns to (default: symptoms history menu).
+    """
     keyboard = []
     for log in logs:
         ts = log.log_date.strftime("%d/%m %H:%M") if hasattr(log, "log_date") and log.log_date else ""
@@ -562,5 +565,5 @@ def get_symptom_logs_list_keyboard(logs: List) -> InlineKeyboardMarkup:
                 InlineKeyboardButton("מחק", callback_data=f"symptoms_delete_{log.id}"),
             ]
         )
-    keyboard.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="symptoms_history")])
+    keyboard.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data=back_callback)])
     return InlineKeyboardMarkup(keyboard)
