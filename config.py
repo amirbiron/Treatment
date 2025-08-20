@@ -16,6 +16,7 @@ class Config:
     # Bot Configuration
     BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
     BOT_USERNAME: str = os.getenv("BOT_USERNAME", "medicine_reminder_bot")
+    ADMIN_TELEGRAM_ID: int = int(os.getenv("ADMIN_TELEGRAM_ID", "0"))
 
     # Webhook Configuration (for Render deployment)
     WEBHOOK_URL: str = os.getenv("WEBHOOK_URL", "")  # e.g., "https://your-app.onrender.com"
@@ -194,11 +195,12 @@ class Config:
 # Global config instance
 config = Config()
 
-# Validate configuration on import
-config_errors = config.validate_config()
-if config_errors:
-    error_msg = "\n".join([f"- {error}" for error in config_errors])
-    raise ValueError(f"Configuration errors:\n{error_msg}")
+# Validate configuration on import except during tests (to allow importing utils)
+if os.getenv("PYTEST_CURRENT_TEST") is None and os.getenv("DISABLE_CONFIG_VALIDATION") not in {"1", "true", "True"}:
+    config_errors = config.validate_config()
+    if config_errors:
+        error_msg = "\n".join([f"- {error}" for error in config_errors])
+        raise ValueError(f"Configuration errors:\n{error_msg}")
 
 # Development settings
 if config.DEBUG:

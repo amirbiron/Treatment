@@ -590,23 +590,36 @@ class ReportsHandler:
 
             medicine_stats = []
 
+            # Inclusive number of days in range
+            num_days = max(0, (end_date - start_date).days + 1)
+
             for medicine in medicines:
-                # Get doses for this medicine in date range
+                # Pull actual logs in range
                 doses = await DatabaseManager.get_medicine_doses_in_range(medicine.id, start_date, end_date)
-
                 med_taken = len([d for d in doses if getattr(d, "status", None) == "taken"])
-                med_missed = len([d for d in doses if getattr(d, "status", None) == "missed"])
                 med_skipped = len([d for d in doses if getattr(d, "status", None) == "skipped"])
-                med_total = len(doses)
 
-                if med_total > 0:
-                    adherence_rate = (med_taken / med_total) * 100
+                # Compute planned total based on active schedules
+                schedules = await DatabaseManager.get_medicine_schedules(medicine.id)
+                planned_per_day = len([s for s in schedules if getattr(s, "is_active", True)])
+                med_total_planned = planned_per_day * num_days if planned_per_day > 0 else 0
 
+                # Derive missed as planned minus taken and skipped (never negative)
+                med_missed = max(0, med_total_planned - med_taken - med_skipped)
+
+                # Only include medicines that have planned doses in this range
+                if med_total_planned > 0:
+                    adherence_rate = (med_taken / med_total_planned) * 100 if med_total_planned > 0 else 0.0
                     medicine_stats.append(
-                        {"name": medicine.name, "taken": med_taken, "total": med_total, "adherence": adherence_rate}
+                        {
+                            "name": medicine.name,
+                            "taken": med_taken,
+                            "total": med_total_planned,
+                            "adherence": adherence_rate,
+                        }
                     )
 
-                    total_doses += med_total
+                    total_doses += med_total_planned
                     taken_doses += med_taken
                     missed_doses += med_missed
                     skipped_doses += med_skipped
@@ -626,13 +639,13 @@ class ReportsHandler:
 • מנות שדולגו: {skipped_doses} ({skipped_doses/total_doses*100:.1f}%)
 • מנות שהוחמצו: {missed_doses} ({missed_doses/total_doses*100:.1f}%)
 
-🎯 <b>שיעור ציות כללי:</b> {create_progress_bar(taken_doses, total_doses)} {overall_adherence:.1f}%
+🎯 <b>שיעור ציות כללי:</b> {create_progress_bar(taken_doses, total_doses, 10, 'emoji')} {overall_adherence:.1f}%
 
 📋 <b>פירוט לפי תרופה:</b>
 """
 
             for stat in medicine_stats:
-                progress_bar = create_progress_bar(stat["taken"], stat["total"], 8)
+                progress_bar = create_progress_bar(stat["taken"], stat["total"], 8, 'emoji')
                 report += f"• <b>{stat['name']}:</b> {progress_bar} {stat['adherence']:.1f}%\n"
 
             # Add recommendations
@@ -771,7 +784,7 @@ class ReportsHandler:
     async def _generate_trends_report(self, user_id: int, start_date: date, end_date: date) -> str:
         """Generate trends analysis report"""
         try:
-            # Get adherence data over time
+            # Get adherence data over time (recalculate using schedules for accuracy)
             daily_adherence = await self._calculate_daily_adherence(user_id, start_date, end_date)
 
             if not daily_adherence:
@@ -869,19 +882,30 @@ class ReportsHandler:
             return "😄"
 
     async def _calculate_daily_adherence(self, user_id: int, start_date: date, end_date: date) -> Dict[date, float]:
-        """Calculate daily adherence rates"""
+        """Calculate daily adherence rates using planned schedules vs actual logs."""
         try:
             daily_rates = {}
             current_date = start_date
 
             while current_date <= end_date:
-                # Get doses for this day
+                # Actual logs for the day (taken/skipped)
                 day_doses = await DatabaseManager.get_doses_for_date(user_id, current_date)
+                taken = len([d for d in (day_doses or []) if getattr(d, "status", None) == "taken"])
+                skipped = len([d for d in (day_doses or []) if getattr(d, "status", None) == "skipped"])
 
-                if day_doses:
-                    taken = len([d for d in day_doses if getattr(d, "status", None) == "taken"])
-                    total = len(day_doses)
-                    daily_rates[current_date] = (taken / total) * 100 if total > 0 else 0
+                # Planned counts for the day based on active schedules
+                medicines = await DatabaseManager.get_user_medicines(user_id)
+                planned_total = 0
+                for med in medicines:
+                    schedules = await DatabaseManager.get_medicine_schedules(med.id)
+                    planned_total += len([s for s in schedules if getattr(s, "is_active", True)])
+
+                total = planned_total
+                if total > 0:
+                    adherence_pct = (taken / total) * 100
+                else:
+                    adherence_pct = 0
+                daily_rates[current_date] = adherence_pct
 
                 current_date += timedelta(days=1)
 
