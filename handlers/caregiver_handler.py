@@ -203,6 +203,80 @@ class CaregiverHandler:
                 await context.bot.send_message(chat_id=query.message.chat_id, text=copy_block, parse_mode="HTML")
                 return
 
+            # Caregiver edit menu and actions
+            if data.startswith("caregiver_edit_name_"):
+                try:
+                    cid = int(data.split("_")[-1])
+                except Exception:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                    return
+                # Ask for new name via text
+                context.user_data["editing_caregiver_field"] = {"id": cid, "field": "name"}
+                context.user_data["suppress_menu_mapping"] = True
+                await query.edit_message_text("הקלידו שם חדש למטפל:")
+                return
+
+            if data.startswith("caregiver_edit_rel_"):
+                try:
+                    cid = int(data.split("_")[-1])
+                except Exception:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                    return
+                # Ask for new relationship via text
+                context.user_data["editing_caregiver_field"] = {"id": cid, "field": "relationship"}
+                context.user_data["suppress_menu_mapping"] = True
+                await query.edit_message_text("הקלידו קשר/תפקיד (למשל בן משפחה, רופא, אחות):")
+                return
+
+            if data.startswith("caregiver_toggle_"):
+                try:
+                    cid = int(data.split("_")[-1])
+                except Exception:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                    return
+                cg = await DatabaseManager.get_caregiver_by_id(cid)
+                if not cg:
+                    await query.edit_message_text(f"{config.EMOJIS['error']} המטפל לא נמצא")
+                    return
+                try:
+                    await DatabaseManager.set_caregiver_active(cid, not bool(getattr(cg, 'is_active', True)))
+                except Exception as e:
+                    logger.error(f"Failed toggling caregiver active state: {e}")
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                    return
+                # Refresh caregivers list after toggle for clarity
+                await self.view_caregivers(update, context)
+                return
+
+            if data.startswith("caregiver_edit_") and not (
+                data.startswith("caregiver_edit_name_") or data.startswith("caregiver_edit_rel_")
+            ):
+                try:
+                    cid = int(data.split("_")[-1])
+                except Exception:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                    return
+                cg = await DatabaseManager.get_caregiver_by_id(cid)
+                if not cg:
+                    await query.edit_message_text(f"{config.EMOJIS['error']} המטפל לא נמצא")
+                    return
+                status_txt = "פעיל" if getattr(cg, "is_active", True) else "לא פעיל"
+                toggle_label = "השבת מטפל" if getattr(cg, "is_active", True) else "הפעל מטפל"
+                msg = (
+                    f"{config.EMOJIS['caregiver']} עריכת מטפל\n\n"
+                    f"שם: <b>{cg.caregiver_name}</b>\n"
+                    f"קשר: {getattr(cg, 'relationship_type', '') or '-'}\n"
+                    f"מצב: {status_txt}"
+                )
+                kb = [
+                    [InlineKeyboardButton("שנה שם", callback_data=f"caregiver_edit_name_{cid}")],
+                    [InlineKeyboardButton("שנה קשר", callback_data=f"caregiver_edit_rel_{cid}")],
+                    [InlineKeyboardButton(toggle_label, callback_data=f"caregiver_toggle_{cid}")],
+                    [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")],
+                ]
+                await query.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
+                return
+
             if data == "caregiver_send_report":
                 try:
                     # Minimal placeholder: confirm action
