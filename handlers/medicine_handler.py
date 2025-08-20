@@ -72,6 +72,8 @@ class MedicineHandler:
     def get_handlers(self) -> List:
         """Non-conversation callback handlers for medicine actions (e.g., delete confirm)."""
         return [
+            # Show delete confirmation dialog
+            CallbackQueryHandler(self._ask_delete_medicine, pattern=r"^medicine_delete_\d+$"),
             CallbackQueryHandler(self._confirm_delete_medicine, pattern=r"^meddel_\d+_confirm$"),
             CallbackQueryHandler(self._cancel_delete_medicine, pattern=r"^meddel_\d+_cancel$"),
         ]
@@ -535,6 +537,29 @@ class MedicineHandler:
             await query.edit_message_text("בוטל")
         except Exception as e:
             logger.error(f"Error canceling medicine delete: {e}")
+
+    async def _ask_delete_medicine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Show confirmation keyboard for deleting a specific medicine."""
+        try:
+            query = update.callback_query
+            await query.answer()
+
+            # Callback data: medicine_delete_<medicine_id>
+            parts = (query.data or "").split("_")
+            medicine_id = int(parts[-1]) if len(parts) >= 3 and parts[-1].isdigit() else None
+            if not medicine_id:
+                await query.edit_message_text(f"{config.EMOJIS['error']} שגיאה: מזהה תרופה לא תקין")
+                return
+
+            await query.edit_message_text(
+                "האם למחוק את התרופה?", reply_markup=get_confirmation_keyboard("meddel", medicine_id)
+            )
+        except Exception as e:
+            logger.error(f"Error asking delete confirmation: {e}")
+            try:
+                await update.callback_query.edit_message_text(f"{config.EMOJIS['error']} שגיאה במחיקת התרופה")
+            except Exception:
+                pass
 
     async def cancel_operation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Cancel current operation"""

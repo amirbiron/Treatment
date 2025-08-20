@@ -591,39 +591,7 @@ class MedicineReminderBot:
                 elif parts[-1] == "cancel":
                     await query.edit_message_text("בוטל")
                     return
-            elif data.startswith("meddel_"):
-                parts = data.split("_")
-                if parts[-1] == "confirm":
-                    medicine_id = int(parts[-2])
-                    user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
-                    await medicine_scheduler.cancel_medicine_reminders(user.id, medicine_id)
-                    ok = await DatabaseManager.delete_medicine(medicine_id)
-                    # After deletion, show the medicines list page at current offset (if any in context)
-                    offset = context.user_data.get("med_list_offset", 0)
-                    db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
-                    meds = await DatabaseManager.get_user_medicines(db_user.id) if db_user else []
-                    message = (
-                        f"{config.EMOJES['success']} התרופה נמחקה" if ok else f"{config.EMOJES['error']} התרופה לא נמצאה"
-                    ) + "\n\n"
-                    if not meds:
-                        message += f"{config.EMOJES['info']} אין תרופות רשומות"
-                    else:
-                        message += f"{config.EMOJES['medicine']} <b>התרופות שלכם:</b>\n\n"
-                        slice_start = max(0, int(offset))
-                        slice_end = slice_start + config.MAX_MEDICINES_PER_PAGE
-                        for med in meds[slice_start:slice_end]:
-                            status_emoji = config.EMOJES["success"] if med.is_active else config.EMOJES["error"]
-                            inv_warn = f" {config.EMOJES['warning']}" if med.inventory_count <= med.low_stock_threshold else ""
-                            message += f"{status_emoji} <b>{med.name}</b>\n   💊 {med.dosage}\n   📦 מלאי: {med.inventory_count}{inv_warn}\n\n"
-                    from utils.keyboards import get_medicines_keyboard
-
-                    await query.edit_message_text(
-                        message, parse_mode="HTML", reply_markup=get_medicines_keyboard(meds if meds else [], offset=offset)
-                    )
-                    return
-                elif parts[-1] == "cancel":
-                    await query.edit_message_text("בוטל")
-                    return
+            # Medicine delete confirmations (handled by medicine_handler specific callbacks)
             # Reminders settings controls
             elif (
                 data.startswith("rsnoop_")
@@ -985,14 +953,7 @@ class MedicineReminderBot:
                     "בחרו שעה חדשה לנטילת התרופה או הזינו שעה (לדוגמה 08:30)", reply_markup=get_time_selection_keyboard()
                 )
                 return
-            if data.startswith("medicine_delete_"):
-                medicine_id = int(data.split("_")[2])
-                from utils.keyboards import get_confirmation_keyboard
-
-                await query.edit_message_text(
-                    "האם למחוק את התרופה?", reply_markup=get_confirmation_keyboard("meddel", medicine_id)
-                )
-                return
+            # Delete request for a medicine (handled by medicine_handler specific callback)
 
             if data.startswith("medicine_edit_"):
                 medicine_id = int(data.split("_")[2])
