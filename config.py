@@ -33,7 +33,7 @@ class Config:
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 
     # Timezone Settings
-    DEFAULT_TIMEZONE: str = os.getenv("DEFAULT_TIMEZONE", "UTC")
+    DEFAULT_TIMEZONE: str = os.getenv("DEFAULT_TIMEZONE", "Asia/Jerusalem")
 
     # Reminder Settings
     REMINDER_SNOOZE_MINUTES: int = int(os.getenv("REMINDER_SNOOZE_MINUTES", "5"))
