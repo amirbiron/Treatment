@@ -1165,6 +1165,33 @@ class DatabaseManagerMongo:
         return await DatabaseManagerMongo.get_medicine_by_id(medicine_id)
 
     @staticmethod
+    async def delete_medicine(medicine_id: int) -> bool:
+        """Delete a medicine and related data (Mongo backend).
+
+        Removes the medicine document, its schedules, and dose logs.
+        Also unsets medicine_id on symptom logs referencing it to avoid orphans.
+        """
+        await _init_mongo()
+        mid = int(medicine_id)
+        # Remove related schedules and dose logs
+        try:
+            await _mongo_db.medicine_schedules.delete_many({"medicine_id": mid})
+        except Exception:
+            pass
+        try:
+            await _mongo_db.dose_logs.delete_many({"medicine_id": mid})
+        except Exception:
+            pass
+        # Optional: detach symptom logs link to this medicine
+        try:
+            await _mongo_db.symptom_logs.update_many({"medicine_id": mid}, {"$unset": {"medicine_id": ""}})
+        except Exception:
+            pass
+        # Finally delete the medicine document
+        res = await _mongo_db.medicines.delete_one({"_id": mid})
+        return res.deleted_count > 0
+
+    @staticmethod
     async def log_dose_taken(medicine_id: int, scheduled_time: datetime, taken_at: datetime = None) -> DoseLog:
         await _init_mongo()
         if taken_at is None:
