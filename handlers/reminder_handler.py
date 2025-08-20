@@ -94,7 +94,7 @@ class ReminderHandler:
 {config.EMOJIS['success']} <b>מעולה! נטילת התרופה אושרה</b>
 
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
-⚖️ מינון: {medicine.dosage}
+💊 מינון: {medicine.dosage}
 ⏰ זמן נטילה: {now.strftime('%H:%M')}
 📦 מלאי נותר: {new_count} כדורים{low_stock_warning}
 
@@ -138,7 +138,7 @@ class ReminderHandler:
 {config.EMOJIS['clock']} <b>תזכורת נדחתה</b>
 
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
-⚖️ מינון: {medicine.dosage}
+💊 מינון: {medicine.dosage}
 
 ⏰ תזכורת חוזרת: {snooze_time.strftime('%H:%M')}
 ({config.REMINDER_SNOOZE_MINUTES} דקות)
@@ -171,7 +171,7 @@ class ReminderHandler:
 {config.EMOJIS['warning']} <b>אישור דילוג על תרופה</b>
 
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
-⚖️ מינון: {medicine.dosage}
+💊 מינון: {medicine.dosage}
 
 האם אתם בטוחים שברצונכם לדלג על התרופה?
 
@@ -226,7 +226,7 @@ class ReminderHandler:
 {config.EMOJIS['info']} <b>תרופה דולגה</b>
 
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
-⚖️ מינון: {medicine.dosage}
+💊 מינון: {medicine.dosage}
 ⏰ זמן: {now.strftime('%H:%M')}
 
 הדילוג נרשם ביומן הטיפולים.
@@ -264,7 +264,7 @@ class ReminderHandler:
 {config.EMOJIS['reminder']} <b>זמן לקחת תרופה!</b>
 
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
-⚖️ מינון: {medicine.dosage}
+💊 מינון: {medicine.dosage}
 
 {config.EMOJIS['inventory']} מלאי נותר: {medicine.inventory_count} כדורים
             """
@@ -429,7 +429,7 @@ class ReminderHandler:
                     f"{config.EMOJIS['symptoms']} רשום תופעות לוואי", callback_data=f"symptoms_quick_{medicine_id}"
                 )
             ],
-            [InlineKeyboardButton(f"{config.EMOJIS['info']} פרטי התרופה", callback_data=f"medicine_view_{medicine_id}")],
+            [InlineKeyboardButton(f"{config.EMOJIS['medicine']} פרטי התרופה", callback_data=f"medicine_view_{medicine_id}")],
             [InlineKeyboardButton(f"{config.EMOJIS['home']} תפריט ראשי", callback_data="main_menu")],
         ]
 

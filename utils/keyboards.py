@@ -182,7 +182,7 @@ def get_medicines_keyboard(medicines: List, offset: int = 0) -> InlineKeyboardMa
                 InlineKeyboardButton(f"{config.EMOJIS['clock']} שעות", callback_data=f"medicine_schedule_{medicine.id}"),
                 InlineKeyboardButton(f"{config.EMOJIS['inventory']} מלאי", callback_data=f"medicine_inventory_{medicine.id}"),
                 InlineKeyboardButton(f"{config.EMOJIS['settings']} פרטים", callback_data=f"medicine_view_{medicine.id}"),
-                InlineKeyboardButton(f"{config.EMOJIS['report']} היסטוריה", callback_data=f"medicine_history_{medicine.id}_list"),
+                InlineKeyboardButton(f"{config.EMOJIS['report']} היסטוריה", callback_data=f"medicine_history_{medicine.id}"),
             ]
         )
 
@@ -221,7 +221,7 @@ def get_medicine_detail_keyboard(medicine_id: int) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(f"{config.EMOJIS['settings']} ערוך פרטים", callback_data=f"medicine_edit_{medicine_id}"),
-            InlineKeyboardButton(f"{config.EMOJIS['report']} היסטוריה", callback_data=f"medicine_history_{medicine_id}_from_detail"),
+            InlineKeyboardButton(f"{config.EMOJIS['report']} היסטוריה", callback_data=f"medicine_history_{medicine_id}"),
         ],
         [InlineKeyboardButton(f"{config.EMOJIS['error']} מחק תרופה", callback_data=f"medicine_delete_{medicine_id}")],
         [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור לרשימה", callback_data="medicines_list")],
@@ -282,6 +282,7 @@ def get_inventory_main_keyboard() -> InlineKeyboardMarkup:
 def get_caregiver_keyboard() -> InlineKeyboardMarkup:
     """Caregiver management keyboard"""
     keyboard = [
+        [InlineKeyboardButton(f"{config.EMOJIS['caregiver']} הוסף מטפל", callback_data="caregiver_add")],
         [
             InlineKeyboardButton(f"{config.EMOJIS['settings']} נהל מטפלים", callback_data="caregiver_manage"),
             InlineKeyboardButton(f"{config.EMOJIS['report']} שלח דוח", callback_data="caregiver_send_report"),
@@ -560,6 +561,5 @@ def get_symptom_logs_list_keyboard(logs: List) -> InlineKeyboardMarkup:
                 InlineKeyboardButton("מחק", callback_data=f"symptoms_delete_{log.id}"),
             ]
         )
-    # Back button goes to a generic handler that will route based on stored origin
-    keyboard.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="history_back")])
+    keyboard.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="symptoms_history")])
     return InlineKeyboardMarkup(keyboard)
