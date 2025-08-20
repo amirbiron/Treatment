@@ -150,18 +150,15 @@ class CaregiverHandler:
                 ).strip()
 
                 # Instructional invite screen
+                # Invitation screen with inline copyable block
                 msg = (
                     f"{config.EMOJIS['caregiver']} יצירת הזמנה למטפל\n\n"
                     "מטרת הפונקציה: לשלוח למטפל/ת שלך קישור הצטרפות, כדי שיוכלו לקבל ממך דוחות מעקב.\n\n"
-                    f"שלום! הוזמנת להיות מטפל עבור {full_name}.\n"
-                    f"כדי להצטרף, לחצו על הקישור ותאשרו: <code>{deep_link}</code>\n\n"
-                    "לחצו על כפתור \"העתק\" כדי לקבל את ההודעה מוכנה להעברה למטפל/ת."
+                    "<b>העתק</b>\n"
+                    f"<pre>{caregiver_msg}</pre>"
                 )
 
-                kb = [
-                    [InlineKeyboardButton("העתק", callback_data=f"copy_inv_msg_{inv.code}")],
-                    [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")],
-                ]
+                kb = [[InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")]]
 
                 # Save last composed message for copy callback
                 context.user_data["last_invite"] = {"code": inv.code, "link": deep_link, "text": caregiver_msg}
