@@ -241,7 +241,7 @@ class MedicineReminderBot:
                 message = f"""
 {config.EMOJES['info']} <b>אין תרופות רשומות</b>
 
-לחצו על /add_medicine כדי להוסיף תרופה ראשונה.
+לחצו על "הוסף תרופה" כדי להוסיף תרופה ראשונה.
                 """
             else:
                 message = f"{config.EMOJES['medicine']} <b>התרופות שלכם:</b>\n\n"
