@@ -667,9 +667,6 @@ class CaregiverHandler:
                     chat_id=query.message.chat_id,
                     text=copy_block,
                     parse_mode="HTML",
-                    reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton("העתק", callback_data=f"copy_inv_msg_{code}")]]
-                    ),
                 )
                 return
             if data == "caregiver_send_report":
