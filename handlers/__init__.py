@@ -72,6 +72,10 @@ def get_all_callback_handlers():
 	if reminder_handler:
 		callback_handlers.extend(reminder_handler.get_handlers())
 
+	# Medicine handlers (e.g., delete confirmations)
+	if medicine_handler and hasattr(medicine_handler, "get_handlers"):
+		callback_handlers.extend(medicine_handler.get_handlers())
+
 	# Symptoms handlers
 	if symptoms_handler:
 		callback_handlers.extend(symptoms_handler.get_handlers())

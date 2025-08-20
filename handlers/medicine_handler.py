@@ -68,6 +68,13 @@ class MedicineHandler:
             per_message=False,
         )
 
+    def get_handlers(self) -> List:
+        """Non-conversation callback handlers for medicine actions (e.g., delete confirm)."""
+        return [
+            CallbackQueryHandler(self._confirm_delete_medicine, pattern=r"^meddel_\d+_confirm$"),
+            CallbackQueryHandler(self._cancel_delete_medicine, pattern=r"^meddel_\d+_cancel$"),
+        ]
+
     async def start_add_medicine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Start the add medicine conversation"""
         try:
@@ -391,7 +398,7 @@ class MedicineHandler:
 
                 # Schedule reminders
                 await medicine_scheduler.schedule_medicine_reminder(
-                    user_id=user_id,
+                    user_id=user.id,
                     medicine_id=medicine.id,
                     reminder_time=schedule_time,
                     timezone=user.timezone or config.DEFAULT_TIMEZONE,
@@ -448,6 +455,87 @@ class MedicineHandler:
         except Exception as e:
             logger.error(f"Error viewing medicine: {e}")
             await query.edit_message_text(f"{config.EMOJIS['error']} שגיאה בהצגת פרטי התרופה")
+
+    async def _confirm_delete_medicine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle confirmation to delete a medicine: cancel jobs, delete DB row, and refresh UI."""
+        try:
+            query = update.callback_query
+            await query.answer()
+
+            # Callback data: meddel_<medicine_id>_confirm
+            parts = (query.data or "").split("_")
+            medicine_id = int(parts[1]) if len(parts) >= 3 and parts[1].isdigit() else None
+            if not medicine_id:
+                await query.edit_message_text(f"{config.EMOJIS['error']} שגיאה: מזהה תרופה לא תקין")
+                return
+
+            # Resolve user and enforce ownership
+            db_user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+            if not db_user:
+                await query.edit_message_text(f"{config.EMOJIS['error']} משתמש לא נמצא")
+                return
+
+            med = await DatabaseManager.get_medicine_by_id(medicine_id)
+            if not med or med.user_id != db_user.id:
+                await query.edit_message_text(f"{config.EMOJIS['error']} התרופה לא נמצאה")
+                return
+
+            # Cancel all related jobs (daily + snooze)
+            await medicine_scheduler.cancel_medicine_reminders(db_user.id, medicine_id)
+
+            # Delete from DB
+            ok = await DatabaseManager.delete_medicine(medicine_id)
+
+            # Build updated list UI
+            meds = await DatabaseManager.get_user_medicines(db_user.id)
+            if ok:
+                header = f"{config.EMOJIS['success']} התרופה נמחקה\n\n"
+            else:
+                header = f"{config.EMOJIS['error']} התרופה לא נמצאה\n\n"
+
+            if not meds:
+                message = header + f"{config.EMOJIS['info']} אין תרופות רשומות"
+                kb = get_main_menu_keyboard()
+                await query.edit_message_text(message, parse_mode="HTML")
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="תפריט ראשי:", reply_markup=kb)
+                return
+
+            # Respect pagination context if any
+            offset = context.user_data.get("med_list_offset", 0)
+            slice_start = max(0, int(offset))
+            slice_end = slice_start + config.MAX_MEDICINES_PER_PAGE
+            items = meds[slice_start:slice_end]
+
+            # Compose list content
+            lines = [f"{config.EMOJIS['medicine']} <b>התרופות שלכם:</b>"]
+            for m in items:
+                status_emoji = config.EMOJIS["success"] if m.is_active else config.EMOJIS["error"]
+                inv_warn = f" {config.EMOJIS['warning']}" if m.inventory_count <= m.low_stock_threshold else ""
+                lines.append(
+                    f"{status_emoji} <b>{m.name}</b>\n   🧪 {m.dosage}\n   📦 מלאי: {m.inventory_count}{inv_warn}"
+                )
+            message = header + "\n\n".join(lines)
+
+            from utils.keyboards import get_medicines_keyboard
+
+            await query.edit_message_text(
+                message, parse_mode="HTML", reply_markup=get_medicines_keyboard(meds if meds else [], offset=offset)
+            )
+        except Exception as e:
+            logger.error(f"Error confirming medicine delete: {e}")
+            try:
+                await update.callback_query.edit_message_text(f"{config.EMOJIS['error']} שגיאה במחיקת התרופה")
+            except Exception:
+                pass
+
+    async def _cancel_delete_medicine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle cancelation of delete medicine confirmation dialog."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            await query.edit_message_text("בוטל")
+        except Exception as e:
+            logger.error(f"Error canceling medicine delete: {e}")
 
     async def cancel_operation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Cancel current operation"""
