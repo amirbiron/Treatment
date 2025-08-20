@@ -587,7 +587,13 @@ class DatabaseManager:
             result = await session.execute(
                 select(DoseLog)
                 .join(Medicine, DoseLog.medicine_id == Medicine.id)
-                .where(Medicine.user_id == user_id, DoseLog.scheduled_time >= day_start, DoseLog.scheduled_time <= day_end)
+                .where(
+                    Medicine.user_id == user_id,
+                    or_(
+                        DoseLog.scheduled_time.between(day_start, day_end),
+                        DoseLog.created_at.between(day_start, day_end),
+                    ),
+                )
                 .order_by(DoseLog.scheduled_time.asc())
             )
             return list(result.scalars().all())
@@ -905,7 +911,13 @@ class DatabaseManagerMongo:
         day_end = datetime.combine(day_date, datetime.max.time())
         rows = (
             await _mongo_db.dose_logs.find(
-                {"medicine_id": {"$in": med_ids}, "scheduled_time": {"$gte": day_start, "$lte": day_end}}
+                {
+                    "medicine_id": {"$in": med_ids},
+                    "$or": [
+                        {"scheduled_time": {"$gte": day_start, "$lte": day_end}},
+                        {"created_at": {"$gte": day_start, "$lte": day_end}},
+                    ],
+                }
             )
             .sort("scheduled_time", 1)
             .to_list(10000)

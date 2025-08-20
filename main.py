@@ -486,6 +486,7 @@ class MedicineReminderBot:
                 await query.edit_message_text(config.WELCOME_MESSAGE, parse_mode="Markdown")
                 # Clear transient edit flags to avoid stray state
                 context.user_data.pop("editing_field_for", None)
+                context.user_data.pop("editing_caregiver_field", None)
                 context.user_data.pop("editing_schedule_for", None)
                 context.user_data.pop("awaiting_symptom_text", None)
                 context.user_data.pop("editing_symptom_log", None)
@@ -1132,6 +1133,7 @@ class MedicineReminderBot:
                 for k in (
                     "editing_medicine_for",
                     "editing_field_for",
+                    "editing_caregiver_field",
                     "editing_schedule_for",
                     "updating_inventory_for",
                     "awaiting_symptom_text",
@@ -1173,6 +1175,41 @@ class MedicineReminderBot:
                 if action == "help":
                     await self.help_command(update, context)
                     return
+
+            # Caregiver edit via text inputs (name/relationship)
+            if "editing_caregiver_field" in user_data:
+                info = user_data.pop("editing_caregiver_field")
+                user_data.pop("suppress_menu_mapping", None)
+                try:
+                    caregiver_id = int(info.get("id"))
+                except Exception:
+                    await update.message.reply_text(config.ERROR_MESSAGES["general"])
+                    return
+                field = info.get("field")
+                value = text.strip()
+                if field == "name":
+                    if len(value) < 2:
+                        await update.message.reply_text("שם קצר מדי. הזינו לפחות 2 תווים.")
+                        return
+                    await DatabaseManager.update_caregiver(caregiver_id, caregiver_name=value)
+                    await update.message.reply_text(f"{config.EMOJES['success']} שם המטפל עודכן")
+                elif field == "relationship":
+                    if len(value) < 2:
+                        await update.message.reply_text("טקסט לא תקין. הזינו תיאור קשר/תפקיד תקין.")
+                        return
+                    await DatabaseManager.update_caregiver(caregiver_id, relationship_type=value)
+                    await update.message.reply_text(f"{config.EMOJES['success']} סוג הקשר עודכן")
+                else:
+                    await update.message.reply_text(config.ERROR_MESSAGES["invalid_input"])
+                    return
+                # Return to caregivers list
+                try:
+                    from handlers import caregiver_handler
+
+                    await caregiver_handler.view_caregivers(update, context)
+                except Exception:
+                    pass
+                return
 
             # Handle mededit text inputs
             if "editing_field_for" in user_data:

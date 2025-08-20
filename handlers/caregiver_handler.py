@@ -51,7 +51,10 @@ class CaregiverHandler:
     def get_handlers(self) -> List:
         """Callback handlers for inline flows."""
         return [
-            CallbackQueryHandler(self.handle_caregiver_actions, pattern=r"^(caregiver_|copy_inv_)")
+            CallbackQueryHandler(
+                self.handle_caregiver_actions,
+                pattern=r"^(caregiver_|copy_inv_|remove_caregiver_|remcg_)",
+            )
         ]
 
     # --- Entry points
@@ -142,24 +145,20 @@ class CaregiverHandler:
 
                 # Message to forward to caregiver (plain text)
                 caregiver_msg = (
-                    f"שלום! הוזמנת להיות מטפל עבור {full_name} .\n"
-                    f"כדי להצטרף, לחצו על הקישור והאשרו: {deep_link}"
+                    f"שלום! הוזמנת להיות מטפל עבור {full_name}.\n"
+                    f"כדי להצטרף, לחצו על הקישור ותאשרו: {deep_link}"
                 ).strip()
 
                 # Instructional invite screen
+                # Invitation screen with inline copyable block (no separate copy button)
                 msg = (
                     f"{config.EMOJIS['caregiver']} יצירת הזמנה למטפל\n\n"
-                    "מטרת הפונקציה: לשלוח למטפל/ת שלך קישור הצטרפות פשוט, כדי שיוכלו לקבל ממך דוחות מעקב.\n\n"
-                    "לחצו על הכפתור כדי לקבל הודעה מוכנה להעברה למטפל/ת.\n\n"
-                    "להעתקה ושליחה למטפל/ת:\n"
-                    f"שלום! הוזמנת להיות מטפל עבור {full_name} .\n\n"
-                    f"כדי להצטרף, לחצו על הקישור והאשרו: <code>{deep_link}</code>"
+                    "מטרת הפונקציה: לשלוח למטפל/ת שלך קישור הצטרפות, כדי שיוכלו לקבל ממך דוחות מעקב.\n\n"
+                    "<b>העתק</b>\n"
+                    f"<pre>{caregiver_msg}</pre>"
                 )
 
-                kb = [
-                    [InlineKeyboardButton("העתק", callback_data=f"copy_inv_msg_{inv.code}")],
-                    [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")],
-                ]
+                kb = [[InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")]]
 
                 # Save last composed message for copy callback
                 context.user_data["last_invite"] = {"code": inv.code, "link": deep_link, "text": caregiver_msg}
@@ -188,9 +187,10 @@ class CaregiverHandler:
                 if not text:
                     user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
                     link = f"t.me/{config.BOT_USERNAME}?start=invite_{code}"
+                    full_name = f"{user.first_name} {user.last_name or ''}".strip()
                     text = (
-                        f"שלום! הוזמנת להיות מטפל עבור {user.first_name} {user.last_name or ''} .\n"
-                        f"כדי להצטרף, לחצו על הקישור והאשרו: {link}"
+                        f"שלום! הוזמנת להיות מטפל עבור {full_name}.\n"
+                        f"כדי להצטרף, לחצו על הקישור ותאשרו: {link}"
                     ).strip()
                 await query.answer(text="ההודעה להעתקה נשלחה למעלה בצ׳אט", show_alert=False)
                 # Header like code-copy
@@ -201,6 +201,80 @@ class CaregiverHandler:
                 # Copyable block
                 copy_block = f"<pre>{text}</pre>"
                 await context.bot.send_message(chat_id=query.message.chat_id, text=copy_block, parse_mode="HTML")
+                return
+
+            # Caregiver edit menu and actions
+            if data.startswith("caregiver_edit_name_"):
+                try:
+                    cid = int(data.split("_")[-1])
+                except Exception:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                    return
+                # Ask for new name via text
+                context.user_data["editing_caregiver_field"] = {"id": cid, "field": "name"}
+                context.user_data["suppress_menu_mapping"] = True
+                await query.edit_message_text("הקלידו שם חדש למטפל:")
+                return
+
+            if data.startswith("caregiver_edit_rel_"):
+                try:
+                    cid = int(data.split("_")[-1])
+                except Exception:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                    return
+                # Ask for new relationship via text
+                context.user_data["editing_caregiver_field"] = {"id": cid, "field": "relationship"}
+                context.user_data["suppress_menu_mapping"] = True
+                await query.edit_message_text("הקלידו קשר/תפקיד (למשל בן משפחה, רופא, אחות):")
+                return
+
+            if data.startswith("caregiver_toggle_"):
+                try:
+                    cid = int(data.split("_")[-1])
+                except Exception:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                    return
+                cg = await DatabaseManager.get_caregiver_by_id(cid)
+                if not cg:
+                    await query.edit_message_text(f"{config.EMOJIS['error']} המטפל לא נמצא")
+                    return
+                try:
+                    await DatabaseManager.set_caregiver_active(cid, not bool(getattr(cg, 'is_active', True)))
+                except Exception as e:
+                    logger.error(f"Failed toggling caregiver active state: {e}")
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                    return
+                # Refresh caregivers list after toggle for clarity
+                await self.view_caregivers(update, context)
+                return
+
+            if data.startswith("caregiver_edit_") and not (
+                data.startswith("caregiver_edit_name_") or data.startswith("caregiver_edit_rel_")
+            ):
+                try:
+                    cid = int(data.split("_")[-1])
+                except Exception:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                    return
+                cg = await DatabaseManager.get_caregiver_by_id(cid)
+                if not cg:
+                    await query.edit_message_text(f"{config.EMOJIS['error']} המטפל לא נמצא")
+                    return
+                status_txt = "פעיל" if getattr(cg, "is_active", True) else "לא פעיל"
+                toggle_label = "השבת מטפל" if getattr(cg, "is_active", True) else "הפעל מטפל"
+                msg = (
+                    f"{config.EMOJIS['caregiver']} עריכת מטפל\n\n"
+                    f"שם: <b>{cg.caregiver_name}</b>\n"
+                    f"קשר: {getattr(cg, 'relationship_type', '') or '-'}\n"
+                    f"מצב: {status_txt}"
+                )
+                kb = [
+                    [InlineKeyboardButton("שנה שם", callback_data=f"caregiver_edit_name_{cid}")],
+                    [InlineKeyboardButton("שנה קשר", callback_data=f"caregiver_edit_rel_{cid}")],
+                    [InlineKeyboardButton(toggle_label, callback_data=f"caregiver_toggle_{cid}")],
+                    [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")],
+                ]
+                await query.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
                 return
 
             if data == "caregiver_send_report":
