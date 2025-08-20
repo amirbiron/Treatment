@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters
+from telegram import BotCommand, BotCommandScopeDefault, BotCommandScopeChat
 from telegram.error import TelegramError
 from aiohttp import web
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -73,6 +74,17 @@ class MedicineReminderBot:
             # Register all handlers
             await self._register_handlers()
 
+            # Configure commands list: empty by default, admin-only weekly_usage in admin chat
+            try:
+                await self.application.bot.set_my_commands([], scope=BotCommandScopeDefault())
+                if int(getattr(config, "ADMIN_TELEGRAM_ID", 0) or 0) > 0:
+                    await self.application.bot.set_my_commands(
+                        [BotCommand("weekly_usage", "כמה השתמשו בשבוע האחרון")],
+                        scope=BotCommandScopeChat(chat_id=int(getattr(config, "ADMIN_TELEGRAM_ID", 0))),
+                    )
+            except Exception as _cmd_exc:
+                logger.warning(f"Failed setting commands list: {_cmd_exc}")
+
             # Start scheduler
             await medicine_scheduler.start()
 
@@ -85,6 +97,10 @@ class MedicineReminderBot:
     async def _register_handlers(self):
         """Register all command and callback handlers"""
         app = self.application
+
+        # Activity tracking (runs after other handlers; does not block)
+        app.add_handler(MessageHandler(filters.ALL, self._track_activity_message), group=100)
+        app.add_handler(CallbackQueryHandler(self._track_activity_callback), group=100)
 
         # Basic Commands
         app.add_handler(CommandHandler("start", self.start_command))
@@ -104,6 +120,7 @@ class MedicineReminderBot:
         app.add_handler(CommandHandler("log_symptoms", self.log_symptoms_command))
         app.add_handler(CommandHandler("weekly_report", self.weekly_report_command))
         app.add_handler(CommandHandler("medicine_history", self.medicine_history_command))
+        app.add_handler(CommandHandler("weekly_usage", self.weekly_usage_command))
 
         # Caregiver Commands
         app.add_handler(CommandHandler("add_caregiver", self.add_caregiver_command))
@@ -129,6 +146,29 @@ class MedicineReminderBot:
         app.add_error_handler(self.error_handler)
 
         logger.info("All handlers registered successfully")
+
+    async def _track_activity_message(self, update: Update, context):
+        try:
+            user = update.effective_user
+            if not user:
+                return
+            db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
+            if db_user:
+                await DatabaseManager.log_user_activity(db_user.id, "message")
+        except Exception:
+            # Never block message processing for analytics issues
+            pass
+
+    async def _track_activity_callback(self, update: Update, context):
+        try:
+            user = update.effective_user
+            if not user:
+                return
+            db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
+            if db_user:
+                await DatabaseManager.log_user_activity(db_user.id, "callback")
+        except Exception:
+            pass
 
     async def start_command(self, update: Update, context):
         """Handle /start command"""
@@ -178,6 +218,22 @@ class MedicineReminderBot:
 
         except Exception as e:
             logger.error(f"Error in start command: {e}")
+            await update.message.reply_text(config.ERROR_MESSAGES["general"])
+
+    async def weekly_usage_command(self, update: Update, context):
+        """Admin-only: show number of unique users who used the bot in the last 7 days."""
+        try:
+            caller_tid = update.effective_user.id if update and update.effective_user else 0
+            if int(getattr(config, "ADMIN_TELEGRAM_ID", 0) or 0) != int(caller_tid):
+                await update.message.reply_text(config.ERROR_MESSAGES.get("unauthorized", "אין הרשאה."))
+                return
+            from datetime import datetime as dt, timedelta
+
+            since = dt.utcnow() - timedelta(days=7)
+            count = await DatabaseManager.count_active_users_since(since)
+            await update.message.reply_text(f"ב-7 הימים האחרונים השתמשו בבוט {count} משתמשים ייחודיים.")
+        except Exception as e:
+            logger.error(f"Error in weekly_usage command: {e}")
             await update.message.reply_text(config.ERROR_MESSAGES["general"])
 
     async def help_command(self, update: Update, context):

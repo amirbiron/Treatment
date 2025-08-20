@@ -133,6 +133,20 @@ class UserSettings(Base):
     user: Mapped["User"] = relationship("User")
 
 
+class UserActivity(Base):
+    """Lightweight user activity log for usage analytics."""
+
+    __tablename__ = "user_activity"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
+    activity_type: Mapped[str] = mapped_column(String(30), default="message")
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Relationship
+    user: Mapped["User"] = relationship("User")
+
+
 class Caregiver(Base):
     """Caregiver/family member access for monitoring"""
 
@@ -220,6 +234,16 @@ async def init_database():
                 await conn.exec_driver_sql("ALTER TABLE medicines ADD COLUMN pack_size INTEGER NULL")
         except Exception:
             pass
+        # Ensure user_activity table exists in legacy DBs (SQLite-safe)
+        try:
+            res3 = await conn.exec_driver_sql("PRAGMA table_info(user_activity)")
+            cols3 = [row[1] for row in res3.fetchall()]
+            if not cols3:
+                await conn.exec_driver_sql(
+                    "CREATE TABLE IF NOT EXISTS user_activity (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, activity_type VARCHAR(30) DEFAULT 'message', occurred_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id))"
+                )
+        except Exception:
+            pass
         # Add remind_same_day to appointments if missing
         try:
             res3 = await conn.exec_driver_sql("PRAGMA table_info(appointments)")
@@ -263,6 +287,28 @@ class DatabaseManager:
         async with async_session() as session:
             result = await session.execute(select(User).where(User.telegram_id == telegram_id))
             return result.scalars().first()
+
+    @staticmethod
+    async def log_user_activity(user_id: int, activity_type: str = "message") -> None:
+        """Insert lightweight user activity row."""
+        async with async_session() as session:
+            try:
+                row = UserActivity(user_id=int(user_id), activity_type=str(activity_type))
+                session.add(row)
+                await session.commit()
+            except Exception:
+                # Do not raise; analytics should not break flows
+                await session.rollback()
+                return
+
+    @staticmethod
+    async def count_active_users_since(since_dt: datetime) -> int:
+        """Count distinct users who had any activity since given datetime."""
+        async with async_session() as session:
+            result = await session.execute(
+                select(func.count(func.distinct(UserActivity.user_id))).where(UserActivity.occurred_at >= since_dt)
+            )
+            return int(result.scalar() or 0)
 
     @staticmethod
     async def get_user_by_id(user_id: int) -> Optional[User]:
@@ -897,6 +943,31 @@ class DatabaseManagerMongo:
         user.timezone = doc.get("timezone", "UTC")
         user.created_at = doc.get("created_at") or datetime.utcnow()
         return user
+
+    @staticmethod
+    async def log_user_activity(user_id: int, activity_type: str = "message") -> None:
+        await _init_mongo()
+        try:
+            last = await _mongo_db.user_activity.find().sort("_id", -1).limit(1).to_list(1)
+            next_id = (last[0]["_id"] + 1) if last else 1
+            doc = {
+                "_id": next_id,
+                "user_id": int(user_id),
+                "activity_type": str(activity_type),
+                "occurred_at": datetime.utcnow(),
+            }
+            await _mongo_db.user_activity.insert_one(doc)
+        except Exception:
+            return
+
+    @staticmethod
+    async def count_active_users_since(since_dt: datetime) -> int:
+        await _init_mongo()
+        try:
+            rows = await _mongo_db.user_activity.distinct("user_id", {"occurred_at": {"$gte": since_dt}})
+            return int(len(rows))
+        except Exception:
+            return 0
 
     @staticmethod
     async def get_doses_for_date(user_id: int, day_date) -> List[DoseLog]:
