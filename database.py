@@ -510,6 +510,17 @@ class DatabaseManager:
             return True
 
     @staticmethod
+    async def delete_caregiver(caregiver_id: int) -> bool:
+        """Permanently delete a caregiver record."""
+        async with async_session() as session:
+            caregiver = await session.get(Caregiver, caregiver_id)
+            if not caregiver:
+                return False
+            await session.delete(caregiver)
+            await session.commit()
+            return True
+
+    @staticmethod
     async def get_all_active_users() -> List[User]:
         """Return all active users"""
         async with async_session() as session:
@@ -1383,6 +1394,12 @@ class DatabaseManagerMongo:
         await _init_mongo()
         res = await _mongo_db.caregivers.update_one({"_id": int(caregiver_id)}, {"$set": {"is_active": bool(is_active)}})
         return res.modified_count >= 0
+
+    @staticmethod
+    async def delete_caregiver(caregiver_id: int) -> bool:
+        await _init_mongo()
+        res = await _mongo_db.caregivers.delete_one({"_id": int(caregiver_id)})
+        return res.deleted_count > 0
 
     @staticmethod
     async def get_all_active_users() -> List[User]:

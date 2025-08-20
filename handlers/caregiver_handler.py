@@ -98,10 +98,16 @@ class CaregiverHandler:
                     status_emoji = config.EMOJIS["success"] if c.is_active else config.EMOJIS["error"]
                     created_txt = c.created_at.strftime("%d/%m/%Y") if getattr(c, "created_at", None) else ""
                     message += f"{status_emoji} <b>{c.caregiver_name}</b>\n   👤 {c.relationship_type}\n   📅 נוסף: {created_txt}\n\n"
-                keyboard = [
-                    [InlineKeyboardButton("🔗 הזמן מטפל (קוד/קישור)", callback_data="caregiver_invite")],
-                    [InlineKeyboardButton("📊 שלח דוח למטפלים", callback_data="caregiver_send_report")],
-                ]
+                keyboard = []
+                # Per-caregiver edit/remove rows
+                for c in caregivers[:10]:
+                    keyboard.append([
+                        InlineKeyboardButton(f"✏️ {c.caregiver_name}", callback_data=f"caregiver_edit_{c.id}"),
+                        InlineKeyboardButton("🗑️ הסר מטפל", callback_data=f"remove_caregiver_{c.id}"),
+                    ])
+                # Actions
+                keyboard.append([InlineKeyboardButton("🔗 הזמן מטפל (קוד/קישור)", callback_data="caregiver_invite")])
+                keyboard.append([InlineKeyboardButton("📊 שלח דוח למטפלים", callback_data="caregiver_send_report")])
             keyboard.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="main_menu")])
 
             if update.callback_query:
@@ -204,6 +210,33 @@ class CaregiverHandler:
                 except Exception as e:
                     logger.error(f"Error sending report to caregivers: {e}")
                     await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                return
+
+            # Remove caregiver confirmation
+            if data.startswith("remove_caregiver_"):
+                cid = int(data.split("_")[-1])
+                # Confirm dialog
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("אישור", callback_data=f"remcg_{cid}_confirm")],
+                    [InlineKeyboardButton("ביטול", callback_data="caregiver_manage")],
+                ])
+                await query.edit_message_text("האם להסיר מטפל זה?", reply_markup=kb)
+                return
+
+            if data.startswith("remcg_") and data.endswith("_confirm"):
+                parts = data.split("_")
+                try:
+                    cid = int(parts[1])
+                except Exception:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                    return
+                ok = await DatabaseManager.delete_caregiver(cid)
+                if ok:
+                    await query.edit_message_text(f"{config.EMOJIS['success']} המטפל הוסר")
+                else:
+                    await query.edit_message_text(f"{config.EMOJIS['error']} המטפל לא נמצא")
+                # Return to list
+                await self.view_caregivers(update, context)
                 return
 
             # Fallback
