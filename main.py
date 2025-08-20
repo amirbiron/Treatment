@@ -1321,7 +1321,8 @@ class MedicineReminderBot:
                     else:
                         await update.message.reply_text(f"{config.EMOJES['error']} שגיאה במחיקה")
                     user_data.pop("editing_medicine_for", None)
-                    await self.my_medicines_command(update, context)
+                    from utils.keyboards import get_main_menu_keyboard
+                    await update.message.reply_text("תפריט ראשי:", reply_markup=get_main_menu_keyboard())
                     return
                 if lower.startswith("מינון "):
                     new_dosage = text.split(" ", 1)[1].strip()
