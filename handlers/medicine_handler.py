@@ -459,33 +459,14 @@ class MedicineHandler:
             await medicine_scheduler.cancel_medicine_reminders(db_user.id, medicine_id)
             ok = await DatabaseManager.delete_medicine(medicine_id)
 
-            # Refresh medicines list
-            meds = await DatabaseManager.get_user_medicines(db_user.id)
-            offset = int(context.user_data.get("med_list_offset", 0))
-
-            message = (
-                f"{config.EMOJIS['success']} התרופה נמחקה" if ok else f"{config.EMOJIS['error']} התרופה לא נמצאה"
-            ) + "\n\n"
-            if not meds:
-                message += f"{config.EMOJIS['info']} אין תרופות רשומות"
+            # Show success/error message (no jump to medicines menu)
+            if ok:
+                await query.edit_message_text(f"{config.EMOJIS['success']} התרופה נמחקה", parse_mode="HTML")
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id, text="תפריט ראשי:", reply_markup=get_main_menu_keyboard()
+                )
             else:
-                message += f"{config.EMOJIS['medicine']} <b>התרופות שלכם:</b>\n\n"
-                slice_start = max(0, offset)
-                slice_end = slice_start + config.MAX_MEDICINES_PER_PAGE
-                for med in meds[slice_start:slice_end]:
-                    status_emoji = config.EMOJIS["success"] if med.is_active else config.EMOJIS["error"]
-                    inv_warn = (
-                        f" {config.EMOJIS['warning']}" if med.inventory_count <= med.low_stock_threshold else ""
-                    )
-                    message += (
-                        f"{status_emoji} <b>{med.name}</b>\n   💊 {med.dosage}\n   📦 מלאי: {med.inventory_count}{inv_warn}\n\n"
-                    )
-
-            from utils.keyboards import get_medicines_keyboard
-
-            await query.edit_message_text(
-                message, parse_mode="HTML", reply_markup=get_medicines_keyboard(meds if meds else [], offset=offset)
-            )
+                await query.edit_message_text(f"{config.EMOJIS['error']} התרופה לא נמצאה")
         except Exception as e:
             logger.error(f"Error confirming delete medicine: {e}")
             try:
