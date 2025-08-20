@@ -7,7 +7,7 @@ import os
 from datetime import datetime, time, timedelta
 from datetime import date
 from typing import List, Optional
-from sqlalchemy import String, Integer, Boolean, DateTime, Time, Text, ForeignKey, Float, select, func
+from sqlalchemy import String, Integer, Boolean, DateTime, Time, Text, ForeignKey, Float, select, func, or_  # local import to avoid polluting module top
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from config import config
@@ -536,12 +536,16 @@ class DatabaseManager:
     async def get_medicine_doses_in_range(medicine_id: int, start_date, end_date) -> List["DoseLog"]:
         """Get dose logs for a medicine within a date range (inclusive)."""
         async with async_session() as session:
+            start_dt = datetime.combine(start_date, datetime.min.time())
+            end_dt = datetime.combine(end_date, datetime.max.time())
             result = await session.execute(
                 select(DoseLog)
                 .where(
                     DoseLog.medicine_id == medicine_id,
-                    DoseLog.scheduled_time >= datetime.combine(start_date, datetime.min.time()),
-                    DoseLog.scheduled_time <= datetime.combine(end_date, datetime.max.time()),
+                    or_(
+                        DoseLog.scheduled_time.between(start_dt, end_dt),
+                        DoseLog.created_at.between(start_dt, end_dt),
+                    ),
                 )
                 .order_by(DoseLog.scheduled_time.asc())
             )
@@ -1420,14 +1424,16 @@ class DatabaseManagerMongo:
     @staticmethod
     async def get_medicine_doses_in_range(medicine_id: int, start_date, end_date) -> List[DoseLog]:
         await _init_mongo()
+        start_dt = datetime.combine(start_date, datetime.min.time())
+        end_dt = datetime.combine(end_date, datetime.max.time())
         rows = (
             await _mongo_db.dose_logs.find(
                 {
                     "medicine_id": int(medicine_id),
-                    "scheduled_time": {
-                        "$gte": datetime.combine(start_date, datetime.min.time()),
-                        "$lte": datetime.combine(end_date, datetime.max.time()),
-                    },
+                    "$or": [
+                        {"scheduled_time": {"$gte": start_dt, "$lte": end_dt}},
+                        {"created_at": {"$gte": start_dt, "$lte": end_dt}},
+                    ],
                 }
             )
             .sort("scheduled_time", 1)
@@ -1437,8 +1443,11 @@ class DatabaseManagerMongo:
         for d in rows:
             log = DoseLog()
             log.id = d.get("_id")
-            log.medicine_id = d.get("medicine_id")
+            log.medicine_id = int(d.get("medicine_id")) if d.get("medicine_id") is not None else None
             log.scheduled_time = d.get("scheduled_time")
+            log.taken_at = d.get("taken_at")
+            log.status = d.get("status", "pending")
+            log.notes = d.get("notes")
             result.append(log)
         return result
 

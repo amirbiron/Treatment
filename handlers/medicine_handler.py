@@ -13,6 +13,7 @@ from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, Mess
 from config import config
 from database import DatabaseManager, Medicine, MedicineSchedule
 from scheduler import medicine_scheduler
+from utils.time import get_user_timezone_name
 from utils.keyboards import (
     get_medicines_keyboard,
     get_medicine_detail_keyboard,
@@ -396,12 +397,12 @@ class MedicineHandler:
             for schedule_time in medicine_data["schedules"]:
                 await DatabaseManager.create_medicine_schedule(medicine_id=medicine.id, time_to_take=schedule_time)
 
-                # Schedule reminders
+                # Schedule reminders (timezone-aware with user default fallback)
                 await medicine_scheduler.schedule_medicine_reminder(
                     user_id=user.id,
                     medicine_id=medicine.id,
                     reminder_time=schedule_time,
-                    timezone=user.timezone or config.DEFAULT_TIMEZONE,
+                    timezone=get_user_timezone_name(user),
                 )
 
             return True
@@ -440,12 +441,10 @@ class MedicineHandler:
             message = f"""
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
 
-💊 <b>מינון:</b> {medicine.dosage}
+🧪 <b>מינון:</b> {medicine.dosage}
 ⏰ <b>שעות נטילה:</b> {', '.join(schedule_times) if schedule_times else 'לא מוגדר'}
 📦 <b>מלאי:</b> {medicine.inventory_count} כדורים
 📊 <b>השבוע:</b> נלקח {taken_count}/{total_count} פעמים
-📅 <b>נוצר:</b> {medicine.created_at.strftime('%d/%m/%Y')}
-🟢 <b>פעיל:</b> {'כן' if medicine.is_active else 'לא'}
 
 {medicine.notes or ''}{inventory_status}
             """
@@ -494,7 +493,7 @@ class MedicineHandler:
                 header = f"{config.EMOJIS['error']} התרופה לא נמצאה\n\n"
 
             if not meds:
-                message = header + f"{config.EMOJIS['info']} אין תרופות רשומות"
+                message = header + "לחצו על 'הוסף תרופה' כדי להוסיף תרופה ראשונה."
                 kb = get_main_menu_keyboard()
                 await query.edit_message_text(message, parse_mode="HTML")
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="תפריט ראשי:", reply_markup=kb)

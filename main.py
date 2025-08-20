@@ -241,7 +241,7 @@ class MedicineReminderBot:
                 message = f"""
 {config.EMOJES['info']} <b>אין תרופות רשומות</b>
 
-לחצו על /add_medicine כדי להוסיף תרופה ראשונה.
+לחצו על 'הוסף תרופה' כדי להוסיף תרופה ראשונה.
                 """
             else:
                 message = f"{config.EMOJES['medicine']} <b>התרופות שלכם:</b>\n\n"
@@ -333,7 +333,7 @@ class MedicineReminderBot:
                         "בחרו תרופה לשיוך מעקב תופעות:", reply_markup=get_symptoms_medicine_picker(meds)
                     )
                 else:
-                    await update.callback_query.edit_message_text("אין תרופות במערכת. הוסיפו תרופה דרך 'התרופות שלי'.")
+                    await update.callback_query.edit_message_text("לחצו על 'הוסף תרופה' כדי להוסיף תרופה ראשונה.")
                 return
             # Fallback to classic message reply
             if meds:
@@ -343,7 +343,7 @@ class MedicineReminderBot:
                     "בחרו תרופה לשיוך מעקב תופעות:", reply_markup=get_symptoms_medicine_picker(meds)
                 )
             else:
-                await update.message.reply_text("אין תרופות במערכת. הוסיפו תרופה דרך 'התרופות שלי'.")
+                await update.message.reply_text("לחצו על 'הוסף תרופה' כדי להוסיף תרופה ראשונה.")
         except Exception as e:
             logger.error(f"Error in log_symptoms command: {e}")
             try:
@@ -888,7 +888,7 @@ class MedicineReminderBot:
                 if not medicines:
                     message = (
                         header
-                        + f"{config.EMOJES['info']} <b>אין תרופות רשומות</b>\n\nלחצו על /add_medicine כדי להוסיף תרופה ראשונה."
+                        + f"{config.EMOJES['info']} <b>אין תרופות רשומות</b>\n\nלחצו על 'הוסף תרופה' כדי להוסיף תרופה ראשונה."
                     )
                 else:
                     message = header + f"{config.EMOJES['medicine']} <b>התרופות שלכם:</b>\n\n"
