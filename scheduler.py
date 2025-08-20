@@ -17,6 +17,13 @@ from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, JobExecution
 
 from config import config
 from database import DatabaseManager, MedicineSchedule, Medicine, User, Appointment
+from utils.time import (
+    get_default_timezone_name,
+    get_timezone,
+    now_in_timezone,
+    ensure_aware,
+    get_user_timezone_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +90,19 @@ class MedicineScheduler:
             if self.scheduler.get_job(job_id):
                 self.scheduler.remove_job(job_id)
 
-            # Create cron trigger for daily reminder
-            trigger = CronTrigger(hour=reminder_time.hour, minute=reminder_time.minute, timezone=timezone)
+            # Normalize timezone (fallback to user's tz or default Asia/Jerusalem when missing/'UTC')
+            tz_name = (timezone or "").strip() if isinstance(timezone, str) else ""
+            if not tz_name or tz_name.upper() == "UTC":
+                # Try to derive from DB user record
+                try:
+                    db_user = await DatabaseManager.get_user_by_id(int(user_id))
+                except Exception:
+                    db_user = None
+                tz_name = get_user_timezone_name(db_user) if db_user else get_default_timezone_name()
+            tzinfo = get_timezone(tz_name)
+
+            # Create cron trigger for daily reminder in user's timezone
+            trigger = CronTrigger(hour=reminder_time.hour, minute=reminder_time.minute, timezone=tzinfo)
 
             # Schedule the job
             self.scheduler.add_job(
@@ -108,11 +126,26 @@ class MedicineScheduler:
         if snooze_minutes is None:
             snooze_minutes = config.REMINDER_SNOOZE_MINUTES
 
-        job_id = f"snooze_reminder_{user_id}_{medicine_id}_{datetime.now().timestamp()}"
-        remind_time = datetime.now() + timedelta(minutes=snooze_minutes)
+        # Derive user's timezone and database user id for consistent job ids
+        try:
+            db_user = await DatabaseManager.get_user_by_telegram_id(int(user_id))
+        except Exception:
+            db_user = None
+        if not db_user:
+            try:
+                db_user = await DatabaseManager.get_user_by_id(int(user_id))
+            except Exception:
+                db_user = None
+        db_user_id = int(getattr(db_user, "id", user_id))
+        tz_name = get_user_timezone_name(db_user) if db_user else get_default_timezone_name()
+        tzinfo = get_timezone(tz_name)
+
+        job_id = f"snooze_reminder_{db_user_id}_{medicine_id}_{datetime.now().timestamp()}"
+        remind_time = now_in_timezone(tz_name) + timedelta(minutes=snooze_minutes)
 
         try:
-            trigger = DateTrigger(run_date=remind_time)
+            # Use aware datetime with explicit timezone
+            trigger = DateTrigger(run_date=remind_time, timezone=tzinfo)
 
             self.scheduler.add_job(
                 func=self._send_snoozed_reminder,
@@ -132,18 +165,25 @@ class MedicineScheduler:
 
     async def cancel_medicine_reminders(self, user_id: int, medicine_id: int = None):
         """Cancel medicine reminders for a user or specific medicine"""
-        pattern = f"medicine_reminder_{user_id}"
+        patterns = [f"medicine_reminder_{user_id}"]
         if medicine_id:
-            pattern += f"_{medicine_id}"
+            patterns.append(f"medicine_reminder_{user_id}_{medicine_id}")
+            patterns.append(f"snooze_reminder_{user_id}_{medicine_id}_")  # prefix including trailing underscore before ts
+        else:
+            patterns.append(f"snooze_reminder_{user_id}")
 
         jobs_to_remove = []
         for job in self.scheduler.get_jobs():
-            if job.id.startswith(pattern):
-                jobs_to_remove.append(job.id)
+            job_id = job.id
+            if any(job_id.startswith(p) for p in patterns):
+                jobs_to_remove.append(job_id)
 
         for job_id in jobs_to_remove:
-            self.scheduler.remove_job(job_id)
-            logger.info(f"Cancelled job: {job_id}")
+            try:
+                self.scheduler.remove_job(job_id)
+                logger.info(f"Cancelled job: {job_id}")
+            except Exception as exc:
+                logger.warning(f"Failed to cancel job {job_id}: {exc}")
 
     async def _send_medicine_reminder(self, user_id: int, medicine_id: int):
         """Send medicine reminder to user"""
@@ -314,7 +354,13 @@ class MedicineScheduler:
     async def _mark_dose_missed(self, user_id: int, medicine_id: int):
         """Mark a dose as missed in the database"""
         try:
-            await DatabaseManager.log_dose_missed(medicine_id, datetime.now())
+            # Log with timezone-aware timestamp using user's timezone when possible
+            try:
+                user = await DatabaseManager.get_user_by_id(int(user_id))
+            except Exception:
+                user = None
+            tz_name = get_user_timezone_name(user) if user else get_default_timezone_name()
+            await DatabaseManager.log_dose_missed(medicine_id, now_in_timezone(tz_name))
         except Exception as e:
             logger.error(f"Failed to mark dose as missed: {e}")
 
@@ -407,7 +453,7 @@ class MedicineScheduler:
                     continue
                 self.scheduler.add_job(
                     func=self._send_appointment_reminder,
-                    trigger=DateTrigger(run_date=run_time, timezone=timezone),
+                    trigger=DateTrigger(run_date=run_time, timezone=get_timezone(timezone or get_default_timezone_name())),
                     id=job_id,
                     args=[user_id, appointment_id, days_before],
                     name=f"Appointment reminder {appointment_id} ({days_before}d) for user {user_id}",
@@ -447,7 +493,7 @@ class MedicineScheduler:
             for appt in appts:
                 # Assume user timezone
                 user = await DatabaseManager.get_user_by_id(appt.user_id)
-                tz = user.timezone or config.DEFAULT_TIMEZONE
+                tz = user.timezone or get_default_timezone_name()
                 await self.schedule_appointment_reminders(
                     appt.user_id,
                     appt.id,
@@ -463,8 +509,6 @@ class MedicineScheduler:
     async def _reschedule_all_medicine_reminders(self):
         """Ensure all active medicines with schedules are scheduled after startup."""
         try:
-            from pytz import timezone as _tz  # optional, not strictly needed for UTC triggers
-
             uploaded = 0
             users = await DatabaseManager.get_all_active_users()
             for user in users:
@@ -481,7 +525,7 @@ class MedicineScheduler:
                                 user_id=user.id,
                                 medicine_id=med.id,
                                 reminder_time=sch.time_to_take,
-                                timezone=user.timezone or config.DEFAULT_TIMEZONE,
+                                timezone=user.timezone or get_default_timezone_name(),
                             )
                             uploaded += 1
                 except Exception as inner_exc:

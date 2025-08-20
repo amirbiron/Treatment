@@ -13,6 +13,7 @@ from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, Mess
 from config import config
 from database import DatabaseManager, Medicine, MedicineSchedule
 from scheduler import medicine_scheduler
+from utils.time import get_default_timezone_name
 from utils.keyboards import (
     get_medicines_keyboard,
     get_medicine_detail_keyboard,
@@ -47,6 +48,8 @@ class MedicineHandler:
                 CallbackQueryHandler(self.edit_medicine, pattern="^medicine_edit_"),
                 # Inventory per-medicine actions (only those with an ID)
                 CallbackQueryHandler(self.handle_inventory_update, pattern=r"^inventory_\d+_"),
+                # Delete medicine initiation (asks for confirmation)
+                CallbackQueryHandler(self.request_delete_medicine, pattern=r"^medicine_delete_\d+$"),
             ],
             states={
                 MEDICINE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_medicine_name)],
@@ -67,6 +70,32 @@ class MedicineHandler:
             ],
             per_message=False,
         )
+
+    def get_handlers(self) -> List:
+        """Additional callback handlers for medicine operations (non-conversation)."""
+        return [
+            # Confirm/cancel deletion callbacks: meddel_<id>_confirm|cancel
+            CallbackQueryHandler(self.confirm_delete_medicine, pattern=r"^meddel_\d+_confirm$"),
+            CallbackQueryHandler(self.cancel_delete_medicine, pattern=r"^meddel_\d+_cancel$"),
+        ]
+
+    async def request_delete_medicine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Ask for deletion confirmation for a medicine."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            medicine_id = int(query.data.split("_")[2])
+            from utils.keyboards import get_confirmation_keyboard
+
+            await query.edit_message_text(
+                "האם למחוק את התרופה?", reply_markup=get_confirmation_keyboard("meddel", medicine_id)
+            )
+        except Exception as e:
+            logger.error(f"Error requesting delete medicine: {e}")
+            try:
+                await update.callback_query.edit_message_text(config.ERROR_MESSAGES["general"])
+            except Exception:
+                pass
 
     async def start_add_medicine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Start the add medicine conversation"""
@@ -389,12 +418,12 @@ class MedicineHandler:
             for schedule_time in medicine_data["schedules"]:
                 await DatabaseManager.create_medicine_schedule(medicine_id=medicine.id, time_to_take=schedule_time)
 
-                # Schedule reminders
+                # Schedule reminders (use DB user id and default Asia/Jerusalem when user timezone missing)
                 await medicine_scheduler.schedule_medicine_reminder(
-                    user_id=user_id,
+                    user_id=user.id,
                     medicine_id=medicine.id,
                     reminder_time=schedule_time,
-                    timezone=user.timezone or config.DEFAULT_TIMEZONE,
+                    timezone=(user.timezone or get_default_timezone_name()),
                 )
 
             return True
@@ -402,6 +431,76 @@ class MedicineHandler:
         except Exception as e:
             logger.error(f"Error creating medicine in database: {e}")
             return False
+
+    async def confirm_delete_medicine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle confirmation of medicine deletion: cancel schedules, delete from DB, update UI."""
+        try:
+            query = update.callback_query
+            await query.answer()
+
+            parts = (query.data or "").split("_")
+            if len(parts) < 3 or not parts[-2].isdigit():
+                await query.edit_message_text(f"{config.EMOJIS['error']} בקשה לא תקינה")
+                return
+            medicine_id = int(parts[-2])
+
+            # Fetch user and verify ownership
+            db_user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+            if not db_user:
+                await query.edit_message_text(f"{config.EMOJIS['error']} משתמש לא נמצא")
+                return
+
+            medicine = await DatabaseManager.get_medicine_by_id(medicine_id)
+            if not medicine or medicine.user_id != db_user.id:
+                await query.edit_message_text(f"{config.EMOJIS['error']} התרופה לא נמצאה")
+                return
+
+            # Cancel all related schedules (including snoozes) and delete
+            await medicine_scheduler.cancel_medicine_reminders(db_user.id, medicine_id)
+            ok = await DatabaseManager.delete_medicine(medicine_id)
+
+            # Refresh medicines list
+            meds = await DatabaseManager.get_user_medicines(db_user.id)
+            offset = int(context.user_data.get("med_list_offset", 0))
+
+            message = (
+                f"{config.EMOJIS['success']} התרופה נמחקה" if ok else f"{config.EMOJIS['error']} התרופה לא נמצאה"
+            ) + "\n\n"
+            if not meds:
+                message += f"{config.EMOJIS['info']} אין תרופות רשומות"
+            else:
+                message += f"{config.EMOJIS['medicine']} <b>התרופות שלכם:</b>\n\n"
+                slice_start = max(0, offset)
+                slice_end = slice_start + config.MAX_MEDICINES_PER_PAGE
+                for med in meds[slice_start:slice_end]:
+                    status_emoji = config.EMOJIS["success"] if med.is_active else config.EMOJIS["error"]
+                    inv_warn = (
+                        f" {config.EMOJIS['warning']}" if med.inventory_count <= med.low_stock_threshold else ""
+                    )
+                    message += (
+                        f"{status_emoji} <b>{med.name}</b>\n   💊 {med.dosage}\n   📦 מלאי: {med.inventory_count}{inv_warn}\n\n"
+                    )
+
+            from utils.keyboards import get_medicines_keyboard
+
+            await query.edit_message_text(
+                message, parse_mode="HTML", reply_markup=get_medicines_keyboard(meds if meds else [], offset=offset)
+            )
+        except Exception as e:
+            logger.error(f"Error confirming delete medicine: {e}")
+            try:
+                await update.callback_query.edit_message_text(config.ERROR_MESSAGES["general"])
+            except Exception:
+                pass
+
+    async def cancel_delete_medicine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle cancellation of medicine deletion UI."""
+        try:
+            query = update.callback_query
+            await query.answer()
+            await query.edit_message_text("בוטל")
+        except Exception as e:
+            logger.error(f"Error canceling delete medicine: {e}")
 
     async def view_medicine(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """View detailed medicine information"""
