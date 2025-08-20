@@ -440,10 +440,12 @@ class MedicineHandler:
             message = f"""
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
 
-🧪 <b>מינון:</b> {medicine.dosage}
+💊 <b>מינון:</b> {medicine.dosage}
 ⏰ <b>שעות נטילה:</b> {', '.join(schedule_times) if schedule_times else 'לא מוגדר'}
 📦 <b>מלאי:</b> {medicine.inventory_count} כדורים
 📊 <b>השבוע:</b> נלקח {taken_count}/{total_count} פעמים
+📅 <b>נוצר:</b> {medicine.created_at.strftime('%d/%m/%Y')}
+🟢 <b>פעיל:</b> {'כן' if medicine.is_active else 'לא'}
 
 {medicine.notes or ''}{inventory_status}
             """
@@ -492,7 +494,7 @@ class MedicineHandler:
                 header = f"{config.EMOJIS['error']} התרופה לא נמצאה\n\n"
 
             if not meds:
-                message = header + f"{config.EMOJIS['info']} אין תרופות רשומות\n\nלחצו על 'הוסף תרופה' כדי להוסיף תרופה ראשונה."
+                message = header + f"{config.EMOJIS['info']} אין תרופות רשומות"
                 kb = get_main_menu_keyboard()
                 await query.edit_message_text(message, parse_mode="HTML")
                 await context.bot.send_message(chat_id=update.effective_chat.id, text="תפריט ראשי:", reply_markup=kb)

@@ -12,10 +12,10 @@ from config import config
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     """Main menu keyboard with large, clear buttons"""
     keyboard = [
-        [KeyboardButton(f"{config.EMOJIS['medicine']} התרופות שלי")],
-        [KeyboardButton(f"{config.EMOJIS['reminder']} תזכורות"), KeyboardButton(f"{config.EMOJIS['calendar']} הוספת תור")],
+        [KeyboardButton(f"{config.EMOJIS['medicine']} התרופות שלי"), KeyboardButton(f"{config.EMOJIS['reminder']} תזכורות")],
         [KeyboardButton(f"{config.EMOJIS['inventory']} מלאי"), KeyboardButton(f"{config.EMOJIS['symptoms']} תופעות לוואי")],
         [KeyboardButton(f"{config.EMOJIS['report']} דוחות"), KeyboardButton(f"{config.EMOJIS['caregiver']} מטפלים")],
+        [KeyboardButton(f"{config.EMOJIS['calendar']} הוספת תור")],
         [KeyboardButton(f"{config.EMOJIS['settings']} הגדרות"), KeyboardButton(f"{config.EMOJIS['info']} עזרה")],
     ]
 
@@ -282,6 +282,7 @@ def get_inventory_main_keyboard() -> InlineKeyboardMarkup:
 def get_caregiver_keyboard() -> InlineKeyboardMarkup:
     """Caregiver management keyboard"""
     keyboard = [
+        [InlineKeyboardButton(f"{config.EMOJIS['caregiver']} הוסף מטפל", callback_data="caregiver_add")],
         [
             InlineKeyboardButton(f"{config.EMOJIS['settings']} נהל מטפלים", callback_data="caregiver_manage"),
             InlineKeyboardButton(f"{config.EMOJIS['report']} שלח דוח", callback_data="caregiver_send_report"),
