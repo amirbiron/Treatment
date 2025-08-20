@@ -16,6 +16,7 @@ from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, JobExecutionEvent
 
 from config import config
+from utils.time import get_timezone, get_user_timezone_name, ensure_aware, now_in_timezone
 from database import DatabaseManager, MedicineSchedule, Medicine, User, Appointment
 
 logger = logging.getLogger(__name__)
@@ -83,8 +84,13 @@ class MedicineScheduler:
             if self.scheduler.get_job(job_id):
                 self.scheduler.remove_job(job_id)
 
-            # Create cron trigger for daily reminder
-            trigger = CronTrigger(hour=reminder_time.hour, minute=reminder_time.minute, timezone=timezone)
+            # Determine timezone by fetching the user's configured timezone
+            try:
+                db_user = await DatabaseManager.get_user_by_id(user_id)
+            except Exception:
+                db_user = None
+            tz_name = get_user_timezone_name(db_user) if db_user else timezone
+            trigger = CronTrigger(hour=reminder_time.hour, minute=reminder_time.minute, timezone=get_timezone(tz_name))
 
             # Schedule the job
             self.scheduler.add_job(
@@ -108,11 +114,27 @@ class MedicineScheduler:
         if snooze_minutes is None:
             snooze_minutes = config.REMINDER_SNOOZE_MINUTES
 
-        job_id = f"snooze_reminder_{user_id}_{medicine_id}_{datetime.now().timestamp()}"
-        remind_time = datetime.now() + timedelta(minutes=snooze_minutes)
+        # Resolve user_id (could be Telegram ID in some call sites); prefer DB user.id
+        try:
+            user = await DatabaseManager.get_user_by_id(user_id)
+            if not user:
+                user = await DatabaseManager.get_user_by_telegram_id(user_id)
+        except Exception:
+            user = None
+
+        # Determine timezone
+        tz_name = get_user_timezone_name(user) if user else config.DEFAULT_TIMEZONE
+        tz = get_timezone(tz_name)
+
+        # Build stable job id using DB user id if available (for consistent cancellation)
+        stable_user_id = getattr(user, "id", user_id)
+        job_id = f"snooze_reminder_{stable_user_id}_{medicine_id}_{datetime.now().timestamp()}"
+
+        # Schedule at tz-aware time
+        remind_time = now_in_timezone(tz) + timedelta(minutes=snooze_minutes)
 
         try:
-            trigger = DateTrigger(run_date=remind_time)
+            trigger = DateTrigger(run_date=remind_time, timezone=tz)
 
             self.scheduler.add_job(
                 func=self._send_snoozed_reminder,
@@ -131,19 +153,42 @@ class MedicineScheduler:
             raise
 
     async def cancel_medicine_reminders(self, user_id: int, medicine_id: int = None):
-        """Cancel medicine reminders for a user or specific medicine"""
-        pattern = f"medicine_reminder_{user_id}"
-        if medicine_id:
-            pattern += f"_{medicine_id}"
+        """Cancel medicine reminders for a user or specific medicine.
 
+        Covers both daily reminders and any pending snooze reminders. Also handles
+        legacy jobs that may have been scheduled with Telegram ID instead of DB ID.
+        """
         jobs_to_remove = []
         for job in self.scheduler.get_jobs():
-            if job.id.startswith(pattern):
-                jobs_to_remove.append(job.id)
+            jid = job.id or ""
+            # Daily medicine reminders
+            if jid.startswith("medicine_reminder_"):
+                # If specific medicine provided, ensure it matches
+                parts = jid.split("_")
+                # Expected: medicine_reminder_{uid}_{mid}_{HHMM}
+                mid = int(parts[3]) if len(parts) >= 4 and parts[3].isdigit() else None
+                uid = int(parts[2]) if len(parts) >= 3 and parts[2].isdigit() else None
+                if medicine_id is not None and mid != medicine_id:
+                    continue
+                if uid is not None and uid != user_id and medicine_id is None:
+                    continue
+                jobs_to_remove.append(jid)
+                continue
+            # Snooze reminders
+            if jid.startswith("snooze_reminder_"):
+                # Expected: snooze_reminder_{uid}_{mid}_{timestamp}
+                parts = jid.split("_")
+                mid = int(parts[3]) if len(parts) >= 4 and parts[3].isdigit() else None
+                uid = int(parts[2]) if len(parts) >= 3 and parts[2].isdigit() else None
+                if medicine_id is not None and mid != medicine_id:
+                    continue
+                if uid is not None and uid != user_id and medicine_id is None:
+                    continue
+                jobs_to_remove.append(jid)
 
-        for job_id in jobs_to_remove:
-            self.scheduler.remove_job(job_id)
-            logger.info(f"Cancelled job: {job_id}")
+        for jid in jobs_to_remove:
+            self.scheduler.remove_job(jid)
+            logger.info(f"Cancelled job: {jid}")
 
     async def _send_medicine_reminder(self, user_id: int, medicine_id: int):
         """Send medicine reminder to user"""
@@ -398,16 +443,20 @@ class MedicineScheduler:
                     else int(config.APPOINTMENT_SAME_DAY_REMINDER_HOUR)
                 )
                 reminders.append((0, f"appointment_reminder_{user_id}_{appointment_id}_0d", hh))
+            # Normalize timezone
+            tz = get_timezone(timezone)
+            aware_when_at = ensure_aware(when_at, tz)
             for days_before, job_id, hour_override in reminders:
                 if days_before == 0 and hour_override is not None:
-                    run_time = when_at.replace(hour=hour_override, minute=0, second=0, microsecond=0)
+                    run_time = aware_when_at.replace(hour=hour_override, minute=0, second=0, microsecond=0)
                 else:
-                    run_time = when_at - timedelta(days=days_before)
-                if run_time <= datetime.utcnow():
+                    run_time = aware_when_at - timedelta(days=days_before)
+                # Compare aware datetimes in the same tz
+                if run_time <= now_in_timezone(tz):
                     continue
                 self.scheduler.add_job(
                     func=self._send_appointment_reminder,
-                    trigger=DateTrigger(run_date=run_time, timezone=timezone),
+                    trigger=DateTrigger(run_date=run_time, timezone=tz),
                     id=job_id,
                     args=[user_id, appointment_id, days_before],
                     name=f"Appointment reminder {appointment_id} ({days_before}d) for user {user_id}",
@@ -445,16 +494,16 @@ class MedicineScheduler:
         try:
             appts = await DatabaseManager.get_all_upcoming_appointments(until_days=90)
             for appt in appts:
-                # Assume user timezone
+                # Assume user timezone with default fallback
                 user = await DatabaseManager.get_user_by_id(appt.user_id)
-                tz = user.timezone or config.DEFAULT_TIMEZONE
+                tz = get_user_timezone_name(user) if user else None
                 await self.schedule_appointment_reminders(
                     appt.user_id,
                     appt.id,
                     appt.when_at,
                     appt.remind_day_before,
                     appt.remind_3days_before,
-                    tz,
+                    tz or config.DEFAULT_TIMEZONE,
                     same_day=getattr(appt, "remind_same_day", True),
                 )
         except Exception as exc:
@@ -481,7 +530,7 @@ class MedicineScheduler:
                                 user_id=user.id,
                                 medicine_id=med.id,
                                 reminder_time=sch.time_to_take,
-                                timezone=user.timezone or config.DEFAULT_TIMEZONE,
+                                timezone=get_user_timezone_name(user),
                             )
                             uploaded += 1
                 except Exception as inner_exc:
