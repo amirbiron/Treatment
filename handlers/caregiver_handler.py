@@ -145,18 +145,17 @@ class CaregiverHandler:
 
                 # Message to forward to caregiver (plain text)
                 caregiver_msg = (
-                    f"שלום! הוזמנת להיות מטפל עבור {full_name} .\n"
-                    f"כדי להצטרף, לחצו על הקישור והאשרו: {deep_link}"
+                    f"שלום! הוזמנת להיות מטפל עבור {full_name}.\n"
+                    f"כדי להצטרף, לחצו על הקישור ותאשרו: {deep_link}"
                 ).strip()
 
                 # Instructional invite screen
                 msg = (
                     f"{config.EMOJIS['caregiver']} יצירת הזמנה למטפל\n\n"
-                    "מטרת הפונקציה: לשלוח למטפל/ת שלך קישור הצטרפות פשוט, כדי שיוכלו לקבל ממך דוחות מעקב.\n\n"
-                    "לחצו על הכפתור כדי לקבל הודעה מוכנה להעברה למטפל/ת.\n\n"
-                    "להעתקה ושליחה למטפל/ת:\n"
-                    f"שלום! הוזמנת להיות מטפל עבור {full_name} .\n\n"
-                    f"כדי להצטרף, לחצו על הקישור והאשרו: <code>{deep_link}</code>"
+                    "מטרת הפונקציה: לשלוח למטפל/ת שלך קישור הצטרפות, כדי שיוכלו לקבל ממך דוחות מעקב.\n\n"
+                    f"שלום! הוזמנת להיות מטפל עבור {full_name}.\n"
+                    f"כדי להצטרף, לחצו על הקישור ותאשרו: <code>{deep_link}</code>\n\n"
+                    "לחצו על כפתור \"העתק\" כדי לקבל את ההודעה מוכנה להעברה למטפל/ת."
                 )
 
                 kb = [
@@ -191,9 +190,10 @@ class CaregiverHandler:
                 if not text:
                     user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
                     link = f"t.me/{config.BOT_USERNAME}?start=invite_{code}"
+                    full_name = f"{user.first_name} {user.last_name or ''}".strip()
                     text = (
-                        f"שלום! הוזמנת להיות מטפל עבור {user.first_name} {user.last_name or ''} .\n"
-                        f"כדי להצטרף, לחצו על הקישור והאשרו: {link}"
+                        f"שלום! הוזמנת להיות מטפל עבור {full_name}.\n"
+                        f"כדי להצטרף, לחצו על הקישור ותאשרו: {link}"
                     ).strip()
                 await query.answer(text="ההודעה להעתקה נשלחה למעלה בצ׳אט", show_alert=False)
                 # Header like code-copy
