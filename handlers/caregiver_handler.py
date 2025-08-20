@@ -612,11 +612,38 @@ class CaregiverHandler:
                     f"שלום! הוזמנת להיות מטפל עבור {user.first_name} {user.last_name or ''} .\n"
                     f"כדי להצטרף, לחצו על הקישור והאשרו: {deep_link}"
                 ).strip()
-                # Only Back button (remove copy buttons)
-                kb = [[InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")]]
+                # Save composed message for copy action
+                context.user_data["last_invite"] = {"code": inv.code, "link": deep_link, "text": msg}
+                # Add copy button for caregiver message + back
+                kb = [
+                    [InlineKeyboardButton("📋 העתק הודעה למטפל", callback_data=f"copy_inv_msg_{inv.code}")],
+                    [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")],
+                ]
                 await query.edit_message_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
                 return
-            # Removed copy_inv_* actions per request
+            if data.startswith("copy_inv_msg_"):
+                code = data.split("_")[-1]
+                invite = context.user_data.get("last_invite", {})
+                text = invite.get("text") or ""
+                if not text:
+                    user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
+                    link = f"t.me/{config.BOT_USERNAME}?start=invite_{code}"
+                    text = (
+                        f"שלום! הוזמנת להיות מטפל עבור {user.first_name} {user.last_name or ''}.\n"
+                        f"כדי להצטרף, לחצו על הקישור והאשרו: {link}"
+                    ).strip()
+                await query.answer(text="ההודעה להעתקה נשלחה למעלה בצ׳אט", show_alert=False)
+                await context.bot.send_message(chat_id=query.message.chat_id, text=text)
+                # Update inline keyboard to reflect copied state
+                await query.edit_message_reply_markup(
+                    reply_markup=InlineKeyboardMarkup(
+                        [
+                            [InlineKeyboardButton("✔️ הועתק", callback_data="noop")],
+                            [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")],
+                        ]
+                    )
+                )
+                return
             if data == "caregiver_send_report":
                 # Send latest weekly report to all active caregivers with Telegram ID
                 from handlers.reports_handler import reports_handler
