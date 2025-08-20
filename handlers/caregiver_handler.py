@@ -412,8 +412,14 @@ class CaregiverHandler:
             user_id = update.effective_user.id
             user = await DatabaseManager.get_user_by_telegram_id(user_id)
             if not user:
-                await self._send_error_message(update, "משתמש לא נמצא")
-                return ConversationHandler.END
+                # Auto-onboard if user record missing
+                tg = update.effective_user
+                user = await DatabaseManager.create_user(
+                    telegram_id=tg.id,
+                    username=getattr(tg, "username", "") or "",
+                    first_name=getattr(tg, "first_name", "") or "",
+                    last_name=getattr(tg, "last_name", None),
+                )
             query = update.callback_query
             offset = 0
             if query and query.data.startswith("caregiver_page_"):
@@ -431,9 +437,7 @@ class CaregiverHandler:
 עדיין לא הוספתם מטפלים.
 מטפלים יכולים לעזור לכם לעקוב אחר נטילת התרופות ולקבל דוחות.
                 """
-                keyboard = [
-                    [InlineKeyboardButton(f"{config.EMOJIS['caregiver']} הוסף מטפל ראשון", callback_data="caregiver_add")]
-                ]
+                keyboard = [[InlineKeyboardButton("🔗 הזמן מטפל (קוד/קישור)", callback_data="caregiver_invite")]]
             else:
                 message = f"{config.EMOJIS['caregiver']} <b>המטפלים שלכם ({len(caregivers)}):</b>\n\n"
                 for c in caregivers[offset : offset + page_size]:
@@ -455,10 +459,7 @@ class CaregiverHandler:
                     nav.append(InlineKeyboardButton("הבא ›", callback_data=f"caregiver_page_{next_off}"))
                 if nav:
                     keyboard.append(nav)
-                # Actions
-                keyboard.append(
-                    [InlineKeyboardButton(f"{config.EMOJIS['caregiver']} הוסף מטפל", callback_data="caregiver_add")]
-                )
+                # Actions: remove "הוסף מטפל", keep only invite + report
                 keyboard.append([InlineKeyboardButton("🔗 הזמן מטפל (קוד/קישור)", callback_data="caregiver_invite")])
                 if caregivers:
                     keyboard.append([InlineKeyboardButton("📊 שלח דוח למטפלים", callback_data="caregiver_send_report")])
@@ -624,7 +625,6 @@ class CaregiverHandler:
                     f"שלחו את הקוד או השתמשו בהעתקה של ההודעה למטה."
                 )
                 kb = [
-                    [InlineKeyboardButton("📋 העתק קוד", callback_data=f"copy_inv_code_{inv.code}")],
                     [InlineKeyboardButton("📋 העתק הודעה למטפל", callback_data=f"copy_inv_msg_{inv.code}")],
                     [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")],
                 ]
@@ -638,7 +638,6 @@ class CaregiverHandler:
                 await query.edit_message_reply_markup(
                     reply_markup=InlineKeyboardMarkup(
                         [
-                            [InlineKeyboardButton("✔️ הועתק קוד", callback_data="noop")],
                             [InlineKeyboardButton("📋 העתק הודעה למטפל", callback_data=f"copy_inv_msg_{code}")],
                             [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="caregiver_manage")],
                         ]
