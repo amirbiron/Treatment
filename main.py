@@ -975,7 +975,7 @@ class MedicineReminderBot:
                     return
                 details = [
                     f"{config.EMOJES['medicine']} <b>{medicine.name}</b>",
-                    f"💊 מינון: {medicine.dosage}",
+                    f"⚖️ מינון: {medicine.dosage}",
                     f"📦 מלאי: {medicine.inventory_count}",
                     f"⚙️ סטטוס: {'פעילה' if medicine.is_active else 'מושבתת'}",
                 ]
