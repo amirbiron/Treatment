@@ -359,7 +359,7 @@ class MedicineScheduler:
     async def _mark_dose_missed(self, user_id: int, medicine_id: int):
         """Mark a dose as missed in the database"""
         try:
-            await DatabaseManager.log_dose_missed(medicine_id, datetime.now())
+            await DatabaseManager.log_dose_missed(medicine_id, datetime.utcnow())
         except Exception as e:
             logger.error(f"Failed to mark dose as missed: {e}")
 
@@ -373,12 +373,20 @@ class MedicineScheduler:
             if not medicine or not user:
                 return
 
+            # Display intended planned time in user's timezone for clarity
+            try:
+                user = await DatabaseManager.get_user_by_id(user_id)
+                tz_name = get_user_timezone_name(user) if user else None
+                planned_time_local = now_in_timezone(tz_name)
+                planned_time_str = planned_time_local.strftime('%H:%M')
+            except Exception:
+                planned_time_str = datetime.utcnow().strftime('%H:%M')
             message = f"""
 {config.EMOJES['warning']} *התראה: תרופה לא נלקחה*
 
 👤 מטופל: {user.first_name} {user.last_name or ''}
 💊 תרופה: {medicine.name}
-⏰ זמן מתוכנן: {datetime.now().strftime('%H:%M')}
+⏰ זמן מתוכנן: {planned_time_str}
 
 הודעה זו נשלחת לאחר {config.MAX_REMINDER_ATTEMPTS} ניסיונות תזכורת.
             """

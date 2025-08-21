@@ -12,6 +12,7 @@ from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler
 from config import config
 from database import DatabaseManager, DoseLog
 from scheduler import medicine_scheduler
+from utils.time import get_user_timezone_name, now_in_timezone, ensure_aware
 from utils.keyboards import get_reminder_keyboard, get_main_menu_keyboard, get_confirmation_keyboard, get_cancel_keyboard
 
 logger = logging.getLogger(__name__)
@@ -64,9 +65,13 @@ class ReminderHandler:
                 await query.edit_message_text(f"{config.EMOJIS['error']} אין לכם הרשאה לתרופה זו")
                 return
 
-            # Log dose as taken
-            now = datetime.now()
-            dose_log = await DatabaseManager.log_dose_taken(medicine_id=medicine_id, scheduled_time=now, taken_at=now)
+            # Log dose as taken (store in UTC), display in user's timezone
+            tz_name = get_user_timezone_name(user)
+            now_local = now_in_timezone(tz_name)
+            now_utc = datetime.utcnow()
+            dose_log = await DatabaseManager.log_dose_taken(
+                medicine_id=medicine_id, scheduled_time=now_utc, taken_at=now_utc
+            )
 
             # Update inventory (reduce by 1)
             if medicine.inventory_count > 0:
@@ -95,14 +100,14 @@ class ReminderHandler:
 
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
 💊 מינון: {medicine.dosage}
-⏰ זמן נטילה: {now.strftime('%H:%M')}
+⏰ זמן נטילה: {now_local.strftime('%H:%M')}
 📦 מלאי נותר: {new_count} כדורים{low_stock_warning}
 
 {config.EMOJIS['info']} התרופה תירשם ביומן הטיפולים שלכם.
             """
 
             # Send confirmation to caregivers if any
-            await self._notify_caregivers_dose_taken(user_id, medicine, now)
+            await self._notify_caregivers_dose_taken(user_id, medicine, now_local)
 
             await query.edit_message_text(message, parse_mode="HTML", reply_markup=self._get_post_dose_keyboard(medicine_id))
 
@@ -132,7 +137,10 @@ class ReminderHandler:
                 user_id=user_id, medicine_id=medicine_id, snooze_minutes=config.REMINDER_SNOOZE_MINUTES
             )
 
-            snooze_time = datetime.now() + timedelta(minutes=config.REMINDER_SNOOZE_MINUTES)
+            # Display snooze time in user's timezone
+            user = await DatabaseManager.get_user_by_telegram_id(user_id)
+            tz_name = get_user_timezone_name(user) if user else None
+            snooze_time_local = now_in_timezone(tz_name) + timedelta(minutes=config.REMINDER_SNOOZE_MINUTES)
 
             message = f"""
 {config.EMOJIS['clock']} <b>תזכורת נדחתה</b>
@@ -140,7 +148,7 @@ class ReminderHandler:
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
 💊 מינון: {medicine.dosage}
 
-⏰ תזכורת חוזרת: {snooze_time.strftime('%H:%M')}
+⏰ תזכורת חוזרת: {snooze_time_local.strftime('%H:%M')}
 ({config.REMINDER_SNOOZE_MINUTES} דקות)
 
 {config.EMOJIS['info']} תקבלו תזכורת נוספת בזמן שנקבע.
@@ -210,9 +218,10 @@ class ReminderHandler:
                 await query.edit_message_text(f"{config.EMOJIS['error']} אין לכם הרשאה לתרופה זו")
                 return
 
-            # Log dose as skipped
-            now = datetime.now()
-            await DatabaseManager.log_dose_skipped(medicine_id=medicine_id, scheduled_time=now)
+            # Log dose as skipped (store UTC), display in user's timezone
+            tz_name = get_user_timezone_name(user)
+            now_local = now_in_timezone(tz_name)
+            await DatabaseManager.log_dose_skipped(medicine_id=medicine_id, scheduled_time=datetime.utcnow())
 
             # Reset reminder attempts
             reminder_key = f"{user_id}_{medicine_id}"
@@ -220,14 +229,14 @@ class ReminderHandler:
                 medicine_scheduler.reminder_attempts[reminder_key] = 0
 
             # Notify caregivers
-            await self._notify_caregivers_dose_skipped(user_id, medicine, now)
+            await self._notify_caregivers_dose_skipped(user_id, medicine, now_local)
 
             message = f"""
 {config.EMOJIS['info']} <b>תרופה דולגה</b>
 
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
 💊 מינון: {medicine.dosage}
-⏰ זמן: {now.strftime('%H:%M')}
+⏰ זמן: {now_local.strftime('%H:%M')}
 
 הדילוג נרשם ביומן הטיפולים.
 
@@ -297,13 +306,16 @@ class ReminderHandler:
                 user_id=user_id, medicine_id=latest_reminder["medicine_id"], snooze_minutes=config.REMINDER_SNOOZE_MINUTES
             )
 
-            snooze_time = datetime.now() + timedelta(minutes=config.REMINDER_SNOOZE_MINUTES)
+            # Display snooze time in user's timezone
+            user = await DatabaseManager.get_user_by_telegram_id(user_id)
+            tz_name = get_user_timezone_name(user) if user else None
+            snooze_time_local = now_in_timezone(tz_name) + timedelta(minutes=config.REMINDER_SNOOZE_MINUTES)
 
             message = f"""
 {config.EMOJIS['clock']} <b>התזכורת האחרונה נדחתה</b>
 
 {config.EMOJIS['medicine']} {latest_reminder['medicine_name']}
-⏰ תזכורת חוזרת: {snooze_time.strftime('%H:%M')}
+⏰ תזכורת חוזרת: {snooze_time_local.strftime('%H:%M')}
             """
 
             await update.message.reply_text(message, parse_mode="Markdown", reply_markup=get_main_menu_keyboard())
@@ -347,15 +359,24 @@ class ReminderHandler:
                 # Sort jobs by next run time
                 sorted_jobs = sorted([job for job in jobs if job["next_run"]], key=lambda x: x["next_run"])
                 shown = 0
+                # Resolve user's timezone for display
+                user = await DatabaseManager.get_user_by_telegram_id(user_id)
+                tz_name = get_user_timezone_name(user) if user else None
+                now_local = now_in_timezone(tz_name)
                 for job in sorted_jobs:
                     if shown >= 6:
                         break
                     next_run = job["next_run"]
-                    time_str = next_run.strftime("%H:%M")
-                    date_str = next_run.strftime("%d/%m")
+                    # Convert to user's timezone (handles naive and aware datetimes)
+                    try:
+                        next_run_local = ensure_aware(next_run, tz_name)
+                    except Exception:
+                        next_run_local = next_run
+                    time_str = next_run_local.strftime("%H:%M")
+                    date_str = next_run_local.strftime("%d/%m")
                     medicine_id = job.get("medicine_id") or 0
                     medicine_name = job["name"].split(" for user ")[0].replace("Medicine reminder", "").strip()
-                    if next_run.date() == datetime.now().date():
+                    if next_run_local.date() == now_local.date():
                         message += f"⏰ **היום {time_str}** - {medicine_name}\n"
                     else:
                         message += f"📅 **{date_str} {time_str}** - {medicine_name}\n"
@@ -402,8 +423,14 @@ class ReminderHandler:
                 for dose in missed_doses[-10:]:  # Show last 10 missed doses
                     medicine = await DatabaseManager.get_medicine_by_id(dose.medicine_id)
                     if medicine:
-                        date_str = dose.scheduled_time.strftime("%d/%m")
-                        time_str = dose.scheduled_time.strftime("%H:%M")
+                        # Display times in user's timezone
+                        tz_name = get_user_timezone_name(user)
+                        try:
+                            scheduled_local = ensure_aware(dose.scheduled_time, tz_name)
+                        except Exception:
+                            scheduled_local = dose.scheduled_time
+                        date_str = scheduled_local.strftime("%d/%m")
+                        time_str = scheduled_local.strftime("%H:%M")
                         status_emoji = config.EMOJIS["error"] if dose.status == "missed" else config.EMOJIS["info"]
 
                         message += f"{status_emoji} **{medicine.name}**\n"

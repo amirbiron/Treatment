@@ -822,8 +822,8 @@ class MedicineReminderBot:
         medicine_id = int(query.data.split("_")[2])
         user = query.from_user
 
-        # Log dose taken
-        await DatabaseManager.log_dose_taken(medicine_id, datetime.now())
+        # Log dose taken using UTC for storage
+        await DatabaseManager.log_dose_taken(medicine_id, datetime.utcnow())
 
         # Update inventory
         medicine = await DatabaseManager.get_medicine_by_id(medicine_id)
