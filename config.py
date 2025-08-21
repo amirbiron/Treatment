@@ -135,6 +135,7 @@ class Config:
         "medicine": "💊",
         "reminder": "⏰",
         "inventory": "📦",
+        "dosage": "⚖️",
         "warning": "⚠️",
         "success": "✅",
         "error": "❌",
