@@ -309,7 +309,7 @@ class MedicineReminderBot:
                         inventory_warning = f" {config.EMOJES['warning']}"
 
                     message += f"{status_emoji} <b>{medicine.name}</b>\n"
-                    message += f"   ⚖️ {medicine.dosage}\n"
+                    message += f"   {config.EMOJES['dosage']} {medicine.dosage}\n"
                     message += f"   📦 מלאי: {medicine.inventory_count}{inventory_warning}\n\n"
 
             from utils.keyboards import get_medicines_keyboard
@@ -932,7 +932,7 @@ class MedicineReminderBot:
                         if medicine.inventory_count <= medicine.low_stock_threshold:
                             inventory_warning = f" {config.EMOJES['warning']}"
                         message += f"{status_emoji} <b>{medicine.name}</b>\n"
-                        message += f"   ⚖️ {medicine.dosage}\n"
+                        message += f"   {config.EMOJES['dosage']} {medicine.dosage}\n"
                         message += f"   📦 מלאי: {medicine.inventory_count}{inventory_warning}\n\n"
                 try:
                     await query.edit_message_text(
@@ -975,7 +975,7 @@ class MedicineReminderBot:
                     return
                 details = [
                     f"{config.EMOJES['medicine']} <b>{medicine.name}</b>",
-                    f"⚖️ מינון: {medicine.dosage}",
+                    f"{config.EMOJES['dosage']} מינון: {medicine.dosage}",
                     f"📦 מלאי: {medicine.inventory_count}",
                     f"⚙️ סטטוס: {'פעילה' if medicine.is_active else 'מושבתת'}",
                 ]
