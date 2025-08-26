@@ -23,6 +23,7 @@ from scheduler import medicine_scheduler
 from handlers.reports_handler import reports_handler
 from handlers.appointments_handler import appointments_handler
 from utils.keyboards import get_reminders_settings_keyboard, get_inventory_main_keyboard
+from utils.time import ensure_aware, get_user_timezone_name
 
 # Configure logging
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=getattr(logging, config.LOG_LEVEL))
@@ -221,17 +222,55 @@ class MedicineReminderBot:
             await update.message.reply_text(config.ERROR_MESSAGES["general"])
 
     async def weekly_usage_command(self, update: Update, context):
-        """Admin-only: show number of unique users who used the bot in the last 7 days."""
+        """Admin-only: show number of unique users who used the bot in the last 7 days, plus a detailed list."""
         try:
             caller_tid = update.effective_user.id if update and update.effective_user else 0
             if int(getattr(config, "ADMIN_TELEGRAM_ID", 0) or 0) != int(caller_tid):
                 await update.message.reply_text(config.ERROR_MESSAGES.get("unauthorized", "אין הרשאה."))
                 return
             from datetime import datetime as dt, timedelta
+            from utils.time import ensure_aware, get_user_timezone_name
 
             since = dt.utcnow() - timedelta(days=7)
             count = await DatabaseManager.count_active_users_since(since)
-            await update.message.reply_text(f"ב-7 הימים האחרונים השתמשו בבוט {count} משתמשים ייחודיים.")
+
+            # Try to fetch detailed list
+            try:
+                rows = await DatabaseManager.get_active_users_with_last_activity(since)
+            except Exception:
+                rows = []
+
+            # Compose message
+            header = f"ב-7 הימים האחרונים השתמשו בבוט {count} משתמשים ייחודיים."
+            if not rows:
+                await update.message.reply_text(header)
+                return
+
+            # Limit to top N to avoid Telegram limits
+            MAX_ROWS = 30
+            shown = rows[:MAX_ROWS]
+
+            # Display times in admin's timezone if possible
+            admin_user = await DatabaseManager.get_user_by_telegram_id(caller_tid)
+            tz_name = get_user_timezone_name(admin_user) if admin_user else None
+
+            lines = [header, "", "משתמשים ופעילות אחרונה:"]
+            for rec in shown:
+                name = (rec.get("first_name") or "") + (f" {rec.get('last_name') or ''}" if rec.get("last_name") else "")
+                name = name.strip() or (rec.get("username") or f"#{rec.get('user_id')}")
+                last_dt = rec.get("last_activity")
+                try:
+                    last_local = ensure_aware(last_dt, tz_name)
+                except Exception:
+                    last_local = last_dt
+                time_str = last_local.strftime("%d/%m %H:%M") if last_local else "?"
+                lines.append(f"• {name} — {time_str}")
+
+            if len(rows) > MAX_ROWS:
+                lines.append("")
+                lines.append(f"ועוד {len(rows) - MAX_ROWS} משתמשים...")
+
+            await update.message.reply_text("\n".join(lines))
         except Exception as e:
             logger.error(f"Error in weekly_usage command: {e}")
             await update.message.reply_text(config.ERROR_MESSAGES["general"])
