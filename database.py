@@ -934,12 +934,12 @@ class DatabaseManagerMongo:
             return None
         # Minimal adapter object
         user = User()
-        user.id = doc.get("_id") or doc.get("id")
-        user.telegram_id = doc.get("telegram_id")
+        user.id = int(doc.get("_id") or doc.get("id") or 0)
+        user.telegram_id = int(doc.get("telegram_id") or 0)
         user.username = doc.get("username")
         user.first_name = doc.get("first_name")
         user.last_name = doc.get("last_name")
-        user.is_active = doc.get("is_active", True)
+        user.is_active = bool(doc.get("is_active", True))
         user.timezone = doc.get("timezone", "UTC")
         user.created_at = doc.get("created_at") or datetime.utcnow()
         return user
@@ -1987,6 +1987,38 @@ class DatabaseManagerMongo:
         await _init_mongo()
         res = await _mongo_db.invites.update_one({"code": code}, {"$set": {"status": "canceled"}})
         return res.matched_count > 0
+
+    @staticmethod
+    async def get_active_users_with_last_activity(since_dt: datetime) -> List[dict]:
+        await _init_mongo()
+        pipeline = [
+            {"$match": {"occurred_at": {"$gte": since_dt}}},
+            {"$group": {"_id": "$user_id", "last_ts": {"$max": "$occurred_at"}}},
+            {"$sort": {"last_ts": -1}},
+        ]
+        agg = await _mongo_db.user_activity.aggregate(pipeline).to_list(10000)
+        user_ids = [int(d["_id"]) for d in agg]
+        if not user_ids:
+            return []
+        users = await _mongo_db.users.find({"_id": {"$in": user_ids}, "is_active": True}).to_list(10000)
+        id_to_user = {int(u.get("_id") or u.get("id") or 0): u for u in users}
+        result: List[dict] = []
+        for rec in agg:
+            uid = int(rec["_id"])
+            u = id_to_user.get(uid)
+            if not u:
+                continue
+            result.append(
+                {
+                    "user_id": uid,
+                    "telegram_id": int(u.get("telegram_id") or 0),
+                    "first_name": u.get("first_name"),
+                    "last_name": u.get("last_name"),
+                    "username": u.get("username"),
+                    "last_activity": rec.get("last_ts"),
+                }
+            )
+        return result
 
 
 # Select backend at runtime

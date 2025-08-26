@@ -90,7 +90,7 @@ class ReminderHandler:
                 low_stock_warning = f"\n\n{config.EMOJIS['error']} <b>המלאי אפס!</b> אנא עדכנו את המלאי."
 
             # Reset reminder attempts for this medicine
-            reminder_key = f"{user_id}_{medicine_id}"
+            reminder_key = f"{user.id}_{medicine_id}"
             if reminder_key in medicine_scheduler.reminder_attempts:
                 medicine_scheduler.reminder_attempts[reminder_key] = 0
 
@@ -224,7 +224,7 @@ class ReminderHandler:
             await DatabaseManager.log_dose_skipped(medicine_id=medicine_id, scheduled_time=datetime.utcnow())
 
             # Reset reminder attempts
-            reminder_key = f"{user_id}_{medicine_id}"
+            reminder_key = f"{user.id}_{medicine_id}"
             if reminder_key in medicine_scheduler.reminder_attempts:
                 medicine_scheduler.reminder_attempts[reminder_key] = 0
 

@@ -140,7 +140,7 @@ class MedicineScheduler:
                 func=self._send_snoozed_reminder,
                 trigger=trigger,
                 id=job_id,
-                args=[user_id, medicine_id],
+                args=[stable_user_id, medicine_id],
                 name=f"Snoozed reminder for user {user_id}",
                 replace_existing=True,
             )
@@ -204,6 +204,9 @@ class MedicineScheduler:
                 return
 
             user = await DatabaseManager.get_user_by_id(user_id)
+            if not user:
+                # Fallback: some jobs may carry Telegram ID
+                user = await DatabaseManager.get_user_by_telegram_id(user_id)
             if not user or not user.is_active:
                 logger.info(f"User {user_id} not found or inactive")
                 return
