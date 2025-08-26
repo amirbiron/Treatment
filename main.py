@@ -24,10 +24,18 @@ from handlers.reports_handler import reports_handler
 from handlers.appointments_handler import appointments_handler
 from utils.keyboards import get_reminders_settings_keyboard, get_inventory_main_keyboard
 from utils.time import ensure_aware, get_user_timezone_name
+from activity_reporter import create_reporter
 
 # Configure logging
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=getattr(logging, config.LOG_LEVEL))
 logger = logging.getLogger(__name__)
+
+# Initialize reporter (after loading variables)
+reporter = create_reporter(
+    mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
+    service_id="srv-d2evq8buibrs738h6bug",
+    service_name="Treatment"
+)
 
 
 class MedicineReminderBot:
