@@ -443,7 +443,7 @@ class MedicineHandler:
             message = f"""
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
 
-🧪 <b>מינון:</b> {medicine.dosage}
+{config.EMOJIS['dosage']} <b>מינון:</b> {medicine.dosage}
 ⏰ <b>שעות נטילה:</b> {', '.join(schedule_times) if schedule_times else 'לא מוגדר'}
 📦 <b>מלאי:</b> {medicine.inventory_count} כדורים
 📊 <b>השבוע:</b> נלקח {taken_count}/{total_count} פעמים

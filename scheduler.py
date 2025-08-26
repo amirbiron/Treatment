@@ -222,7 +222,7 @@ class MedicineScheduler:
             """
 
             if medicine.inventory_count <= medicine.low_stock_threshold:
-                message += f"\n{config.EMOJES['warning']} *מלאי נמוך! כדאי להזמין עוד*"
+                message += f"\n{config.EMOJIS['warning']} *מלאי נמוך! כדאי להזמין עוד*"
 
             # Send reminder with inline keyboard
             from utils.keyboards import get_reminder_keyboard
@@ -385,7 +385,7 @@ class MedicineScheduler:
             except Exception:
                 planned_time_str = datetime.utcnow().strftime('%H:%M')
             message = f"""
-{config.EMOJES['warning']} *התראה: תרופה לא נלקחה*
+{config.EMOJIS['warning']} *התראה: תרופה לא נלקחה*
 
 👤 מטופל: {user.first_name} {user.last_name or ''}
 💊 תרופה: {medicine.name}
