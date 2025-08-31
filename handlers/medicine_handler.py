@@ -451,7 +451,9 @@ class MedicineHandler:
 {medicine.notes or ''}{inventory_status}
             """
 
-            await query.edit_message_text(message, parse_mode="HTML", reply_markup=get_medicine_detail_keyboard(medicine_id))
+            await query.edit_message_text(
+                message, parse_mode="HTML", reply_markup=get_medicine_detail_keyboard(medicine_id, is_active=getattr(medicine, "is_active", True))
+            )
 
         except Exception as e:
             logger.error(f"Error viewing medicine: {e}")
@@ -650,7 +652,9 @@ class MedicineHandler:
                 """
 
                 await query.edit_message_text(
-                    message, parse_mode="HTML", reply_markup=get_medicine_detail_keyboard(medicine_id)
+                    message,
+                    parse_mode="HTML",
+                    reply_markup=get_medicine_detail_keyboard(medicine_id, is_active=getattr(medicine, "is_active", True)),
                 )
 
         except Exception as e:
@@ -699,7 +703,11 @@ class MedicineHandler:
 📦 מלאי חדש: {int(final_count)} כדורים{status_msg}
             """
 
-            await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_medicine_detail_keyboard(medicine_id))
+            await update.message.reply_text(
+                message,
+                parse_mode="HTML",
+                reply_markup=get_medicine_detail_keyboard(medicine_id, is_active=getattr(medicine, "is_active", True)),
+            )
 
             # Clean up
             context.user_data.pop("updating_inventory_for", None)
