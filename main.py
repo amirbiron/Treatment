@@ -587,7 +587,7 @@ class MedicineReminderBot:
                         med = await DatabaseManager.get_medicine_by_id(medicine_id)
                         await query.edit_message_text(
                             f"{config.EMOJIS['success']} השעה עודכנה ל- {new_time.strftime('%H:%M')}\n{config.EMOJIS['medicine']} {med.name}",
-                            reply_markup=get_medicine_detail_keyboard(medicine_id),
+                            reply_markup=get_medicine_detail_keyboard(medicine_id, is_active=getattr(med, "is_active", True)),
                         )
                         return
                     except Exception as ex:
@@ -1047,7 +1047,7 @@ class MedicineReminderBot:
                     f"⚙️ סטטוס: {'פעילה' if medicine.is_active else 'מושבתת'}",
                 ]
                 await query.edit_message_text(
-                    "\n".join(details), parse_mode="HTML", reply_markup=get_medicine_detail_keyboard(medicine.id)
+                    "\n".join(details), parse_mode="HTML", reply_markup=get_medicine_detail_keyboard(medicine.id, is_active=getattr(medicine, "is_active", True))
                 )
                 return
 
@@ -1082,6 +1082,50 @@ class MedicineReminderBot:
                 context.user_data["editing_schedule_for"] = int(data.split("_")[2])
                 await query.edit_message_text(
                     "בחרו שעה חדשה לנטילת התרופה או הזינו שעה (לדוגמה 08:30)", reply_markup=get_time_selection_keyboard()
+                )
+                return
+            if data.startswith("medicine_toggle_"):
+                # Toggle notifications by flipping medicine active state
+                try:
+                    medicine_id = int(data.split("_")[2])
+                except Exception:
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                    return
+                med = await DatabaseManager.get_medicine_by_id(medicine_id)
+                if not med:
+                    await query.edit_message_text(config.ERROR_MESSAGES["medicine_not_found"])
+                    return
+                db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
+                if not db_user:
+                    await query.edit_message_text(config.ERROR_MESSAGES["unauthorized"])
+                    return
+                new_active = not bool(getattr(med, "is_active", True))
+                await DatabaseManager.set_medicine_active(medicine_id, new_active)
+                if not new_active:
+                    # Cancel all reminders for this medicine
+                    await medicine_scheduler.cancel_medicine_reminders(db_user.id, medicine_id)
+                else:
+                    # Re-schedule reminders for all active schedule times
+                    schedules = await DatabaseManager.get_medicine_schedules(medicine_id)
+                    for sch in schedules:
+                        await medicine_scheduler.schedule_medicine_reminder(
+                            user_id=db_user.id,
+                            medicine_id=medicine_id,
+                            reminder_time=sch.time_to_take,
+                            timezone=db_user.timezone or config.DEFAULT_TIMEZONE,
+                        )
+                # Refresh details view with updated status and keyboard
+                med = await DatabaseManager.get_medicine_by_id(medicine_id)
+                details = [
+                    f"{config.EMOJIS['medicine']} <b>{med.name}</b>",
+                    f"{config.EMOJIS['dosage']} מינון: {med.dosage}",
+                    f"📦 מלאי: {med.inventory_count}",
+                    f"⚙️ סטטוס: {'פעילה' if med.is_active else 'מושבתת'}",
+                ]
+                await query.edit_message_text(
+                    "\n".join(details),
+                    parse_mode="HTML",
+                    reply_markup=get_medicine_detail_keyboard(medicine_id, is_active=getattr(med, "is_active", True)),
                 )
                 return
             # Delete request for a medicine (handled by medicine_handler specific callback)
@@ -1402,7 +1446,7 @@ class MedicineReminderBot:
 📦 מלאי חדש: {int(final_count)} כדורים{status_msg}
                 """
                 await update.message.reply_text(
-                    message, parse_mode="HTML", reply_markup=get_medicine_detail_keyboard(int(medicine_id))
+                    message, parse_mode="HTML", reply_markup=get_medicine_detail_keyboard(int(medicine_id), is_active=getattr(med, "is_active", True))
                 )
                 # Clean flags
                 user_data.pop("updating_inventory_for", None)
@@ -1447,7 +1491,8 @@ class MedicineReminderBot:
                 from utils.keyboards import get_medicine_detail_keyboard
 
                 await update.message.reply_text(
-                    f"{config.EMOJIS['medicine']} {med.name}", reply_markup=get_medicine_detail_keyboard(medicine_id)
+                    f"{config.EMOJIS['medicine']} {med.name}",
+                    reply_markup=get_medicine_detail_keyboard(medicine_id, is_active=getattr(med, "is_active", True)),
                 )
                 return
             # Edit medicine free-text commands

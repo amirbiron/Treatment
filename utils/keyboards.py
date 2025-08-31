@@ -214,8 +214,9 @@ def get_medicines_keyboard(medicines: List, offset: int = 0) -> InlineKeyboardMa
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_medicine_detail_keyboard(medicine_id: int) -> InlineKeyboardMarkup:
-    """Keyboard for individual medicine details"""
+def get_medicine_detail_keyboard(medicine_id: int, is_active: bool = True) -> InlineKeyboardMarkup:
+    """Keyboard for individual medicine details with a toggle for notifications"""
+    toggle_label = "ביטול התראות" if is_active else "חדש התראות"
     keyboard = [
         [
             InlineKeyboardButton(f"{config.EMOJIS['clock']} שנה שעות", callback_data=f"medicine_schedule_{medicine_id}"),
@@ -225,6 +226,7 @@ def get_medicine_detail_keyboard(medicine_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(f"{config.EMOJIS['settings']} ערוך פרטים", callback_data=f"medicine_edit_{medicine_id}"),
             InlineKeyboardButton(f"{config.EMOJIS['report']} היסטוריה", callback_data=f"medicine_history_{medicine_id}"),
         ],
+        [InlineKeyboardButton(toggle_label, callback_data=f"medicine_toggle_{medicine_id}")],
         [InlineKeyboardButton(f"{config.EMOJIS['error']} מחק תרופה", callback_data=f"medicine_delete_{medicine_id}")],
         [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור לרשימה", callback_data="medicines_list")],
     ]
