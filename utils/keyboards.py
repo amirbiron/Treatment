@@ -173,7 +173,7 @@ def get_medicines_keyboard(medicines: List, offset: int = 0) -> InlineKeyboardMa
     slice_end = slice_start + page_size
     page_items = medicines[slice_start:slice_end]
     for i, medicine in enumerate(page_items):
-        status_emoji = config.EMOJIS["success"] if medicine.is_active else config.EMOJIS["error"]
+        status_emoji = config.EMOJIS["success"] if medicine.is_active else config.EMOJIS["paused"]
         # Removed warning emoji from button label for clarity
 
         button_text = f"{status_emoji} {medicine.name}"

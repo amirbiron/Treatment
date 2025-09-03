@@ -359,7 +359,7 @@ class MedicineReminderBot:
             else:
                 message = f"{config.EMOJIS['medicine']} <b>התרופות שלכם:</b>\n\n"
                 for medicine in medicines:
-                    status_emoji = config.EMOJIS["success"] if medicine.is_active else config.EMOJIS["error"]
+                    status_emoji = config.EMOJIS["success"] if medicine.is_active else config.EMOJIS["paused"]
                     inventory_warning = ""
 
                     if medicine.inventory_count <= medicine.low_stock_threshold:
@@ -994,7 +994,7 @@ class MedicineReminderBot:
                     slice_start = max(0, offset)
                     slice_end = slice_start + config.MAX_MEDICINES_PER_PAGE
                     for medicine in medicines[slice_start:slice_end]:
-                        status_emoji = config.EMOJIS["success"] if medicine.is_active else config.EMOJIS["error"]
+                        status_emoji = config.EMOJIS["success"] if medicine.is_active else config.EMOJIS["paused"]
                         inventory_warning = ""
                         if medicine.inventory_count <= medicine.low_stock_threshold:
                             inventory_warning = f" {config.EMOJIS['warning']}"
