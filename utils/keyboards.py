@@ -216,7 +216,7 @@ def get_medicines_keyboard(medicines: List, offset: int = 0) -> InlineKeyboardMa
 
 def get_medicine_detail_keyboard(medicine_id: int, is_active: bool = True) -> InlineKeyboardMarkup:
     """Keyboard for individual medicine details with a toggle for notifications"""
-    toggle_label = "ביטול התראות" if is_active else "חדש התראות"
+    toggle_label = "🔕 השהה התראה" if is_active else "🔔 חדש התראות"
     keyboard = [
         [
             InlineKeyboardButton(f"{config.EMOJIS['clock']} שנה שעות", callback_data=f"medicine_schedule_{medicine_id}"),

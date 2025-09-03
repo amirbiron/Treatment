@@ -348,7 +348,7 @@ class MedicineReminderBot:
                 await update.message.reply_text("אנא התחילו עם /start")
                 return
 
-            medicines = await DatabaseManager.get_user_medicines(db_user.id)
+            medicines = await DatabaseManager.get_user_medicines(db_user.id, active_only=False)
 
             if not medicines:
                 message = f"""
@@ -974,7 +974,7 @@ class MedicineReminderBot:
             # Back to medicines list
             if data == "medicines_list" or data == "medicine_manage" or data.startswith("medicines_page_"):
                 db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
-                medicines = await DatabaseManager.get_user_medicines(db_user.id) if db_user else []
+                medicines = await DatabaseManager.get_user_medicines(db_user.id, active_only=False) if db_user else []
                 offset = 0
                 if data.startswith("medicines_page_"):
                     try:
