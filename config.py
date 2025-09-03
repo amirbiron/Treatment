@@ -150,6 +150,7 @@ class Config:
         "symptoms": "🤒",
         "clock": "🕒",
         "home": "🏠",
+        "paused": "⏸️",
     }
 
     # Backward-compat alias for occasional typos
