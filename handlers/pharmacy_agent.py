@@ -94,6 +94,7 @@ async def _run_pharmacy_command(command: str, *args: str) -> str:
         return "שגיאה: כלי חיפוש בית מרקחת לא מותקן. יש להתקין את agent-skill-clalit-pharm-search."
 
     cmd = ["node", SEARCH_SCRIPT, command, *args]
+    proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -110,6 +111,9 @@ async def _run_pharmacy_command(command: str, *args: str) -> str:
                 return f"שגיאה בחיפוש: {err[:200]}"
         return output or "לא נמצאו תוצאות."
     except asyncio.TimeoutError:
+        if proc:
+            proc.kill()
+            await proc.wait()
         return "החיפוש ארך יותר מדי זמן. נסה שוב."
     except FileNotFoundError:
         return "שגיאה: Node.js לא מותקן במערכת."
@@ -219,7 +223,8 @@ _SEARCH_PATTERN = re.compile(
     r"(?:חפש|חיפוש|מצא|search|find)\s+(?:תרופה\s+)?(.+)", re.IGNORECASE
 )
 _STOCK_PATTERN = re.compile(
-    r"(?:מלאי|זמינות|stock|availability|האם יש|יש)\s+(.+)", re.IGNORECASE
+    r"(?:מלאי של|בדוק מלאי|זמינות של|stock of|availability of|האם יש במלאי|יש במלאי)\s+(.+)",
+    re.IGNORECASE,
 )
 _CITY_PATTERN = re.compile(
     r"(?:עיר|ערים|cities?|סניפים?\s+ב)(.+)?", re.IGNORECASE
@@ -229,8 +234,12 @@ _PHARMACY_PATTERN = re.compile(
 )
 
 
-async def _process_with_tools(context, user_message: str) -> str | None:
-    """Process user message, potentially calling pharmacy tools and then AI."""
+async def _process_with_tools(context, user_message: str) -> tuple[str | None, str]:
+    """Process user message, potentially calling pharmacy tools and then AI.
+
+    Returns (ai_response, message_sent_to_ai) so callers can store the actual
+    message in chat history for consistent multi-turn context.
+    """
     tool_results = []
 
     # Try to auto-detect intent and run tools
@@ -243,13 +252,18 @@ async def _process_with_tools(context, user_message: str) -> str | None:
         result = await _search_medication(query)
         tool_results.append(f"תוצאות חיפוש תרופה '{query}':\n{result}")
 
-    # Check stock
+    # Check stock (search first to get catCode, then check stock)
     stock_match = _STOCK_PATTERN.search(msg_lower)
     if stock_match and not search_match:
         query = stock_match.group(1).strip()
-        # First search the medication to get catCode
         search_result = await _search_medication(query)
         tool_results.append(f"תוצאות חיפוש תרופה '{query}':\n{search_result}")
+        # Try to extract catCode from search results and check stock
+        cat_code_match = re.search(r"catCode[:\s]+(\d+)", search_result)
+        if cat_code_match:
+            cat_code = cat_code_match.group(1)
+            stock_result = await _check_stock(cat_code)
+            tool_results.append(f"בדיקת מלאי (catCode {cat_code}):\n{stock_result}")
 
     # Find pharmacies
     pharm_match = _PHARMACY_PATTERN.search(msg_lower)
@@ -268,17 +282,17 @@ async def _process_with_tools(context, user_message: str) -> str | None:
     # Build the prompt for AI
     if tool_results:
         tool_context = "\n\n---\n".join(tool_results)
-        enriched_message = (
+        ai_message = (
             f"השאלה של המשתמש: {user_message}\n\n"
             f"תוצאות מכלי החיפוש:\n{tool_context}\n\n"
             f"אנא ענה למשתמש בהתבסס על התוצאות. "
             f"אם התוצאות כוללות קודים (catCode, cityCode, deptCode), "
             f"הסבר למשתמש מה הצעד הבא."
         )
-        return await _send_to_ai(context, enriched_message)
+        return await _send_to_ai(context, ai_message), ai_message
     else:
         # No tool match - just send to AI directly
-        return await _send_to_ai(context, user_message)
+        return await _send_to_ai(context, user_message), user_message
 
 
 # ═══ Layer 7: Telegram Handlers ═══
@@ -324,7 +338,7 @@ async def handle_shortcut(update: Update, context):
         return PHARMACY_STATE
 
     # Send the shortcut as if the user typed it
-    bot_response = await _process_with_tools(context, shortcut_text)
+    bot_response, ai_message = await _process_with_tools(context, shortcut_text)
     if bot_response:
         chunks = _split_message(bot_response)
         for chunk in chunks[:-1]:
@@ -332,7 +346,12 @@ async def handle_shortcut(update: Update, context):
         await query.message.reply_text(
             chunks[-1], reply_markup=_get_chat_keyboard()
         )
-        _commit_to_history(context, shortcut_text, bot_response)
+        _commit_to_history(context, ai_message, bot_response)
+    else:
+        await query.message.reply_text(
+            "מצטער, לא הצלחתי לעבד את הבקשה. נסה שוב.",
+            reply_markup=_get_chat_keyboard(),
+        )
     return PHARMACY_STATE
 
 
@@ -342,7 +361,7 @@ async def handle_message(update: Update, context):
     if not user_message:
         return PHARMACY_STATE
 
-    bot_response = await _process_with_tools(context, user_message)
+    bot_response, ai_message = await _process_with_tools(context, user_message)
     if bot_response:
         chunks = _split_message(bot_response)
         for chunk in chunks[:-1]:
@@ -350,7 +369,7 @@ async def handle_message(update: Update, context):
         await update.message.reply_text(
             chunks[-1], reply_markup=_get_chat_keyboard()
         )
-        _commit_to_history(context, user_message, bot_response)
+        _commit_to_history(context, ai_message, bot_response)
     else:
         await update.message.reply_text(
             "מצטער, לא הצלחתי לעבד את הבקשה. נסה שוב.",
@@ -389,11 +408,13 @@ async def fallback_start(update: Update, context):
     """Clean up and return to /start."""
     context.user_data.pop("pharm_model", None)
     context.user_data.pop("pharm_chat_history", None)
-    from main import MedicineReminderBot
 
-    # Create a temporary bot instance to call start_command
-    bot = MedicineReminderBot()
-    await bot.start_command(update, context)
+    from utils.keyboards import get_main_menu_keyboard
+    from config import config
+
+    await update.message.reply_text(
+        config.WELCOME_MESSAGE, parse_mode="Markdown", reply_markup=get_main_menu_keyboard()
+    )
     return ConversationHandler.END
 
 
