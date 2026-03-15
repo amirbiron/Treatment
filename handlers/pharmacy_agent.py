@@ -162,13 +162,15 @@ def _split_message(text: str, limit: int = TELEGRAM_MSG_LIMIT) -> list[str]:
             chunks.append(text)
             break
         split_at = text.rfind("\n\n", 0, limit)
-        if split_at == -1:
+        if split_at <= 0:
             split_at = text.rfind("\n", 0, limit)
-        if split_at == -1:
+        if split_at <= 0:
             split_at = limit
-        chunks.append(text[:split_at])
+        chunk = text[:split_at].strip()
+        if chunk:
+            chunks.append(chunk)
         text = text[split_at:].lstrip("\n")
-    return chunks
+    return chunks or [text]
 
 
 async def _send_to_ai(context, user_message: str) -> str | None:
@@ -202,18 +204,33 @@ def _commit_to_history(context, user_message: str, bot_response: str):
     context.user_data["pharm_chat_history"] = history
 
 
-def _init_ai_session(context):
-    """Initialize a new AI session with system instruction."""
-    gemini_api_key = os.getenv("GEMINI_API_KEY", "")
-    if gemini_api_key:
-        genai.configure(api_key=gemini_api_key)
+_NO_API_KEY_MESSAGE = (
+    "🏥 *סוכן מלאי בית מרקחת כללית*\n\n"
+    "לא ניתן להפעיל את הסוכן - מפתח Gemini API לא מוגדר.\n"
+    "יש להגדיר GEMINI\\_API\\_KEY במשתני הסביבה."
+)
 
+
+def _init_ai_session(context) -> tuple[str, bool]:
+    """Initialize a new AI session with system instruction.
+
+    Returns (opening_message, success) so the caller knows whether the
+    session is functional.
+    """
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "")
+    if not gemini_api_key:
+        logger.error("GEMINI_API_KEY not set - pharmacy agent cannot start")
+        context.user_data.pop("pharm_model", None)
+        context.user_data["pharm_chat_history"] = []
+        return _NO_API_KEY_MESSAGE, False
+
+    genai.configure(api_key=gemini_api_key)
     context.user_data["pharm_model"] = genai.GenerativeModel(
         "gemini-2.5-flash",
         system_instruction=SYSTEM_PROMPT,
     )
     context.user_data["pharm_chat_history"] = []
-    return OPENING_MESSAGE
+    return OPENING_MESSAGE, True
 
 
 # ═══ Layer 6: Tool-calling logic ═══
@@ -242,42 +259,41 @@ async def _process_with_tools(context, user_message: str) -> tuple[str | None, s
     """
     tool_results = []
 
-    # Try to auto-detect intent and run tools
+    # Try to auto-detect intent and run tools.
+    # Check patterns in priority order; only one primary intent fires.
     msg_lower = user_message.strip()
 
-    # Search for medication
-    search_match = _SEARCH_PATTERN.search(msg_lower)
-    if search_match:
-        query = search_match.group(1).strip()
-        result = await _search_medication(query)
-        tool_results.append(f"תוצאות חיפוש תרופה '{query}':\n{result}")
-
-    # Check stock (search first to get catCode, then check stock)
-    stock_match = _STOCK_PATTERN.search(msg_lower)
-    if stock_match and not search_match:
-        query = stock_match.group(1).strip()
-        search_result = await _search_medication(query)
-        tool_results.append(f"תוצאות חיפוש תרופה '{query}':\n{search_result}")
-        # Try to extract catCode from search results and check stock
-        cat_code_match = re.search(r"catCode[:\s]+(\d+)", search_result)
-        if cat_code_match:
-            cat_code = cat_code_match.group(1)
-            stock_result = await _check_stock(cat_code)
-            tool_results.append(f"בדיקת מלאי (catCode {cat_code}):\n{stock_result}")
-
-    # Find pharmacies
+    # Check pharmacy/city patterns first (more specific location queries)
     pharm_match = _PHARMACY_PATTERN.search(msg_lower)
+    city_match = _CITY_PATTERN.search(msg_lower)
+
     if pharm_match and pharm_match.group(1):
         query = pharm_match.group(1).strip()
         result = await _find_pharmacies(query)
         tool_results.append(f"בתי מרקחת - '{query}':\n{result}")
-
-    # List cities
-    city_match = _CITY_PATTERN.search(msg_lower)
-    if city_match and not pharm_match:
+    elif city_match:
         query = (city_match.group(1) or "").strip()
         result = await _list_cities(query)
         tool_results.append(f"ערים:\n{result}")
+    else:
+        # Medication-related patterns (search or stock)
+        stock_match = _STOCK_PATTERN.search(msg_lower)
+        search_match = _SEARCH_PATTERN.search(msg_lower)
+
+        if stock_match:
+            query = stock_match.group(1).strip()
+            search_result = await _search_medication(query)
+            tool_results.append(f"תוצאות חיפוש תרופה '{query}':\n{search_result}")
+            # Try to extract catCode from search results and check stock
+            cat_code_match = re.search(r"catCode[:\s]+(\d+)", search_result)
+            if cat_code_match:
+                cat_code = cat_code_match.group(1)
+                stock_result = await _check_stock(cat_code)
+                tool_results.append(f"בדיקת מלאי (catCode {cat_code}):\n{stock_result}")
+        elif search_match:
+            query = search_match.group(1).strip()
+            result = await _search_medication(query)
+            tool_results.append(f"תוצאות חיפוש תרופה '{query}':\n{result}")
 
     # Build the prompt for AI
     if tool_results:
@@ -318,7 +334,10 @@ async def entry_from_callback(update: Update, context):
     """Entry point from inline button."""
     query = update.callback_query
     await query.answer()
-    opening = _init_ai_session(context)
+    opening, success = _init_ai_session(context)
+    if not success:
+        await query.edit_message_text(text=opening, parse_mode="Markdown")
+        return ConversationHandler.END
     await query.edit_message_text(
         text=opening,
         parse_mode="Markdown",
