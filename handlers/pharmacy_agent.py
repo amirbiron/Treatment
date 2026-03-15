@@ -268,40 +268,40 @@ async def _process_with_tools(context, user_message: str) -> tuple[str | None, s
     tool_results = []
 
     # Try to auto-detect intent and run tools.
-    # Check patterns in priority order; only one primary intent fires.
+    # Stock/search patterns checked first (more specific, mention medication);
+    # pharmacy/city patterns are fallback for pure location queries.
     msg_lower = user_message.strip()
 
-    # Check pharmacy/city patterns first (more specific location queries)
-    pharm_match = _PHARMACY_PATTERN.search(msg_lower)
-    city_match = _CITY_PATTERN.search(msg_lower)
+    stock_match = _STOCK_PATTERN.search(msg_lower)
+    search_match = _SEARCH_PATTERN.search(msg_lower)
 
-    if pharm_match and pharm_match.group(1):
-        query = pharm_match.group(1).strip()
-        result = await _find_pharmacies(query)
-        tool_results.append(f"בתי מרקחת - '{query}':\n{result}")
-    elif city_match:
-        query = (city_match.group(1) or "").strip()
-        result = await _list_cities(query)
-        tool_results.append(f"ערים:\n{result}")
+    if stock_match:
+        query = stock_match.group(1).strip()
+        search_result = await _search_medication(query)
+        tool_results.append(f"תוצאות חיפוש תרופה '{query}':\n{search_result}")
+        # Try to extract catCode from search results and check stock
+        cat_code_match = re.search(r"catCode[:\s]+(\d+)", search_result)
+        if cat_code_match:
+            cat_code = cat_code_match.group(1)
+            stock_result = await _check_stock(cat_code)
+            tool_results.append(f"בדיקת מלאי (catCode {cat_code}):\n{stock_result}")
+    elif search_match:
+        query = search_match.group(1).strip()
+        result = await _search_medication(query)
+        tool_results.append(f"תוצאות חיפוש תרופה '{query}':\n{result}")
     else:
-        # Medication-related patterns (search or stock)
-        stock_match = _STOCK_PATTERN.search(msg_lower)
-        search_match = _SEARCH_PATTERN.search(msg_lower)
+        # Location-only queries (no medication mentioned)
+        pharm_match = _PHARMACY_PATTERN.search(msg_lower)
+        city_match = _CITY_PATTERN.search(msg_lower)
 
-        if stock_match:
-            query = stock_match.group(1).strip()
-            search_result = await _search_medication(query)
-            tool_results.append(f"תוצאות חיפוש תרופה '{query}':\n{search_result}")
-            # Try to extract catCode from search results and check stock
-            cat_code_match = re.search(r"catCode[:\s]+(\d+)", search_result)
-            if cat_code_match:
-                cat_code = cat_code_match.group(1)
-                stock_result = await _check_stock(cat_code)
-                tool_results.append(f"בדיקת מלאי (catCode {cat_code}):\n{stock_result}")
-        elif search_match:
-            query = search_match.group(1).strip()
-            result = await _search_medication(query)
-            tool_results.append(f"תוצאות חיפוש תרופה '{query}':\n{result}")
+        if pharm_match and pharm_match.group(1):
+            query = pharm_match.group(1).strip()
+            result = await _find_pharmacies(query)
+            tool_results.append(f"בתי מרקחת - '{query}':\n{result}")
+        elif city_match:
+            query = (city_match.group(1) or "").strip()
+            result = await _list_cities(query)
+            tool_results.append(f"ערים:\n{result}")
 
     # Build the prompt for AI
     if tool_results:
@@ -411,8 +411,7 @@ async def handle_message(update: Update, context):
 
 async def end_chat(update: Update, context):
     """End pharmacy chat session."""
-    context.user_data.pop("pharm_model", None)
-    context.user_data.pop("pharm_chat_history", None)
+    _cleanup_session(context)
 
     from utils.keyboards import get_main_menu_keyboard
 
@@ -437,8 +436,7 @@ async def end_chat_command(update: Update, context):
 
 async def fallback_start(update: Update, context):
     """Clean up and return to /start."""
-    context.user_data.pop("pharm_model", None)
-    context.user_data.pop("pharm_chat_history", None)
+    _cleanup_session(context)
 
     from utils.keyboards import get_main_menu_keyboard
     from config import config
@@ -446,6 +444,18 @@ async def fallback_start(update: Update, context):
     await update.message.reply_text(
         config.WELCOME_MESSAGE, parse_mode="Markdown", reply_markup=get_main_menu_keyboard()
     )
+    return ConversationHandler.END
+
+
+def _cleanup_session(context):
+    """Remove pharmacy session data from user_data."""
+    context.user_data.pop("pharm_model", None)
+    context.user_data.pop("pharm_chat_history", None)
+
+
+async def timeout_handler(update: Update, context):
+    """Clean up session data when conversation times out."""
+    _cleanup_session(context)
     return ConversationHandler.END
 
 
@@ -470,6 +480,10 @@ def create_pharmacy_conversation() -> ConversationHandler:
                     filters.TEXT & ~filters.COMMAND,
                     handle_message,
                 ),
+            ],
+            ConversationHandler.TIMEOUT: [
+                MessageHandler(filters.ALL, timeout_handler),
+                CallbackQueryHandler(timeout_handler),
             ],
         },
         fallbacks=[
