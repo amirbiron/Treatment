@@ -366,8 +366,9 @@ async def handle_shortcut(update: Update, context):
     if not shortcut_text:
         return PHARMACY_STATE
 
-    # Send the shortcut as if the user typed it
-    bot_response, ai_message, is_real = await _process_with_tools(context, shortcut_text)
+    # Shortcuts are generic prompts (no specific medication/location),
+    # so send directly to AI without tool matching.
+    bot_response, is_real = await _send_to_ai(context, shortcut_text)
     if bot_response:
         chunks = _split_message(bot_response)
         for chunk in chunks[:-1]:
@@ -376,7 +377,7 @@ async def handle_shortcut(update: Update, context):
             chunks[-1], reply_markup=_get_chat_keyboard()
         )
         if is_real:
-            _commit_to_history(context, ai_message, bot_response)
+            _commit_to_history(context, shortcut_text, bot_response)
     else:
         await query.message.reply_text(
             "מצטער, לא הצלחתי לעבד את הבקשה. נסה שוב.",
