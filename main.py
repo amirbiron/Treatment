@@ -1294,6 +1294,7 @@ class MedicineReminderBot:
                 f"{config.EMOJIS['calendar']} הוספת תור": "appointments",
                 f"{config.EMOJIS['settings']} הגדרות": "settings",
                 f"{config.EMOJIS['info']} עזרה": "help",
+                "🏥 בדיקת מלאי בכללית": "pharmacy_agent",
             }
 
             # If user pressed a main menu button, navigate immediately and clear edit states
@@ -1343,6 +1344,9 @@ class MedicineReminderBot:
                     return
                 if action == "help":
                     await self.help_command(update, context)
+                    return
+                if action == "pharmacy_agent":
+                    await self._open_pharmacy_agent(update, context)
                     return
 
             # Caregiver edit via text inputs (name/relationship)
@@ -1603,6 +1607,9 @@ class MedicineReminderBot:
                 if action == "help":
                     await self.help_command(update, context)
                     return
+                if action == "pharmacy_agent":
+                    await self._open_pharmacy_agent(update, context)
+                    return
 
             if "adding_medicine" in user_data:
                 await self._handle_add_medicine_flow(update, context)
@@ -1717,6 +1724,20 @@ class MedicineReminderBot:
         except Exception as exc:
             logger.error(f"Error in _handle_reminders_settings_controls: {exc}")
             await query.edit_message_text(config.ERROR_MESSAGES["general"])
+
+    async def _open_pharmacy_agent(self, update, context):
+        """Open the pharmacy inventory agent via inline button."""
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🏥 התחל בדיקת מלאי", callback_data="pharmacy_agent_start")],
+            [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="main_menu")],
+        ])
+        await update.message.reply_text(
+            "🏥 *בדיקת זמינות תרופות בבתי מרקחת כללית*\n\n"
+            "שירות זה מאפשר לבדוק זמינות תרופות בבתי מרקחת של כללית בכל רחבי הארץ.\n\n"
+            "לחצו על *התחל* כדי להתחיל:",
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
 
     async def _open_inventory_center(self, update):
         try:

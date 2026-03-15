@@ -23,6 +23,11 @@ try:
 except ImportError:
 	reports_handler = None
 
+try:
+	from .pharmacy_agent import pharmacy_agent
+except ImportError:
+	pharmacy_agent = None
+
 __version__ = "1.0.0"
 __author__ = "Medicine Reminder Bot Team"
 
@@ -33,6 +38,7 @@ handlers = {
 	'symptoms': symptoms_handler,
 	'caregiver': caregiver_handler,
 	'reports': reports_handler,
+	'pharmacy_agent': pharmacy_agent,
 }
 
 
@@ -61,6 +67,10 @@ def get_all_conversation_handlers():
 	if reports_handler:
 		conv_handlers.append(reports_handler.get_conversation_handler())
 
+	# Pharmacy agent
+	if pharmacy_agent:
+		conv_handlers.append(pharmacy_agent.get_conversation_handler())
+
 	return conv_handlers
 
 
@@ -88,6 +98,10 @@ def get_all_callback_handlers():
 	if reports_handler:
 		callback_handlers.extend(reports_handler.get_handlers())
 
+	# Pharmacy agent
+	if pharmacy_agent:
+		callback_handlers.extend(pharmacy_agent.get_handlers())
+
 	return callback_handlers
 
 
@@ -95,7 +109,7 @@ __all__ = [
 	"MedicineHandler", "medicine_handler",
 	"ReminderHandler", "reminder_handler",
 	"SymptomsHandler", "symptoms_handler",
-	"caregiver_handler", "reports_handler",
+	"caregiver_handler", "reports_handler", "pharmacy_agent",
 	"handlers", "get_all_handlers",
 	"get_all_conversation_handlers", "get_all_callback_handlers",
 ]

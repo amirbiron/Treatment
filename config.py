@@ -29,6 +29,9 @@ class Config:
     MONGODB_URI: str = os.getenv("MONGODB_URI", "")
     MONGODB_DB: str = os.getenv("MONGODB_DB", "medicine_bot")
 
+    # Gemini AI (for pharmacy agent)
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+
     # Debug and Logging
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
@@ -107,6 +110,9 @@ class Config:
 <b>👥 מטפלים:</b>
 /add_caregiver - הוספת מטפל
 /caregiver_settings - הגדרות מטפלים
+
+<b>🏥 בדיקת מלאי תרופות:</b>
+בדיקת זמינות תרופות בבתי מרקחת כללית
 
 💡 <b>טיפ:</b> השתמשו בכפתורים למטה לניווט קל!
     """

@@ -18,7 +18,8 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton(f"{config.EMOJIS['report']} דוחות"), KeyboardButton(f"{config.EMOJIS['caregiver']} מטפלים")],
         # Ensure "הוספת תור" shares a row with another button (no single-button rows)
         [KeyboardButton(f"{config.EMOJIS['calendar']} הוספת תור"), KeyboardButton(f"{config.EMOJIS['reminder']} תזכורות")],
-        [KeyboardButton(f"{config.EMOJIS['settings']} הגדרות"), KeyboardButton(f"{config.EMOJIS['info']} עזרה")],
+        [KeyboardButton("🏥 בדיקת מלאי בכללית"), KeyboardButton(f"{config.EMOJIS['info']} עזרה")],
+        [KeyboardButton(f"{config.EMOJIS['settings']} הגדרות")],
     ]
 
     return ReplyKeyboardMarkup(
