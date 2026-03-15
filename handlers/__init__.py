@@ -23,6 +23,12 @@ try:
 except ImportError:
 	reports_handler = None
 
+try:
+	from .pharmacy_agent import create_pharmacy_conversation
+	_pharmacy_conversation = create_pharmacy_conversation()
+except ImportError:
+	_pharmacy_conversation = None
+
 __version__ = "1.0.0"
 __author__ = "Medicine Reminder Bot Team"
 
@@ -60,6 +66,10 @@ def get_all_conversation_handlers():
 	# Reports handler
 	if reports_handler:
 		conv_handlers.append(reports_handler.get_conversation_handler())
+
+	# Pharmacy AI agent
+	if _pharmacy_conversation:
+		conv_handlers.append(_pharmacy_conversation)
 
 	return conv_handlers
 
