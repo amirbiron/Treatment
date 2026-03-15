@@ -173,14 +173,22 @@ def _split_message(text: str, limit: int = TELEGRAM_MSG_LIMIT) -> list[str]:
     return chunks or [text]
 
 
-async def _send_to_ai(context, user_message: str) -> str | None:
-    """Send message to Gemini and get response. Does not update history."""
+_ERR_RATE_LIMIT = "מצטער, הגעתי למגבלת השימוש היומית. נסה שוב מחר."
+_ERR_AI_COMM = "מצטער, אירעה שגיאה בתקשורת עם ה-AI. נסה שוב."
+
+
+async def _send_to_ai(context, user_message: str) -> tuple[str | None, bool]:
+    """Send message to Gemini and get response. Does not update history.
+
+    Returns (response_text, is_real_response). When is_real_response is False
+    the text is an error message that should NOT be committed to chat history.
+    """
     model = context.user_data.get("pharm_model")
     if not model:
-        return None
+        return None, False
 
     if is_limit_reached():
-        return "מצטער, הגעתי למגבלת השימוש היומית. נסה שוב מחר."
+        return _ERR_RATE_LIMIT, False
 
     current_count = increment_and_check_usage()
     if current_count == ALERT_THRESHOLD:
@@ -190,10 +198,10 @@ async def _send_to_ai(context, user_message: str) -> str | None:
     try:
         chat = model.start_chat(history=history)
         response = await chat.send_message_async(user_message)
-        return response.text
+        return response.text, True
     except Exception as e:
         logger.error(f"Gemini API error in pharmacy agent: {e}")
-        return "מצטער, אירעה שגיאה בתקשורת עם ה-AI. נסה שוב."
+        return _ERR_AI_COMM, False
 
 
 def _commit_to_history(context, user_message: str, bot_response: str):
@@ -240,7 +248,7 @@ _SEARCH_PATTERN = re.compile(
     r"(?:חפש|חיפוש|מצא|search|find)\s+(?:תרופה\s+)?(.+)", re.IGNORECASE
 )
 _STOCK_PATTERN = re.compile(
-    r"(?:מלאי של|בדוק מלאי|זמינות של|stock of|availability of|האם יש במלאי|יש במלאי)\s+(.+)",
+    r"(?:מלאי של|(?:ל)?בדוק מלאי(?:\s+של)?|(?:ל)?בדוק זמינות(?:\s+של)?|זמינות של|stock of|availability of|האם יש במלאי|יש במלאי)\s+(.+)",
     re.IGNORECASE,
 )
 _CITY_PATTERN = re.compile(
@@ -251,11 +259,11 @@ _PHARMACY_PATTERN = re.compile(
 )
 
 
-async def _process_with_tools(context, user_message: str) -> tuple[str | None, str]:
+async def _process_with_tools(context, user_message: str) -> tuple[str | None, str, bool]:
     """Process user message, potentially calling pharmacy tools and then AI.
 
-    Returns (ai_response, message_sent_to_ai) so callers can store the actual
-    message in chat history for consistent multi-turn context.
+    Returns (ai_response, message_sent_to_ai, is_real_response) so callers
+    can store the actual message in chat history only for real AI responses.
     """
     tool_results = []
 
@@ -305,10 +313,12 @@ async def _process_with_tools(context, user_message: str) -> tuple[str | None, s
             f"אם התוצאות כוללות קודים (catCode, cityCode, deptCode), "
             f"הסבר למשתמש מה הצעד הבא."
         )
-        return await _send_to_ai(context, ai_message), ai_message
+        response, is_real = await _send_to_ai(context, ai_message)
+        return response, ai_message, is_real
     else:
         # No tool match - just send to AI directly
-        return await _send_to_ai(context, user_message), user_message
+        response, is_real = await _send_to_ai(context, user_message)
+        return response, user_message, is_real
 
 
 # ═══ Layer 7: Telegram Handlers ═══
@@ -357,7 +367,7 @@ async def handle_shortcut(update: Update, context):
         return PHARMACY_STATE
 
     # Send the shortcut as if the user typed it
-    bot_response, ai_message = await _process_with_tools(context, shortcut_text)
+    bot_response, ai_message, is_real = await _process_with_tools(context, shortcut_text)
     if bot_response:
         chunks = _split_message(bot_response)
         for chunk in chunks[:-1]:
@@ -365,7 +375,8 @@ async def handle_shortcut(update: Update, context):
         await query.message.reply_text(
             chunks[-1], reply_markup=_get_chat_keyboard()
         )
-        _commit_to_history(context, ai_message, bot_response)
+        if is_real:
+            _commit_to_history(context, ai_message, bot_response)
     else:
         await query.message.reply_text(
             "מצטער, לא הצלחתי לעבד את הבקשה. נסה שוב.",
@@ -380,7 +391,7 @@ async def handle_message(update: Update, context):
     if not user_message:
         return PHARMACY_STATE
 
-    bot_response, ai_message = await _process_with_tools(context, user_message)
+    bot_response, ai_message, is_real = await _process_with_tools(context, user_message)
     if bot_response:
         chunks = _split_message(bot_response)
         for chunk in chunks[:-1]:
@@ -388,7 +399,8 @@ async def handle_message(update: Update, context):
         await update.message.reply_text(
             chunks[-1], reply_markup=_get_chat_keyboard()
         )
-        _commit_to_history(context, ai_message, bot_response)
+        if is_real:
+            _commit_to_history(context, ai_message, bot_response)
     else:
         await update.message.reply_text(
             "מצטער, לא הצלחתי לעבד את הבקשה. נסה שוב.",
