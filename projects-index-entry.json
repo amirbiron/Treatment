@@ -1,0 +1,12 @@
+{
+  "name": "Treatment - בוט תזכורת תרופות",
+  "repo": "https://github.com/amirbiron/Treatment",
+  "tags": ["telegram-bot", "python", "sqlalchemy", "apscheduler", "health", "accessibility", "ci-cd"],
+  "highlights": [
+    "בוט טלגרם לתזכורת תרופות עם snooze, מעקב מלאי ותופעות לוואי",
+    "מצב מטפל עם דיווחים אוטומטיים למטפלים ובני משפחה",
+    "ארכיטקטורה מודולרית עם handlers מופרדים לפי תחום",
+    "ממשק מותאם לזקנים עם כפתורים גדולים וברורים בעברית",
+    "CI/CD עם GitHub Actions ותמיכה ב-webhook/polling"
+  ]
+}
