@@ -613,6 +613,8 @@ class MedicineReminderBot:
                 context.user_data.pop("awaiting_symptom_text", None)
                 context.user_data.pop("editing_symptom_log", None)
                 context.user_data.pop("suppress_menu_mapping", None)
+                context.user_data.pop("pharm_model", None)
+                context.user_data.pop("pharm_chat_history", None)
                 await self.application.bot.send_message(
                     chat_id=query.message.chat_id, text="בחרו פעולה:", reply_markup=get_main_menu_keyboard()
                 )
@@ -1294,6 +1296,7 @@ class MedicineReminderBot:
                 f"{config.EMOJIS['calendar']} הוספת תור": "appointments",
                 f"{config.EMOJIS['settings']} הגדרות": "settings",
                 f"{config.EMOJIS['info']} עזרה": "help",
+                "🏥 מלאי בית מרקחת": "pharmacy",
             }
 
             # If user pressed a main menu button, navigate immediately and clear edit states
@@ -1343,6 +1346,15 @@ class MedicineReminderBot:
                     return
                 if action == "help":
                     await self.help_command(update, context)
+                    return
+                if action == "pharmacy":
+                    await update.message.reply_text(
+                        "🏥 *בדיקת מלאי בית מרקחת כללית*\n\nלחצו כדי להתחיל:",
+                        parse_mode="Markdown",
+                        reply_markup=InlineKeyboardMarkup(
+                            [[InlineKeyboardButton("🏥 התחל חיפוש מלאי", callback_data="pharm_start")]]
+                        ),
+                    )
                     return
 
             # Caregiver edit via text inputs (name/relationship)
