@@ -244,10 +244,10 @@ _STOCK_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _CITY_PATTERN = re.compile(
-    r"(?:עיר|ערים|cities?|סניפים?\s+ב)(.+)?", re.IGNORECASE
+    r"(?:עיר|ערים|city|cities|סניפים?\s+ב)(.+)?", re.IGNORECASE
 )
 _PHARMACY_PATTERN = re.compile(
-    r"(?:בית מרקחת|בתי מרקחת|סניף|pharmacies?|pharmacy)\s*(?:ב|in)?\s*(.+)?", re.IGNORECASE
+    r"(?:בית מרקחת|בתי מרקחת|סניפים?|pharmacy|pharmacies)\s*(?:ב|in)?\s*(.+)?", re.IGNORECASE
 )
 
 

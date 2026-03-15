@@ -10,17 +10,16 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-OWNER_USER_ID = os.getenv("OWNER_USER_ID", "")
-
 
 async def send_telegram_alert(message: str) -> bool:
     """Send alert message to bot owner via Telegram API."""
-    if not BOT_TOKEN or not OWNER_USER_ID:
+    bot_token = os.getenv("BOT_TOKEN", "")
+    owner_id = os.getenv("OWNER_USER_ID", "")
+    if not bot_token or not owner_id:
         logger.warning("Cannot send alert: BOT_TOKEN or OWNER_USER_ID not configured")
         return False
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": OWNER_USER_ID, "text": message}
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {"chat_id": owner_id, "text": message}
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, json=payload, timeout=10)
