@@ -121,7 +121,10 @@ async def _run_pharmacy_command(command: str, *args: str, _retries: int = 2) -> 
                 logger.warning(f"pharmacy-search.js {command} failed: {err}")
                 if not output:
                     if is_transient and attempt > 0:
-                        return f"שגיאה בחיפוש לאחר {attempt + 1} ניסיונות: {err[:200]}"
+                        msg = f"שגיאה בחיפוש לאחר {attempt + 1} ניסיונות: {err[:200]}"
+                        if re.search(r'\b403\b', err):
+                            msg += "\nייתכן שיש צורך להריץ מחדש את setup_pharmacy_skill.sh."
+                        return msg
                     if re.search(r'\b403\b', err):
                         return "שגיאה: שירות החיפוש של כללית חסם את הבקשה (403). ייתכן שיש צורך להריץ מחדש את setup_pharmacy_skill.sh."
                     return f"שגיאה בחיפוש: {err[:200]}"
