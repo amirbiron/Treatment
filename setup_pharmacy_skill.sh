@@ -20,6 +20,16 @@ else
     npm install
 fi
 
+cd - > /dev/null
+
+# Patch searchPost to include browser-like headers (fixes 403 from Clalit WAF)
+SEARCH_JS="$SKILL_DIR/scripts/pharmacy-search.js"
+if grep -q "headers: { 'Content-Type': 'application/json' }," "$SEARCH_JS" 2>/dev/null; then
+    echo "Patching pharmacy-search.js with browser headers..."
+    sed -i "s|headers: { 'Content-Type': 'application/json' },|headers: { 'Content-Type': 'application/json', 'Origin': 'https://e-services.clalit.co.il', 'Referer': 'https://e-services.clalit.co.il/PharmacyStock/', 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36' },|" "$SEARCH_JS"
+    echo "Patch applied."
+fi
+
 echo ""
 echo "Pharmacy search skill installed successfully!"
 echo "Make sure to set GEMINI_API_KEY and OWNER_USER_ID in your .env file."

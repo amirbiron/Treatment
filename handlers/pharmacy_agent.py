@@ -88,38 +88,53 @@ OPENING_MESSAGE = (
 # ═══ Layer 4: Pharmacy Search Tool ═══
 
 
-async def _run_pharmacy_command(command: str, *args: str) -> str:
-    """Run pharmacy-search.js with given command and arguments."""
+async def _run_pharmacy_command(command: str, *args: str, _retries: int = 2) -> str:
+    """Run pharmacy-search.js with given command and arguments.
+
+    Retries on transient 403/5xx errors with exponential backoff.
+    """
     if not os.path.isfile(SEARCH_SCRIPT):
         return "שגיאה: כלי חיפוש בית מרקחת לא מותקן. יש להתקין את agent-skill-clalit-pharm-search."
 
     cmd = ["node", SEARCH_SCRIPT, command, *args]
-    proc = None
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=SKILL_DIR,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-        output = stdout.decode("utf-8", errors="replace").strip()
-        if proc.returncode != 0:
-            err = stderr.decode("utf-8", errors="replace").strip()
-            logger.warning(f"pharmacy-search.js {command} failed: {err}")
-            if not output:
-                return f"שגיאה בחיפוש: {err[:200]}"
-        return output or "לא נמצאו תוצאות."
-    except asyncio.TimeoutError:
-        if proc:
-            proc.kill()
-            await proc.wait()
-        return "החיפוש ארך יותר מדי זמן. נסה שוב."
-    except FileNotFoundError:
-        return "שגיאה: Node.js לא מותקן במערכת."
-    except Exception as e:
-        logger.error(f"Pharmacy search error: {e}")
-        return f"שגיאה בחיפוש: {e}"
+    last_err = ""
+    for attempt in range(_retries + 1):
+        proc = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=SKILL_DIR,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+            output = stdout.decode("utf-8", errors="replace").strip()
+            if proc.returncode != 0:
+                err = stderr.decode("utf-8", errors="replace").strip()
+                # Retry on transient HTTP errors (403, 5xx)
+                if attempt < _retries and ("403" in err or "500" in err or "502" in err or "503" in err):
+                    delay = 2 ** (attempt + 1)
+                    logger.info(f"pharmacy-search.js {command} got transient error, retrying in {delay}s: {err[:100]}")
+                    await asyncio.sleep(delay)
+                    last_err = err
+                    continue
+                logger.warning(f"pharmacy-search.js {command} failed: {err}")
+                if not output:
+                    if "403" in err:
+                        return "שגיאה: שירות החיפוש של כללית חסם את הבקשה (403). ייתכן שיש צורך להריץ מחדש את setup_pharmacy_skill.sh."
+                    return f"שגיאה בחיפוש: {err[:200]}"
+            return output or "לא נמצאו תוצאות."
+        except asyncio.TimeoutError:
+            if proc:
+                proc.kill()
+                await proc.wait()
+            return "החיפוש ארך יותר מדי זמן. נסה שוב."
+        except FileNotFoundError:
+            return "שגיאה: Node.js לא מותקן במערכת."
+        except Exception as e:
+            logger.error(f"Pharmacy search error: {e}")
+            return f"שגיאה בחיפוש: {e}"
+    return f"שגיאה בחיפוש לאחר {_retries + 1} ניסיונות: {last_err[:200]}"
 
 
 async def _search_medication(query: str) -> str:
