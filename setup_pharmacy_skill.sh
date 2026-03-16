@@ -13,13 +13,23 @@ if [ -d "$SKILL_DIR" ]; then
     # Revert any local patches before pulling to avoid merge conflicts
     git checkout -- .
     git pull origin feat/clalit-pharm-search
-    npm install
+    PUPPETEER_SKIP_DOWNLOAD=true npm install
 else
     echo "Cloning agent-skill-clalit-pharm-search..."
     git clone -b feat/clalit-pharm-search https://github.com/tomron/agent-skill-clalit-pharm-search "$SKILL_DIR"
     cd "$SKILL_DIR"
     echo "Installing dependencies..."
-    npm install
+    PUPPETEER_SKIP_DOWNLOAD=true npm install
+fi
+
+# Try to download Chrome for Puppeteer (needed for stock checks only).
+# Search/cities/pharmacies work without it.
+echo "Attempting to download Chrome for stock checks..."
+if npx puppeteer browsers install chrome-headless-shell 2>/dev/null; then
+    echo "Chrome installed for Puppeteer."
+else
+    echo "WARNING: Could not download Chrome. Stock checks will not work,"
+    echo "but medication search, city lookup, and pharmacy search will still function."
 fi
 
 cd - > /dev/null

@@ -400,6 +400,9 @@ railway.json.local
 *.json
 *.parquet
 
+# External skills (cloned by setup scripts, not part of this repo)
+skills/clalit-pharm-search/
+
 # ============================================================================
 # End of .gitignore
 # ============================================================================
