@@ -10,6 +10,8 @@ if [ -d "$SKILL_DIR" ]; then
     echo "Skill already installed at $SKILL_DIR"
     echo "Updating..."
     cd "$SKILL_DIR"
+    # Revert any local patches before pulling to avoid merge conflicts
+    git checkout -- .
     git pull origin feat/clalit-pharm-search
     npm install
 else
@@ -26,7 +28,14 @@ cd - > /dev/null
 SEARCH_JS="$SKILL_DIR/scripts/pharmacy-search.js"
 if grep -q "headers: { 'Content-Type': 'application/json' }," "$SEARCH_JS" 2>/dev/null; then
     echo "Patching pharmacy-search.js with browser headers..."
-    sed -i "s|headers: { 'Content-Type': 'application/json' },|headers: { 'Content-Type': 'application/json', 'Origin': 'https://e-services.clalit.co.il', 'Referer': 'https://e-services.clalit.co.il/PharmacyStock/', 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36' },|" "$SEARCH_JS"
+    # Use a temp file for portability (BSD sed -i requires a backup extension)
+    python3 -c "
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+old = \"headers: { 'Content-Type': 'application/json' },\"
+new = \"headers: { 'Content-Type': 'application/json', 'Origin': 'https://e-services.clalit.co.il', 'Referer': 'https://e-services.clalit.co.il/PharmacyStock/', 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36' },\"
+p.write_text(p.read_text().replace(old, new))
+" "$SEARCH_JS"
     echo "Patch applied."
 fi
 

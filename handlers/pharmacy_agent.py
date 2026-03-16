@@ -110,7 +110,8 @@ async def _run_pharmacy_command(command: str, *args: str, _retries: int = 2) -> 
             output = stdout.decode("utf-8", errors="replace").strip()
             if proc.returncode != 0:
                 err = stderr.decode("utf-8", errors="replace").strip()
-                is_transient = "403" in err or "500" in err or "502" in err or "503" in err
+                # Match HTTP status codes in error messages (e.g. "403 Forbidden", "status: 503")
+                is_transient = bool(re.search(r'\b(403|500|502|503)\b', err))
                 # Retry on transient HTTP errors (403, 5xx)
                 if is_transient and attempt < _retries:
                     delay = 2 ** (attempt + 1)
@@ -121,7 +122,7 @@ async def _run_pharmacy_command(command: str, *args: str, _retries: int = 2) -> 
                 if not output:
                     if is_transient and attempt > 0:
                         return f"שגיאה בחיפוש לאחר {attempt + 1} ניסיונות: {err[:200]}"
-                    if "403" in err:
+                    if re.search(r'\b403\b', err):
                         return "שגיאה: שירות החיפוש של כללית חסם את הבקשה (403). ייתכן שיש צורך להריץ מחדש את setup_pharmacy_skill.sh."
                     return f"שגיאה בחיפוש: {err[:200]}"
             return output or "לא נמצאו תוצאות."
