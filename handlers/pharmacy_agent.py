@@ -97,7 +97,6 @@ async def _run_pharmacy_command(command: str, *args: str, _retries: int = 2) -> 
         return "שגיאה: כלי חיפוש בית מרקחת לא מותקן. יש להתקין את agent-skill-clalit-pharm-search."
 
     cmd = ["node", SEARCH_SCRIPT, command, *args]
-    last_err = ""
     for attempt in range(_retries + 1):
         proc = None
         try:
@@ -111,15 +110,17 @@ async def _run_pharmacy_command(command: str, *args: str, _retries: int = 2) -> 
             output = stdout.decode("utf-8", errors="replace").strip()
             if proc.returncode != 0:
                 err = stderr.decode("utf-8", errors="replace").strip()
+                is_transient = "403" in err or "500" in err or "502" in err or "503" in err
                 # Retry on transient HTTP errors (403, 5xx)
-                if attempt < _retries and ("403" in err or "500" in err or "502" in err or "503" in err):
+                if is_transient and attempt < _retries:
                     delay = 2 ** (attempt + 1)
                     logger.info(f"pharmacy-search.js {command} got transient error, retrying in {delay}s: {err[:100]}")
                     await asyncio.sleep(delay)
-                    last_err = err
                     continue
                 logger.warning(f"pharmacy-search.js {command} failed: {err}")
                 if not output:
+                    if is_transient and attempt > 0:
+                        return f"שגיאה בחיפוש לאחר {attempt + 1} ניסיונות: {err[:200]}"
                     if "403" in err:
                         return "שגיאה: שירות החיפוש של כללית חסם את הבקשה (403). ייתכן שיש צורך להריץ מחדש את setup_pharmacy_skill.sh."
                     return f"שגיאה בחיפוש: {err[:200]}"
@@ -134,7 +135,7 @@ async def _run_pharmacy_command(command: str, *args: str, _retries: int = 2) -> 
         except Exception as e:
             logger.error(f"Pharmacy search error: {e}")
             return f"שגיאה בחיפוש: {e}"
-    return f"שגיאה בחיפוש לאחר {_retries + 1} ניסיונות: {last_err[:200]}"
+    return "שגיאה בחיפוש: כל הניסיונות נכשלו."
 
 
 async def _search_medication(query: str) -> str:
