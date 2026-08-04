@@ -170,7 +170,6 @@ class MedicineReminderBot:
 
     async def _track_activity_message(self, update: Update, context):
         """Track user activity from messages"""
-        reporter.report_activity(update.effective_user.id)
         try:
             user = update.effective_user
             if not user:
@@ -184,7 +183,6 @@ class MedicineReminderBot:
 
     async def _track_activity_callback(self, update: Update, context):
         """Track user activity from callbacks"""
-        reporter.report_activity(update.effective_user.id)
         try:
             user = update.effective_user
             if not user:
@@ -197,7 +195,6 @@ class MedicineReminderBot:
 
     async def start_command(self, update: Update, context):
         """Handle /start command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             user = update.effective_user
             # Deep-link args: /start invite_CODE
@@ -248,7 +245,6 @@ class MedicineReminderBot:
 
     async def weekly_usage_command(self, update: Update, context):
         """Handle /weekly_usage command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             caller_tid = update.effective_user.id if update and update.effective_user else 0
             if int(getattr(config, "ADMIN_TELEGRAM_ID", 0) or 0) != int(caller_tid):
@@ -303,7 +299,6 @@ class MedicineReminderBot:
 
     async def help_command(self, update: Update, context):
         """Handle /help command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             await update.message.reply_text(config.HELP_MESSAGE, parse_mode="HTML")
         except Exception as e:
@@ -312,7 +307,6 @@ class MedicineReminderBot:
 
     async def settings_command(self, update: Update, context):
         """Handle /settings command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             from utils.keyboards import get_settings_keyboard
 
@@ -330,7 +324,6 @@ class MedicineReminderBot:
 
     async def add_medicine_command(self, update: Update, context):
         """Handle /add_medicine command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             from utils.keyboards import get_cancel_keyboard
 
@@ -351,7 +344,6 @@ class MedicineReminderBot:
 
     async def my_medicines_command(self, update: Update, context):
         """Handle /my_medicines command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             user = update.effective_user
             db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
@@ -393,7 +385,6 @@ class MedicineReminderBot:
 
     async def update_inventory_command(self, update: Update, context):
         """Handle /update_inventory command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             user = update.effective_user
             db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
@@ -437,7 +428,6 @@ class MedicineReminderBot:
 
     async def snooze_command(self, update: Update, context):
         """Handle /snooze command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             await update.message.reply_text("להשהיית תזכורת, השתמשו בכפתור דחייה שמופיע בהתראה.")
         except Exception as e:
@@ -446,7 +436,6 @@ class MedicineReminderBot:
 
     async def log_symptoms_command(self, update: Update, context):
         """Handle /log_symptoms command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             user = update.effective_user
             db_user = await DatabaseManager.get_user_by_telegram_id(user.id) if user else None
@@ -484,7 +473,6 @@ class MedicineReminderBot:
 
     async def weekly_report_command(self, update: Update, context):
         """Handle /weekly_report command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             await update.message.reply_text("דוח שבועי יתווסף בקרוב.")
         except Exception as e:
@@ -493,7 +481,6 @@ class MedicineReminderBot:
 
     async def medicine_history_command(self, update: Update, context):
         """Handle /medicine_history command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             await update.message.reply_text("היסטוריית תרופות תתווסף בקרוב.")
         except Exception as e:
@@ -502,7 +489,6 @@ class MedicineReminderBot:
 
     async def add_caregiver_command(self, update: Update, context):
         """Handle /add_caregiver command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             await update.message.reply_text("ניהול מטפל יתווסף בקרוב.")
         except Exception as e:
@@ -511,7 +497,6 @@ class MedicineReminderBot:
 
     async def caregiver_settings_command(self, update: Update, context):
         """Handle /caregiver_settings command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             await update.message.reply_text("הגדרות מטפל יתווסף בקרוב.")
         except Exception as e:
@@ -520,7 +505,6 @@ class MedicineReminderBot:
 
     async def next_reminders_command(self, update: Update, context):
         """Handle /next_reminders command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             # Delegate to reminder handler rich view
             from handlers import reminder_handler
@@ -533,7 +517,6 @@ class MedicineReminderBot:
 
     async def button_callback(self, update: Update, context):
         """Handle inline keyboard button presses"""
-        reporter.report_activity(update.effective_user.id)
         try:
             query = update.callback_query
             await query.answer()
@@ -931,7 +914,6 @@ class MedicineReminderBot:
 
     async def _handle_add_medicine_flow(self, update: Update, context):
         """Very simple add-medicine text flow: name -> dosage -> create"""
-        reporter.report_activity(update.effective_user.id)
         try:
             user = update.effective_user
             db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
@@ -1195,7 +1177,6 @@ class MedicineReminderBot:
 
     async def _handle_settings_action(self, update: Update, context):
         """Handle settings-related actions from callbacks"""
-        reporter.report_activity(update.effective_user.id)
         try:
             query = update.callback_query
             data = query.data if query else ""
@@ -1271,7 +1252,6 @@ class MedicineReminderBot:
 
     async def handle_text_message(self, update: Update, context):
         """Handle plain text messages"""
-        reporter.report_activity(update.effective_user.id)
         try:
             # Route appointment flow text first if active
             if context.user_data.get("appt_state"):
@@ -1696,7 +1676,6 @@ class MedicineReminderBot:
 
     async def error_handler(self, update: Update, context):
         """Handle errors"""
-        reporter.report_activity(update.effective_user.id)
         logger.error(f"Exception while handling update {update}: {context.error}")
 
         if update and update.effective_message:
