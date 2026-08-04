@@ -25,20 +25,10 @@ from handlers.reports_handler import reports_handler
 from handlers.appointments_handler import appointments_handler
 from utils.keyboards import get_reminders_settings_keyboard, get_inventory_main_keyboard
 from utils.time import ensure_aware, get_user_timezone_name
-from activity_reporter import create_reporter
 
 # Configure logging
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=getattr(logging, config.LOG_LEVEL))
 logger = logging.getLogger(__name__)
-
-# Initialize reporter (after loading variables).
-# The URI comes from the environment - if it is missing, activity reporting is
-# simply disabled instead of stalling every update on an unreachable database.
-reporter = create_reporter(
-    mongodb_uri=os.getenv("ACTIVITY_MONGODB_URI", "") or os.getenv("MONGODB_URI", ""),
-    service_id=os.getenv("RENDER_SERVICE_ID", "srv-d2evq8buibrs738h6bug"),
-    service_name="Treatment"
-)
 
 
 class MedicineReminderBot:
