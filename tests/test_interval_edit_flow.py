@@ -198,3 +198,43 @@ async def test_unsupported_interval_button_is_reported(bot):
     await bot.button_callback(update, ctx)
     bot._apply_schedule_times.assert_not_awaited()
     assert "אינו נתמך" in update.callback_query.edit_message_text.call_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_entering_schedule_edit_drops_an_abandoned_interval(bot):
+    """A supported-but-abandoned interval must not apply to the next typed hour.
+
+    Arm every-6-hours, walk away, reopen "שנה שעות" for the medicine, then type
+    08:00. That must set a single 08:00 reminder, not a whole 6-hourly day.
+    """
+    _, ctx = _update_ctx("noop")
+    ctx.user_data["schedule_interval_hours"] = 6
+
+    reopen, _ = _update_ctx("medicine_schedule_3")
+    await bot.button_callback(reopen, ctx)
+    assert "schedule_interval_hours" not in ctx.user_data
+
+    med = MagicMock()
+    med.name = "אקמול"
+    update = _text_update("08:00")
+    with patch.object(main.DatabaseManager, "get_medicine_by_id", AsyncMock(return_value=med)):
+        await bot.handle_text_message(update, ctx)
+
+    _, medicine_id, times = bot._apply_schedule_times.await_args.args
+    assert medicine_id == 3
+    assert times == [time(8, 0)], "the stale interval was applied"
+    assert "כל 6 שעות" not in update.message.reply_text.call_args_list[0].args[0]
+
+
+@pytest.mark.asyncio
+async def test_rem_edit_entry_also_drops_an_abandoned_interval(bot):
+    """The other entry point into schedule editing must reset the same way."""
+    _, ctx = _update_ctx("noop")
+    ctx.user_data["schedule_interval_hours"] = 12
+
+    reopen, _ = _update_ctx("rem_edit_3")
+    with patch.object(main.DatabaseManager, "get_medicine_by_id", AsyncMock(return_value=MagicMock())):
+        await bot.button_callback(reopen, ctx)
+
+    assert "schedule_interval_hours" not in ctx.user_data
+    assert ctx.user_data["editing_schedule_for"] == 3

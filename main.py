@@ -697,6 +697,9 @@ class MedicineReminderBot:
                 from utils.keyboards import get_time_selection_keyboard
 
                 context.user_data["editing_schedule_for"] = medicine_id
+                # Start clean: an interval armed by an abandoned attempt must not
+                # silently apply to whatever hour is typed next.
+                context.user_data.pop("schedule_interval_hours", None)
                 await query.edit_message_text(
                     "בחרו שעה חדשה לנטילת התרופה או הזינו שעה (לדוגמה 08:30)", reply_markup=get_time_selection_keyboard(include_interval=True)
                 )
@@ -952,18 +955,38 @@ class MedicineReminderBot:
         Interval schedules produce several times per day, so the old single-time
         path of cancel-then-schedule-one is not enough: every expanded time needs
         its own job.
-        """
-        await DatabaseManager.replace_medicine_schedules(medicine_id, times)
 
+        The user is resolved before anything is written: without it there is no
+        one to schedule for, and replacing the stored times first would leave a
+        medicine whose schedule changed but whose reminders never got armed.
+        """
         user = await DatabaseManager.get_user_by_telegram_id(telegram_user_id)
+        if not user:
+            logger.error(f"Cannot apply schedule for medicine {medicine_id}: unknown user {telegram_user_id}")
+            raise ValueError(f"No user for telegram id {telegram_user_id}")
+
+        await DatabaseManager.replace_medicine_schedules(medicine_id, times)
         await medicine_scheduler.cancel_medicine_reminders(user.id, medicine_id)
+
+        failed = []
         for t in times:
-            await medicine_scheduler.schedule_medicine_reminder(
-                user_id=user.id,
-                medicine_id=medicine_id,
-                reminder_time=t,
-                timezone=user.timezone or config.DEFAULT_TIMEZONE,
-            )
+            try:
+                await medicine_scheduler.schedule_medicine_reminder(
+                    user_id=user.id,
+                    medicine_id=medicine_id,
+                    reminder_time=t,
+                    timezone=user.timezone or config.DEFAULT_TIMEZONE,
+                )
+            except Exception as exc:
+                # Keep going so one bad time does not cost the user the rest of
+                # the doses, but record which one and why.
+                logger.error(f"Failed to schedule {t.strftime('%H:%M')} for medicine {medicine_id}: {exc}")
+                failed.append(t)
+
+        if failed:
+            # Re-arming is idempotent, so surfacing the error and letting the user
+            # retry is safer than reporting a schedule that is only half armed.
+            raise RuntimeError(f"Could not schedule {format_times(failed)} for medicine {medicine_id}")
 
     async def _handle_dose_taken(self, query, context):
         """Handle dose taken confirmation"""
@@ -1161,6 +1184,8 @@ class MedicineReminderBot:
                 from utils.keyboards import get_time_selection_keyboard
 
                 context.user_data["editing_schedule_for"] = int(data.split("_")[2])
+                # Same reset as the rem_edit_ entry point above
+                context.user_data.pop("schedule_interval_hours", None)
                 await query.edit_message_text(
                     "בחרו שעה חדשה לנטילת התרופה או הזינו שעה (לדוגמה 08:30)", reply_markup=get_time_selection_keyboard(include_interval=True)
                 )
