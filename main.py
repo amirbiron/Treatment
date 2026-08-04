@@ -77,6 +77,14 @@ class MedicineReminderBot:
             builder = Application.builder()
             builder.token(config.BOT_TOKEN)
 
+            # The webhook route hands updates to Application.update_queue, and PTB drains
+            # that queue one update at a time unless concurrency is enabled. Some handlers
+            # (the pharmacy agent's Gemini calls, report generation) take seconds, and
+            # serialising them would make every other user wait behind them. Updates were
+            # already processed concurrently when the webhook route awaited process_update
+            # directly, so this keeps the previous behaviour.
+            builder.concurrent_updates(True)
+
             # Note: Keep Updater enabled to support run_webhook
             self.application = builder.build()
 
