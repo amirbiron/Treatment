@@ -31,6 +31,11 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 
+# Upper bound on updates waiting to be handled. Far above normal load, so a full
+# queue means the bot is genuinely overloaded rather than merely busy.
+UPDATE_QUEUE_MAXSIZE = 1000
+
+
 class MedicineReminderBot:
     """Main bot class with all handlers and lifecycle management"""
 
@@ -74,6 +79,12 @@ class MedicineReminderBot:
             # already processed concurrently when the webhook route awaited process_update
             # directly, so this keeps the previous behaviour.
             builder.concurrent_updates(True)
+
+            # A bounded queue gives the webhook route somewhere to push back from. PTB's
+            # default queue is unbounded, so a backlog would grow without limit and updates
+            # would be handled long after Telegram considered them delivered. When the queue
+            # is full the route answers 503 instead, and Telegram redelivers later.
+            builder.update_queue(asyncio.Queue(maxsize=UPDATE_QUEUE_MAXSIZE))
 
             # Note: Keep Updater enabled to support run_webhook
             self.application = builder.build()
@@ -1825,8 +1836,12 @@ class MedicineReminderBot:
                     return web.Response(status=400, text="Invalid JSON")
                 try:
                     update = Update.de_json(data, self.application.bot)
-                except Exception as exc:
-                    logger.error(f"Failed to parse update: {exc}")
+                except Exception:
+                    # de_json is deterministic deserialisation of an already-parsed dict, so
+                    # the same payload fails the same way every time. 400 stops Telegram from
+                    # redelivering a body we can never accept; the traceback is logged so an
+                    # internal bug here is still debuggable.
+                    logger.exception("Failed to parse update, rejecting payload")
                     return web.Response(status=400, text="Invalid update")
 
                 # Hand the update to PTB's own processing queue and acknowledge immediately.
@@ -1834,9 +1849,14 @@ class MedicineReminderBot:
                 # whole handler; anything slower than Telegram's webhook timeout makes
                 # Telegram redeliver the same update, which shows up as duplicate replies.
                 try:
-                    await self.application.update_queue.put(update)
-                except Exception as exc:
-                    logger.error(f"Failed to enqueue update: {exc}")
+                    self.application.update_queue.put_nowait(update)
+                except asyncio.QueueFull:
+                    # Nothing has been processed yet, so a redelivery is safe and is the
+                    # behaviour we want: shed the load and let Telegram bring it back.
+                    logger.warning("Update queue full, shedding update for redelivery")
+                    return web.Response(status=503, text="Update queue full")
+                except Exception:
+                    logger.exception("Failed to enqueue update")
                     return web.Response(status=500, text="Failed to enqueue update")
                 return web.Response(text="OK")
 
