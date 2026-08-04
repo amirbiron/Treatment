@@ -124,3 +124,77 @@ async def test_fixed_hour_edit_still_sets_a_single_time(bot):
     _, medicine_id, times = bot._apply_schedule_times.await_args.args
     assert medicine_id == 3
     assert times == [time(9, 30)]
+
+
+def _text_update(text):
+    update = MagicMock()
+    update.effective_user.id = 7
+    update.effective_chat.id = 7
+    update.callback_query = None
+    update.message.text = text
+    update.message.reply_text = AsyncMock()
+    return update
+
+
+@pytest.mark.asyncio
+async def test_typed_start_time_completes_the_interval_edit(bot):
+    """Full text path: arm via button, then type the start time."""
+    callback_update, ctx = _update_ctx("time_ivlcustom_6")
+    await bot.button_callback(callback_update, ctx)
+    assert ctx.user_data["schedule_interval_hours"] == 6
+
+    med = MagicMock()
+    med.name = "אקמול"
+    update = _text_update("06:30")
+    with patch.object(main.DatabaseManager, "get_medicine_by_id", AsyncMock(return_value=med)):
+        await bot.handle_text_message(update, ctx)
+
+    telegram_id, medicine_id, times = bot._apply_schedule_times.await_args.args
+    assert telegram_id == 7
+    assert medicine_id == 3
+    assert times == [time(0, 30), time(6, 30), time(12, 30), time(18, 30)]
+
+    confirmation = update.message.reply_text.call_args_list[0].args[0]
+    assert "כל 6 שעות" in confirmation
+    assert "00:30, 06:30, 12:30, 18:30" in confirmation
+
+    # the edit is finished, so nothing should stay armed
+    assert "schedule_interval_hours" not in ctx.user_data
+    assert "editing_schedule_for" not in ctx.user_data
+    assert "awaiting_schedule_text" not in ctx.user_data
+
+
+@pytest.mark.asyncio
+async def test_typed_time_without_an_interval_sets_a_single_time(bot):
+    """The pre-existing single-hour text path must be unaffected."""
+    _, ctx = _update_ctx("noop")
+    med = MagicMock()
+    med.name = "אקמול"
+    update = _text_update("09:15")
+    with patch.object(main.DatabaseManager, "get_medicine_by_id", AsyncMock(return_value=med)):
+        await bot.handle_text_message(update, ctx)
+
+    _, _, times = bot._apply_schedule_times.await_args.args
+    assert times == [time(9, 15)]
+    assert "כל" not in update.message.reply_text.call_args_list[0].args[0]
+
+
+@pytest.mark.asyncio
+async def test_a_stale_unsupported_interval_is_reported_not_crashed(bot):
+    """A value that never came from our keyboards must not reach expand_interval_times."""
+    _, ctx = _update_ctx("noop")
+    ctx.user_data["schedule_interval_hours"] = 5  # not a divisor of 24
+    update = _text_update("08:00")
+
+    await bot.handle_text_message(update, ctx)
+
+    bot._apply_schedule_times.assert_not_awaited()
+    assert "אינו נתמך" in update.message.reply_text.call_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_unsupported_interval_button_is_reported(bot):
+    update, ctx = _update_ctx("time_ivl_5")
+    await bot.button_callback(update, ctx)
+    bot._apply_schedule_times.assert_not_awaited()
+    assert "אינו נתמך" in update.callback_query.edit_message_text.call_args.args[0]

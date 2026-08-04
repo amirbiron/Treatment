@@ -62,3 +62,78 @@ def test_rejects_intervals_that_cannot_repeat_daily():
 def test_format_and_describe():
     assert format_times([time(15, 0), time(7, 0)]) == "07:00, 15:00"
     assert describe_interval(time(7, 0), 8) == "כל 8 שעות (החל מ-07:00): 07:00, 15:00, 23:00"
+
+
+# --- callback parsing -------------------------------------------------------
+
+from utils.schedule import (  # noqa: E402
+    BACK,
+    CUSTOM,
+    INVALID,
+    MENU,
+    PICK,
+    START,
+    parse_interval_callback,
+)
+
+
+def test_non_interval_callbacks_are_not_claimed():
+    """The plain time buttons must fall through to the existing handler."""
+    for data in ("time_08_00", "time_custom", "time_cancel", "medicine_view_3", "cancel"):
+        assert parse_interval_callback(data) is None, data
+
+
+def test_menu_and_back_are_distinguished():
+    assert parse_interval_callback("time_interval").kind == MENU
+    assert parse_interval_callback("time_ivl_back").kind == BACK
+
+
+@pytest.mark.parametrize("hours", INTERVAL_HOURS_CHOICES)
+def test_pick_and_custom_carry_the_interval(hours):
+    picked = parse_interval_callback(f"time_ivl_{hours}")
+    assert (picked.kind, picked.interval_hours) == (PICK, hours)
+
+    custom = parse_interval_callback(f"time_ivlcustom_{hours}")
+    assert (custom.kind, custom.interval_hours) == (CUSTOM, hours)
+
+
+def test_start_carries_both_interval_and_time():
+    parsed = parse_interval_callback("time_ivlstart_8_07_30")
+    assert parsed.kind == START
+    assert parsed.interval_hours == 8
+    assert parsed.start_time == time(7, 30)
+
+
+def test_start_is_not_confused_with_pick():
+    """`time_ivlstart_...` also starts with `time_ivl`, so prefix order matters."""
+    assert parse_interval_callback("time_ivlstart_12_09_00").kind == START
+    assert parse_interval_callback("time_ivl_12").kind == PICK
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        "time_ivl_5",  # not a divisor of 24
+        "time_ivl_0",
+        "time_ivl_abc",
+        "time_ivlcustom_7",
+        "time_ivlcustom_",
+        "time_ivlstart_5_07_00",  # unsupported interval
+        "time_ivlstart_8_25_00",  # impossible hour
+        "time_ivlstart_8_07_61",  # impossible minute
+        "time_ivlstart_8_07",  # missing minute
+        "time_ivlstart_8_07_00_00",  # extra field
+    ],
+)
+def test_unusable_callbacks_are_flagged_not_crashed(data):
+    """Stale or crafted buttons must be reported, never reach expand_interval_times."""
+    assert parse_interval_callback(data).kind == INVALID
+
+
+def test_is_supported_interval():
+    from utils.schedule import is_supported_interval
+
+    assert all(is_supported_interval(h) for h in INTERVAL_HOURS_CHOICES)
+    assert not is_supported_interval(5)
+    assert not is_supported_interval(None)
+    assert not is_supported_interval("8")

@@ -14,7 +14,8 @@ from config import config
 from database import DatabaseManager, Medicine, MedicineSchedule
 from scheduler import medicine_scheduler
 from utils.time import get_user_timezone_name
-from utils.schedule import expand_interval_times, format_times
+from utils import schedule
+from utils.schedule import expand_interval_times, format_times, parse_interval_callback
 from utils.keyboards import (
     get_medicines_keyboard,
     get_medicine_detail_keyboard,
@@ -214,60 +215,67 @@ class MedicineHandler:
 (לדוגמה: 08:30, 14:15, 21:00)
                 """
 
+                # A one-off hour must not inherit an interval from an abandoned attempt
+                self.user_medicine_data[user_id]["medicine_data"].pop("interval_hours", None)
                 await query.edit_message_text(message, parse_mode="HTML", reply_markup=get_cancel_keyboard())
 
                 return CUSTOM_TIME_INPUT
 
-            elif data == "time_interval":
-                await query.edit_message_text(
-                    f"{config.EMOJIS['clock']} <b>תזכורת כל כמה שעות</b>\n\nבחרו את המרווח בין הנטילות:",
-                    parse_mode="HTML",
-                    reply_markup=get_interval_selection_keyboard(),
-                )
-                return MEDICINE_SCHEDULE
+            interval = parse_interval_callback(data)
+            if interval:
+                if interval.kind == schedule.INVALID:
+                    await query.edit_message_text(
+                        f"{config.EMOJIS['error']} המרווח שנבחר אינו נתמך. אנא בחרו שוב:",
+                        reply_markup=get_interval_selection_keyboard(),
+                    )
+                    return MEDICINE_SCHEDULE
 
-            elif data == "time_ivl_back":
-                await query.edit_message_text(
-                    "בחרו את השעה הראשונה לנטילת התרופה:",
-                    reply_markup=get_time_selection_keyboard(include_interval=True),
-                )
-                return MEDICINE_SCHEDULE
+                if interval.kind == schedule.MENU:
+                    await query.edit_message_text(
+                        f"{config.EMOJIS['clock']} <b>תזכורת כל כמה שעות</b>\n\nבחרו את המרווח בין הנטילות:",
+                        parse_mode="HTML",
+                        reply_markup=get_interval_selection_keyboard(),
+                    )
+                    return MEDICINE_SCHEDULE
 
-            elif data.startswith("time_ivlcustom_"):
-                interval_hours = int(data.rsplit("_", 1)[1])
-                self.user_medicine_data[user_id]["medicine_data"]["interval_hours"] = interval_hours
-                await query.edit_message_text(
-                    f"{config.EMOJIS['clock']} <b>שעת ההתחלה</b>\n\n"
-                    f"התזכורות יחזרו כל {interval_hours} שעות.\n"
-                    f"אנא הזינו את שעת הנטילה הראשונה בפורמט HH:MM (לדוגמה: 07:30)",
-                    parse_mode="HTML",
-                    reply_markup=get_cancel_keyboard(),
-                )
-                return CUSTOM_TIME_INPUT
+                if interval.kind == schedule.BACK:
+                    await query.edit_message_text(
+                        "בחרו את השעה הראשונה לנטילת התרופה:",
+                        reply_markup=get_time_selection_keyboard(include_interval=True),
+                    )
+                    return MEDICINE_SCHEDULE
 
-            elif data.startswith("time_ivlstart_"):
-                _, interval_hours, hour, minute = data.rsplit("_", 3)
-                start_time = time(int(hour), int(minute))
-                return await self._finalize_medicine(
-                    update,
-                    context,
-                    user_id,
-                    expand_interval_times(start_time, int(interval_hours)),
-                    interval_hours=int(interval_hours),
-                    start_time=start_time,
-                )
+                if interval.kind == schedule.PICK:
+                    await query.edit_message_text(
+                        f"{config.EMOJIS['clock']} <b>כל {interval.interval_hours} שעות</b>\n\n"
+                        f"בחרו את שעת הנטילה הראשונה ביום:",
+                        parse_mode="HTML",
+                        reply_markup=get_interval_start_keyboard(interval.interval_hours),
+                    )
+                    return MEDICINE_SCHEDULE
 
-            elif data.startswith("time_ivl_"):
-                interval_hours = int(data.rsplit("_", 1)[1])
-                await query.edit_message_text(
-                    f"{config.EMOJIS['clock']} <b>כל {interval_hours} שעות</b>\n\n"
-                    f"בחרו את שעת הנטילה הראשונה ביום:",
-                    parse_mode="HTML",
-                    reply_markup=get_interval_start_keyboard(interval_hours),
-                )
-                return MEDICINE_SCHEDULE
+                if interval.kind == schedule.CUSTOM:
+                    self.user_medicine_data[user_id]["medicine_data"]["interval_hours"] = interval.interval_hours
+                    await query.edit_message_text(
+                        f"{config.EMOJIS['clock']} <b>שעת ההתחלה</b>\n\n"
+                        f"התזכורות יחזרו כל {interval.interval_hours} שעות.\n"
+                        f"אנא הזינו את שעת הנטילה הראשונה בפורמט HH:MM (לדוגמה: 07:30)",
+                        parse_mode="HTML",
+                        reply_markup=get_cancel_keyboard(),
+                    )
+                    return CUSTOM_TIME_INPUT
 
-            elif data.startswith("time_"):
+                if interval.kind == schedule.START:
+                    return await self._finalize_medicine(
+                        update,
+                        context,
+                        user_id,
+                        expand_interval_times(interval.start_time, interval.interval_hours),
+                        interval_hours=interval.interval_hours,
+                        start_time=interval.start_time,
+                    )
+
+            if data.startswith("time_"):
                 # Parse time from callback data
                 time_parts = data.replace("time_", "").split("_")
                 hour = int(time_parts[0])
@@ -362,6 +370,12 @@ class MedicineHandler:
             # A pending interval means this input is the interval's start time,
             # not a one-off reminder hour.
             interval_hours = self.user_medicine_data[user_id]["medicine_data"].pop("interval_hours", None)
+            if interval_hours is not None and not schedule.is_supported_interval(interval_hours):
+                await update.message.reply_text(
+                    f"{config.EMOJIS['error']} המרווח שנשמר אינו נתמך. אנא בחרו מרווח מחדש:",
+                    reply_markup=get_interval_selection_keyboard(),
+                )
+                return MEDICINE_SCHEDULE
             if interval_hours:
                 return await self._finalize_medicine(
                     update,

@@ -179,3 +179,47 @@ async def test_typed_time_without_interval_still_creates_a_single_reminder(handl
     text = update.message.reply_text.call_args.args[0]
     assert "21:45" in text
     assert "🔁" not in text
+
+
+@pytest.mark.asyncio
+async def test_unsupported_interval_button_is_reported(handler):
+    """A stale button must produce a specific message, not a generic error."""
+    update = _update("time_ivl_5")
+    state = await handler.handle_time_selection(update, _ctx())
+    assert state == MEDICINE_SCHEDULE
+    handler._create_medicine_in_db.assert_not_awaited()
+    assert "אינו נתמך" in update.callback_query.edit_message_text.call_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_plain_custom_time_clears_any_stale_interval(handler):
+    """Interval -> back -> plain custom hour must not inherit the interval."""
+    await handler.handle_time_selection(_update("time_ivlcustom_6"), _ctx())
+    await handler.handle_time_selection(_update("time_ivl_back"), _ctx())
+    await handler.handle_time_selection(_update("time_custom"), _ctx())
+    assert "interval_hours" not in handler.user_medicine_data[7]["medicine_data"]
+
+    update = MagicMock()
+    update.effective_user.id = 7
+    update.callback_query = None
+    update.message.text = "08:00"
+    update.message.reply_text = AsyncMock()
+    await handler.get_custom_time(update, _ctx())
+
+    text = update.message.reply_text.call_args.args[0]
+    assert "08:00" in text and "🔁" not in text
+
+
+@pytest.mark.asyncio
+async def test_a_stale_unsupported_interval_is_reported_not_crashed(handler):
+    handler.user_medicine_data[7]["medicine_data"]["interval_hours"] = 5
+    update = MagicMock()
+    update.effective_user.id = 7
+    update.callback_query = None
+    update.message.text = "08:00"
+    update.message.reply_text = AsyncMock()
+
+    state = await handler.get_custom_time(update, _ctx())
+    assert state == MEDICINE_SCHEDULE
+    handler._create_medicine_in_db.assert_not_awaited()
+    assert "אינו נתמך" in update.message.reply_text.call_args.args[0]

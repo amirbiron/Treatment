@@ -25,7 +25,8 @@ from handlers.reports_handler import reports_handler
 from handlers.appointments_handler import appointments_handler
 from utils.keyboards import get_reminders_settings_keyboard, get_inventory_main_keyboard
 from utils.time import ensure_aware, get_user_timezone_name
-from utils.schedule import expand_interval_times, format_times
+from utils import schedule
+from utils.schedule import expand_interval_times, format_times, parse_interval_callback
 
 # Configure logging
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=getattr(logging, config.LOG_LEVEL))
@@ -553,69 +554,79 @@ class MedicineReminderBot:
                 context.user_data.pop("schedule_interval_hours", None)
                 context.user_data["awaiting_schedule_text"] = True
                 return
-            if data == "time_interval":
-                from utils.keyboards import get_interval_selection_keyboard
-
-                await query.edit_message_text(
-                    "בחרו את המרווח בין הנטילות:", reply_markup=get_interval_selection_keyboard()
+            interval = parse_interval_callback(data)
+            if interval:
+                from utils.keyboards import (
+                    get_interval_selection_keyboard,
+                    get_interval_start_keyboard,
+                    get_time_selection_keyboard,
                 )
-                return
-            if data == "time_ivl_back":
-                from utils.keyboards import get_time_selection_keyboard
 
-                await query.edit_message_text(
-                    "בחרו שעה חדשה לנטילת התרופה או הזינו שעה (לדוגמה 08:30)",
-                    reply_markup=get_time_selection_keyboard(include_interval=True),
-                )
-                return
-            if data.startswith("time_ivlcustom_"):
-                interval_hours = int(data.rsplit("_", 1)[1])
-                context.user_data["schedule_interval_hours"] = interval_hours
-                context.user_data["awaiting_schedule_text"] = True
-                await query.edit_message_text(
-                    f"התזכורות יחזרו כל {interval_hours} שעות.\nהקלידו את שעת הנטילה הראשונה בפורמט HH:MM (למשל 07:30)"
-                )
-                return
-            if data.startswith("time_ivlstart_"):
-                try:
-                    _, interval_hours, hour, minute = data.rsplit("_", 3)
-                    medicine_id = context.user_data.get("editing_schedule_for")
-                    if not medicine_id:
-                        await query.edit_message_text("שגיאה: אין תרופה נבחרת. חזרו ל'שנה שעות' ונסו שוב.")
-                        return
-                    from datetime import time as dtime
-
-                    start_time = dtime(hour=int(hour), minute=int(minute))
-                    times = expand_interval_times(start_time, int(interval_hours))
-                    await self._apply_schedule_times(query.from_user.id, int(medicine_id), times)
-                    context.user_data.pop("editing_schedule_for", None)
-                    context.user_data.pop("schedule_interval_hours", None)
-
-                    from utils.keyboards import get_medicine_detail_keyboard
-
-                    med = await DatabaseManager.get_medicine_by_id(int(medicine_id))
+                if interval.kind == schedule.INVALID:
                     await query.edit_message_text(
-                        f"{config.EMOJIS['success']} עודכן: כל {interval_hours} שעות (החל מ-{start_time.strftime('%H:%M')})\n"
-                        f"⏰ שעות נטילה: {format_times(times)}\n"
-                        f"{config.EMOJIS['medicine']} {med.name}",
-                        reply_markup=get_medicine_detail_keyboard(
-                            int(medicine_id), is_active=getattr(med, "is_active", True)
-                        ),
+                        f"{config.EMOJIS['error']} המרווח שנבחר אינו נתמך. אנא בחרו שוב:",
+                        reply_markup=get_interval_selection_keyboard(),
                     )
                     return
-                except Exception as ex:
-                    logger.error(f"Failed to set interval schedule: {ex}")
-                    await query.edit_message_text(config.ERROR_MESSAGES["general"])
-                    return
-            if data.startswith("time_ivl_"):
-                from utils.keyboards import get_interval_start_keyboard
 
-                interval_hours = int(data.rsplit("_", 1)[1])
-                await query.edit_message_text(
-                    f"כל {interval_hours} שעות — בחרו את שעת הנטילה הראשונה ביום:",
-                    reply_markup=get_interval_start_keyboard(interval_hours),
-                )
-                return
+                if interval.kind == schedule.MENU:
+                    await query.edit_message_text(
+                        "בחרו את המרווח בין הנטילות:", reply_markup=get_interval_selection_keyboard()
+                    )
+                    return
+
+                if interval.kind == schedule.BACK:
+                    await query.edit_message_text(
+                        "בחרו שעה חדשה לנטילת התרופה או הזינו שעה (לדוגמה 08:30)",
+                        reply_markup=get_time_selection_keyboard(include_interval=True),
+                    )
+                    return
+
+                if interval.kind == schedule.PICK:
+                    await query.edit_message_text(
+                        f"כל {interval.interval_hours} שעות — בחרו את שעת הנטילה הראשונה ביום:",
+                        reply_markup=get_interval_start_keyboard(interval.interval_hours),
+                    )
+                    return
+
+                if interval.kind == schedule.CUSTOM:
+                    context.user_data["schedule_interval_hours"] = interval.interval_hours
+                    context.user_data["awaiting_schedule_text"] = True
+                    await query.edit_message_text(
+                        f"התזכורות יחזרו כל {interval.interval_hours} שעות.\n"
+                        f"הקלידו את שעת הנטילה הראשונה בפורמט HH:MM (למשל 07:30)"
+                    )
+                    return
+
+                if interval.kind == schedule.START:
+                    try:
+                        medicine_id = context.user_data.get("editing_schedule_for")
+                        if not medicine_id:
+                            await query.edit_message_text("שגיאה: אין תרופה נבחרת. חזרו ל'שנה שעות' ונסו שוב.")
+                            return
+
+                        times = expand_interval_times(interval.start_time, interval.interval_hours)
+                        await self._apply_schedule_times(query.from_user.id, int(medicine_id), times)
+                        context.user_data.pop("editing_schedule_for", None)
+                        context.user_data.pop("schedule_interval_hours", None)
+
+                        from utils.keyboards import get_medicine_detail_keyboard
+
+                        med = await DatabaseManager.get_medicine_by_id(int(medicine_id))
+                        await query.edit_message_text(
+                            f"{config.EMOJIS['success']} עודכן: כל {interval.interval_hours} שעות "
+                            f"(החל מ-{interval.start_time.strftime('%H:%M')})\n"
+                            f"⏰ שעות נטילה: {format_times(times)}\n"
+                            f"{config.EMOJIS['medicine']} {med.name}",
+                            reply_markup=get_medicine_detail_keyboard(
+                                int(medicine_id), is_active=getattr(med, "is_active", True)
+                            ),
+                        )
+                        return
+                    except Exception as ex:
+                        logger.error(f"Failed to set interval schedule: {ex}")
+                        await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                        return
             if data.startswith("time_"):
                 parts = data.split("_")
                 if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
@@ -1552,6 +1563,14 @@ class MedicineReminderBot:
                     return
                 # A pending interval means this input is the interval's start time
                 interval_hours = user_data.pop("schedule_interval_hours", None)
+                if interval_hours is not None and not schedule.is_supported_interval(interval_hours):
+                    from utils.keyboards import get_interval_selection_keyboard
+
+                    await update.message.reply_text(
+                        f"{config.EMOJIS['error']} המרווח שנשמר אינו נתמך. אנא בחרו מרווח מחדש:",
+                        reply_markup=get_interval_selection_keyboard(),
+                    )
+                    return
                 if interval_hours:
                     times = expand_interval_times(new_time, int(interval_hours))
                     confirmation = (

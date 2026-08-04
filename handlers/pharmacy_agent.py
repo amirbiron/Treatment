@@ -4,6 +4,11 @@ Uses Gemini AI to understand user queries about medication availability
 and executes pharmacy-search.js (from agent-skill-clalit-pharm-search) to get real data.
 """
 
+# `str | None` in a signature is evaluated at import time and raises TypeError on
+# Python 3.9, which the CI matrix still covers. Deferring annotations keeps them
+# as strings so the module imports everywhere.
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
