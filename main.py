@@ -6,6 +6,7 @@ Designed for deployment on Render platform with webhook support
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 from contextlib import asynccontextmanager
@@ -24,18 +25,15 @@ from handlers.reports_handler import reports_handler
 from handlers.appointments_handler import appointments_handler
 from utils.keyboards import get_reminders_settings_keyboard, get_inventory_main_keyboard
 from utils.time import ensure_aware, get_user_timezone_name
-from activity_reporter import create_reporter
 
 # Configure logging
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=getattr(logging, config.LOG_LEVEL))
 logger = logging.getLogger(__name__)
 
-# Initialize reporter (after loading variables)
-reporter = create_reporter(
-    mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
-    service_id="srv-d2evq8buibrs738h6bug",
-    service_name="Treatment"
-)
+
+# Upper bound on updates waiting to be handled. Far above normal load, so a full
+# queue means the bot is genuinely overloaded rather than merely busy.
+UPDATE_QUEUE_MAXSIZE = 1000
 
 
 class MedicineReminderBot:
@@ -73,6 +71,20 @@ class MedicineReminderBot:
             # Create application
             builder = Application.builder()
             builder.token(config.BOT_TOKEN)
+
+            # The webhook route hands updates to Application.update_queue, and PTB drains
+            # that queue one update at a time unless concurrency is enabled. Some handlers
+            # (the pharmacy agent's Gemini calls, report generation) take seconds, and
+            # serialising them would make every other user wait behind them. Updates were
+            # already processed concurrently when the webhook route awaited process_update
+            # directly, so this keeps the previous behaviour.
+            builder.concurrent_updates(True)
+
+            # A bounded queue gives the webhook route somewhere to push back from. PTB's
+            # default queue is unbounded, so a backlog would grow without limit and updates
+            # would be handled long after Telegram considered them delivered. When the queue
+            # is full the route answers 503 instead, and Telegram redelivers later.
+            builder.update_queue(asyncio.Queue(maxsize=UPDATE_QUEUE_MAXSIZE))
 
             # Note: Keep Updater enabled to support run_webhook
             self.application = builder.build()
@@ -158,7 +170,6 @@ class MedicineReminderBot:
 
     async def _track_activity_message(self, update: Update, context):
         """Track user activity from messages"""
-        reporter.report_activity(update.effective_user.id)
         try:
             user = update.effective_user
             if not user:
@@ -172,7 +183,6 @@ class MedicineReminderBot:
 
     async def _track_activity_callback(self, update: Update, context):
         """Track user activity from callbacks"""
-        reporter.report_activity(update.effective_user.id)
         try:
             user = update.effective_user
             if not user:
@@ -185,7 +195,6 @@ class MedicineReminderBot:
 
     async def start_command(self, update: Update, context):
         """Handle /start command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             user = update.effective_user
             # Deep-link args: /start invite_CODE
@@ -236,7 +245,6 @@ class MedicineReminderBot:
 
     async def weekly_usage_command(self, update: Update, context):
         """Handle /weekly_usage command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             caller_tid = update.effective_user.id if update and update.effective_user else 0
             if int(getattr(config, "ADMIN_TELEGRAM_ID", 0) or 0) != int(caller_tid):
@@ -291,7 +299,6 @@ class MedicineReminderBot:
 
     async def help_command(self, update: Update, context):
         """Handle /help command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             await update.message.reply_text(config.HELP_MESSAGE, parse_mode="HTML")
         except Exception as e:
@@ -300,7 +307,6 @@ class MedicineReminderBot:
 
     async def settings_command(self, update: Update, context):
         """Handle /settings command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             from utils.keyboards import get_settings_keyboard
 
@@ -318,7 +324,6 @@ class MedicineReminderBot:
 
     async def add_medicine_command(self, update: Update, context):
         """Handle /add_medicine command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             from utils.keyboards import get_cancel_keyboard
 
@@ -339,7 +344,6 @@ class MedicineReminderBot:
 
     async def my_medicines_command(self, update: Update, context):
         """Handle /my_medicines command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             user = update.effective_user
             db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
@@ -381,7 +385,6 @@ class MedicineReminderBot:
 
     async def update_inventory_command(self, update: Update, context):
         """Handle /update_inventory command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             user = update.effective_user
             db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
@@ -425,7 +428,6 @@ class MedicineReminderBot:
 
     async def snooze_command(self, update: Update, context):
         """Handle /snooze command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             await update.message.reply_text("להשהיית תזכורת, השתמשו בכפתור דחייה שמופיע בהתראה.")
         except Exception as e:
@@ -434,7 +436,6 @@ class MedicineReminderBot:
 
     async def log_symptoms_command(self, update: Update, context):
         """Handle /log_symptoms command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             user = update.effective_user
             db_user = await DatabaseManager.get_user_by_telegram_id(user.id) if user else None
@@ -472,7 +473,6 @@ class MedicineReminderBot:
 
     async def weekly_report_command(self, update: Update, context):
         """Handle /weekly_report command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             await update.message.reply_text("דוח שבועי יתווסף בקרוב.")
         except Exception as e:
@@ -481,7 +481,6 @@ class MedicineReminderBot:
 
     async def medicine_history_command(self, update: Update, context):
         """Handle /medicine_history command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             await update.message.reply_text("היסטוריית תרופות תתווסף בקרוב.")
         except Exception as e:
@@ -490,7 +489,6 @@ class MedicineReminderBot:
 
     async def add_caregiver_command(self, update: Update, context):
         """Handle /add_caregiver command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             await update.message.reply_text("ניהול מטפל יתווסף בקרוב.")
         except Exception as e:
@@ -499,7 +497,6 @@ class MedicineReminderBot:
 
     async def caregiver_settings_command(self, update: Update, context):
         """Handle /caregiver_settings command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             await update.message.reply_text("הגדרות מטפל יתווסף בקרוב.")
         except Exception as e:
@@ -508,7 +505,6 @@ class MedicineReminderBot:
 
     async def next_reminders_command(self, update: Update, context):
         """Handle /next_reminders command"""
-        reporter.report_activity(update.effective_user.id)
         try:
             # Delegate to reminder handler rich view
             from handlers import reminder_handler
@@ -521,7 +517,6 @@ class MedicineReminderBot:
 
     async def button_callback(self, update: Update, context):
         """Handle inline keyboard button presses"""
-        reporter.report_activity(update.effective_user.id)
         try:
             query = update.callback_query
             await query.answer()
@@ -919,7 +914,6 @@ class MedicineReminderBot:
 
     async def _handle_add_medicine_flow(self, update: Update, context):
         """Very simple add-medicine text flow: name -> dosage -> create"""
-        reporter.report_activity(update.effective_user.id)
         try:
             user = update.effective_user
             db_user = await DatabaseManager.get_user_by_telegram_id(user.id)
@@ -1183,7 +1177,6 @@ class MedicineReminderBot:
 
     async def _handle_settings_action(self, update: Update, context):
         """Handle settings-related actions from callbacks"""
-        reporter.report_activity(update.effective_user.id)
         try:
             query = update.callback_query
             data = query.data if query else ""
@@ -1259,7 +1252,6 @@ class MedicineReminderBot:
 
     async def handle_text_message(self, update: Update, context):
         """Handle plain text messages"""
-        reporter.report_activity(update.effective_user.id)
         try:
             # Route appointment flow text first if active
             if context.user_data.get("appt_state"):
@@ -1684,7 +1676,6 @@ class MedicineReminderBot:
 
     async def error_handler(self, update: Update, context):
         """Handle errors"""
-        reporter.report_activity(update.effective_user.id)
         logger.error(f"Exception while handling update {update}: {context.error}")
 
         if update and update.effective_message:
@@ -1793,8 +1784,14 @@ class MedicineReminderBot:
 
             # Configure webhook at Telegram side with secret token
             secret_token = config.BOT_TOKEN[-32:] if len(config.BOT_TOKEN) >= 32 else None
+            # drop_pending_updates: Render restarts often. Without this, every update that
+            # queued up while the service was down is replayed on boot, so the user gets a
+            # burst of stale replies (typically the /start welcome message) out of nowhere.
             await self.application.bot.set_webhook(
-                url=webhook_url, allowed_updates=["message", "callback_query"], secret_token=secret_token
+                url=webhook_url,
+                allowed_updates=["message", "callback_query"],
+                secret_token=secret_token,
+                drop_pending_updates=True,
             )
 
             # Build aiohttp app with /health and webhook handlers
@@ -1818,10 +1815,28 @@ class MedicineReminderBot:
                     return web.Response(status=400, text="Invalid JSON")
                 try:
                     update = Update.de_json(data, self.application.bot)
-                    await self.application.process_update(update)
-                except Exception as exc:
-                    logger.error(f"Failed to process update: {exc}")
-                    return web.Response(status=500, text="Failed to process update")
+                except Exception:
+                    # de_json is deterministic deserialisation of an already-parsed dict, so
+                    # the same payload fails the same way every time. 400 stops Telegram from
+                    # redelivering a body we can never accept; the traceback is logged so an
+                    # internal bug here is still debuggable.
+                    logger.exception("Failed to parse update, rejecting payload")
+                    return web.Response(status=400, text="Invalid update")
+
+                # Hand the update to PTB's own processing queue and acknowledge immediately.
+                # Awaiting process_update() here would keep the HTTP request open for the
+                # whole handler; anything slower than Telegram's webhook timeout makes
+                # Telegram redeliver the same update, which shows up as duplicate replies.
+                try:
+                    self.application.update_queue.put_nowait(update)
+                except asyncio.QueueFull:
+                    # Nothing has been processed yet, so a redelivery is safe and is the
+                    # behaviour we want: shed the load and let Telegram bring it back.
+                    logger.warning("Update queue full, shedding update for redelivery")
+                    return web.Response(status=503, text="Update queue full")
+                except Exception:
+                    logger.exception("Failed to enqueue update")
+                    return web.Response(status=500, text="Failed to enqueue update")
                 return web.Response(text="OK")
 
             # Routes
