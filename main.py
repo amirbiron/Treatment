@@ -6,6 +6,7 @@ Designed for deployment on Render platform with webhook support
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 from contextlib import asynccontextmanager
@@ -30,10 +31,12 @@ from activity_reporter import create_reporter
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=getattr(logging, config.LOG_LEVEL))
 logger = logging.getLogger(__name__)
 
-# Initialize reporter (after loading variables)
+# Initialize reporter (after loading variables).
+# The URI comes from the environment - if it is missing, activity reporting is
+# simply disabled instead of stalling every update on an unreachable database.
 reporter = create_reporter(
-    mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
-    service_id="srv-d2evq8buibrs738h6bug",
+    mongodb_uri=os.getenv("ACTIVITY_MONGODB_URI", "") or os.getenv("MONGODB_URI", ""),
+    service_id=os.getenv("RENDER_SERVICE_ID", "srv-d2evq8buibrs738h6bug"),
     service_name="Treatment"
 )
 
@@ -1793,8 +1796,14 @@ class MedicineReminderBot:
 
             # Configure webhook at Telegram side with secret token
             secret_token = config.BOT_TOKEN[-32:] if len(config.BOT_TOKEN) >= 32 else None
+            # drop_pending_updates: Render restarts often. Without this, every update that
+            # queued up while the service was down is replayed on boot, so the user gets a
+            # burst of stale replies (typically the /start welcome message) out of nowhere.
             await self.application.bot.set_webhook(
-                url=webhook_url, allowed_updates=["message", "callback_query"], secret_token=secret_token
+                url=webhook_url,
+                allowed_updates=["message", "callback_query"],
+                secret_token=secret_token,
+                drop_pending_updates=True,
             )
 
             # Build aiohttp app with /health and webhook handlers
@@ -1818,10 +1827,19 @@ class MedicineReminderBot:
                     return web.Response(status=400, text="Invalid JSON")
                 try:
                     update = Update.de_json(data, self.application.bot)
-                    await self.application.process_update(update)
                 except Exception as exc:
-                    logger.error(f"Failed to process update: {exc}")
-                    return web.Response(status=500, text="Failed to process update")
+                    logger.error(f"Failed to parse update: {exc}")
+                    return web.Response(status=400, text="Invalid update")
+
+                # Hand the update to PTB's own processing queue and acknowledge immediately.
+                # Awaiting process_update() here would keep the HTTP request open for the
+                # whole handler; anything slower than Telegram's webhook timeout makes
+                # Telegram redeliver the same update, which shows up as duplicate replies.
+                try:
+                    await self.application.update_queue.put(update)
+                except Exception as exc:
+                    logger.error(f"Failed to enqueue update: {exc}")
+                    return web.Response(status=500, text="Failed to enqueue update")
                 return web.Response(text="OK")
 
             # Routes
