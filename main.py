@@ -25,6 +25,7 @@ from handlers.reports_handler import reports_handler
 from handlers.appointments_handler import appointments_handler
 from utils.keyboards import get_reminders_settings_keyboard, get_inventory_main_keyboard
 from utils.time import ensure_aware, get_user_timezone_name
+from utils.schedule import expand_interval_times, format_times
 
 # Configure logging
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=getattr(logging, config.LOG_LEVEL))
@@ -549,7 +550,71 @@ class MedicineReminderBot:
                 return
             if data == "time_custom":
                 await query.edit_message_text("הקלידו שעה בפורמט HH:MM (למשל 08:30)")
+                context.user_data.pop("schedule_interval_hours", None)
                 context.user_data["awaiting_schedule_text"] = True
+                return
+            if data == "time_interval":
+                from utils.keyboards import get_interval_selection_keyboard
+
+                await query.edit_message_text(
+                    "בחרו את המרווח בין הנטילות:", reply_markup=get_interval_selection_keyboard()
+                )
+                return
+            if data == "time_ivl_back":
+                from utils.keyboards import get_time_selection_keyboard
+
+                await query.edit_message_text(
+                    "בחרו שעה חדשה לנטילת התרופה או הזינו שעה (לדוגמה 08:30)",
+                    reply_markup=get_time_selection_keyboard(include_interval=True),
+                )
+                return
+            if data.startswith("time_ivlcustom_"):
+                interval_hours = int(data.rsplit("_", 1)[1])
+                context.user_data["schedule_interval_hours"] = interval_hours
+                context.user_data["awaiting_schedule_text"] = True
+                await query.edit_message_text(
+                    f"התזכורות יחזרו כל {interval_hours} שעות.\nהקלידו את שעת הנטילה הראשונה בפורמט HH:MM (למשל 07:30)"
+                )
+                return
+            if data.startswith("time_ivlstart_"):
+                try:
+                    _, interval_hours, hour, minute = data.rsplit("_", 3)
+                    medicine_id = context.user_data.get("editing_schedule_for")
+                    if not medicine_id:
+                        await query.edit_message_text("שגיאה: אין תרופה נבחרת. חזרו ל'שנה שעות' ונסו שוב.")
+                        return
+                    from datetime import time as dtime
+
+                    start_time = dtime(hour=int(hour), minute=int(minute))
+                    times = expand_interval_times(start_time, int(interval_hours))
+                    await self._apply_schedule_times(query.from_user.id, int(medicine_id), times)
+                    context.user_data.pop("editing_schedule_for", None)
+                    context.user_data.pop("schedule_interval_hours", None)
+
+                    from utils.keyboards import get_medicine_detail_keyboard
+
+                    med = await DatabaseManager.get_medicine_by_id(int(medicine_id))
+                    await query.edit_message_text(
+                        f"{config.EMOJIS['success']} עודכן: כל {interval_hours} שעות (החל מ-{start_time.strftime('%H:%M')})\n"
+                        f"⏰ שעות נטילה: {format_times(times)}\n"
+                        f"{config.EMOJIS['medicine']} {med.name}",
+                        reply_markup=get_medicine_detail_keyboard(
+                            int(medicine_id), is_active=getattr(med, "is_active", True)
+                        ),
+                    )
+                    return
+                except Exception as ex:
+                    logger.error(f"Failed to set interval schedule: {ex}")
+                    await query.edit_message_text(config.ERROR_MESSAGES["general"])
+                    return
+            if data.startswith("time_ivl_"):
+                from utils.keyboards import get_interval_start_keyboard
+
+                interval_hours = int(data.rsplit("_", 1)[1])
+                await query.edit_message_text(
+                    f"כל {interval_hours} שעות — בחרו את שעת הנטילה הראשונה ביום:",
+                    reply_markup=get_interval_start_keyboard(interval_hours),
+                )
                 return
             if data.startswith("time_"):
                 parts = data.split("_")
@@ -564,17 +629,7 @@ class MedicineReminderBot:
 
                         new_time = dtime(hour=h, minute=m)
                         medicine_id = int(context.user_data.get("editing_schedule_for"))
-                        # Replace schedules
-                        await DatabaseManager.replace_medicine_schedules(medicine_id, [new_time])
-                        # Reschedule reminders
-                        user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
-                        await medicine_scheduler.cancel_medicine_reminders(user.id, medicine_id)
-                        await medicine_scheduler.schedule_medicine_reminder(
-                            user_id=user.id,
-                            medicine_id=medicine_id,
-                            reminder_time=new_time,
-                            timezone=user.timezone or config.DEFAULT_TIMEZONE,
-                        )
+                        await self._apply_schedule_times(query.from_user.id, medicine_id, [new_time])
                         context.user_data.pop("editing_schedule_for", None)
                         # Show success and medicine details
                         from utils.keyboards import get_medicine_detail_keyboard
@@ -632,7 +687,7 @@ class MedicineReminderBot:
 
                 context.user_data["editing_schedule_for"] = medicine_id
                 await query.edit_message_text(
-                    "בחרו שעה חדשה לנטילת התרופה או הזינו שעה (לדוגמה 08:30)", reply_markup=get_time_selection_keyboard()
+                    "בחרו שעה חדשה לנטילת התרופה או הזינו שעה (לדוגמה 08:30)", reply_markup=get_time_selection_keyboard(include_interval=True)
                 )
                 return
             elif data == "rem_pick_medicine_for_time":
@@ -880,6 +935,25 @@ class MedicineReminderBot:
             logger.error(f"Error in button callback: {e}")
             await query.edit_message_text(config.ERROR_MESSAGES["general"])
 
+    async def _apply_schedule_times(self, telegram_user_id: int, medicine_id: int, times):
+        """Replace a medicine's schedule with `times` and re-arm every reminder.
+
+        Interval schedules produce several times per day, so the old single-time
+        path of cancel-then-schedule-one is not enough: every expanded time needs
+        its own job.
+        """
+        await DatabaseManager.replace_medicine_schedules(medicine_id, times)
+
+        user = await DatabaseManager.get_user_by_telegram_id(telegram_user_id)
+        await medicine_scheduler.cancel_medicine_reminders(user.id, medicine_id)
+        for t in times:
+            await medicine_scheduler.schedule_medicine_reminder(
+                user_id=user.id,
+                medicine_id=medicine_id,
+                reminder_time=t,
+                timezone=user.timezone or config.DEFAULT_TIMEZONE,
+            )
+
     async def _handle_dose_taken(self, query, context):
         """Handle dose taken confirmation"""
         medicine_id = int(query.data.split("_")[2])
@@ -1077,7 +1151,7 @@ class MedicineReminderBot:
 
                 context.user_data["editing_schedule_for"] = int(data.split("_")[2])
                 await query.edit_message_text(
-                    "בחרו שעה חדשה לנטילת התרופה או הזינו שעה (לדוגמה 08:30)", reply_markup=get_time_selection_keyboard()
+                    "בחרו שעה חדשה לנטילת התרופה או הזינו שעה (לדוגמה 08:30)", reply_markup=get_time_selection_keyboard(include_interval=True)
                 )
                 return
             if data.startswith("medicine_toggle_"):
@@ -1476,20 +1550,22 @@ class MedicineReminderBot:
                 except Exception:
                     await update.message.reply_text("שעה לא תקינה")
                     return
-                # Replace or add a schedule time (avoid duplicates)
-                times = [new_time]
-                await DatabaseManager.replace_medicine_schedules(medicine_id, times)
-                # Re-schedule reminders for this time
-                user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
-                await medicine_scheduler.cancel_medicine_reminders(user.id, medicine_id)
-                await medicine_scheduler.schedule_medicine_reminder(
-                    user_id=user.id,
-                    medicine_id=medicine_id,
-                    reminder_time=new_time,
-                    timezone=user.timezone or config.DEFAULT_TIMEZONE,
-                )
+                # A pending interval means this input is the interval's start time
+                interval_hours = user_data.pop("schedule_interval_hours", None)
+                if interval_hours:
+                    times = expand_interval_times(new_time, int(interval_hours))
+                    confirmation = (
+                        f"{config.EMOJIS['success']} עודכן: כל {interval_hours} שעות "
+                        f"(החל מ-{new_time.strftime('%H:%M')})\n⏰ שעות נטילה: {format_times(times)}"
+                    )
+                else:
+                    times = [new_time]
+                    confirmation = f"{config.EMOJIS['success']} השעה עודכנה ל- {new_time.strftime('%H:%M')}"
+
+                await self._apply_schedule_times(update.effective_user.id, medicine_id, times)
                 user_data.pop("editing_schedule_for", None)
-                await update.message.reply_text(f"{config.EMOJIS['success']} השעה עודכנה ל- {new_time.strftime('%H:%M')}")
+                user_data.pop("awaiting_schedule_text", None)
+                await update.message.reply_text(confirmation)
                 # Show medicine details
                 med = await DatabaseManager.get_medicine_by_id(medicine_id)
                 from utils.keyboards import get_medicine_detail_keyboard

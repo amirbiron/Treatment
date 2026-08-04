@@ -326,8 +326,13 @@ def get_reports_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_time_selection_keyboard() -> InlineKeyboardMarkup:
-    """Time selection keyboard for scheduling"""
+def get_time_selection_keyboard(include_interval: bool = False) -> InlineKeyboardMarkup:
+    """Time selection keyboard for scheduling.
+
+    include_interval adds the "every X hours" entry point. It is opt-in because
+    this keyboard is also used for appointments, where a repeating interval has
+    no meaning.
+    """
     keyboard = []
 
     # Morning hours (6-12)
@@ -366,7 +371,57 @@ def get_time_selection_keyboard() -> InlineKeyboardMarkup:
     # Custom time button
     keyboard.append([InlineKeyboardButton(f"{config.EMOJIS['settings']} שעה מותאמת אישית", callback_data="time_custom")])
 
+    # Repeating interval instead of a single fixed hour
+    if include_interval:
+        keyboard.append([InlineKeyboardButton("🔁 כל כמה שעות", callback_data="time_interval")])
+
     # Cancel button
+    keyboard.append([InlineKeyboardButton(f"{config.EMOJIS['back']} ביטול", callback_data="time_cancel")])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_interval_selection_keyboard() -> InlineKeyboardMarkup:
+    """Pick how many hours between doses."""
+    from utils.schedule import INTERVAL_HOURS_CHOICES
+
+    keyboard = []
+    row = []
+    for hours in INTERVAL_HOURS_CHOICES:
+        doses = 24 // hours
+        row.append(InlineKeyboardButton(f"כל {hours} שעות ({doses}/יום)", callback_data=f"time_ivl_{hours}"))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    keyboard.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזרה", callback_data="time_ivl_back")])
+    keyboard.append([InlineKeyboardButton(f"{config.EMOJIS['back']} ביטול", callback_data="time_cancel")])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_interval_start_keyboard(interval_hours: int) -> InlineKeyboardMarkup:
+    """Pick the first dose of the day for a given interval."""
+    keyboard = []
+    row = []
+    for hour in range(6, 24):
+        row.append(InlineKeyboardButton(f"{hour:02d}:00", callback_data=f"time_ivlstart_{interval_hours}_{hour:02d}_00"))
+        if len(row) == 4:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                f"{config.EMOJIS['settings']} שעת התחלה אחרת", callback_data=f"time_ivlcustom_{interval_hours}"
+            )
+        ]
+    )
+    keyboard.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזרה", callback_data="time_interval")])
     keyboard.append([InlineKeyboardButton(f"{config.EMOJIS['back']} ביטול", callback_data="time_cancel")])
 
     return InlineKeyboardMarkup(keyboard)

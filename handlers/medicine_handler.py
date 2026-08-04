@@ -14,10 +14,13 @@ from config import config
 from database import DatabaseManager, Medicine, MedicineSchedule
 from scheduler import medicine_scheduler
 from utils.time import get_user_timezone_name
+from utils.schedule import expand_interval_times, format_times
 from utils.keyboards import (
     get_medicines_keyboard,
     get_medicine_detail_keyboard,
     get_time_selection_keyboard,
+    get_interval_selection_keyboard,
+    get_interval_start_keyboard,
     get_inventory_update_keyboard,
     get_confirmation_keyboard,
     get_cancel_keyboard,
@@ -185,7 +188,7 @@ class MedicineHandler:
 (תוכלו להוסיף שעות נוספות אחר כך)
             """
 
-            await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_time_selection_keyboard())
+            await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_time_selection_keyboard(include_interval=True))
 
             return MEDICINE_SCHEDULE
 
@@ -215,57 +218,126 @@ class MedicineHandler:
 
                 return CUSTOM_TIME_INPUT
 
+            elif data == "time_interval":
+                await query.edit_message_text(
+                    f"{config.EMOJIS['clock']} <b>תזכורת כל כמה שעות</b>\n\nבחרו את המרווח בין הנטילות:",
+                    parse_mode="HTML",
+                    reply_markup=get_interval_selection_keyboard(),
+                )
+                return MEDICINE_SCHEDULE
+
+            elif data == "time_ivl_back":
+                await query.edit_message_text(
+                    "בחרו את השעה הראשונה לנטילת התרופה:",
+                    reply_markup=get_time_selection_keyboard(include_interval=True),
+                )
+                return MEDICINE_SCHEDULE
+
+            elif data.startswith("time_ivlcustom_"):
+                interval_hours = int(data.rsplit("_", 1)[1])
+                self.user_medicine_data[user_id]["medicine_data"]["interval_hours"] = interval_hours
+                await query.edit_message_text(
+                    f"{config.EMOJIS['clock']} <b>שעת ההתחלה</b>\n\n"
+                    f"התזכורות יחזרו כל {interval_hours} שעות.\n"
+                    f"אנא הזינו את שעת הנטילה הראשונה בפורמט HH:MM (לדוגמה: 07:30)",
+                    parse_mode="HTML",
+                    reply_markup=get_cancel_keyboard(),
+                )
+                return CUSTOM_TIME_INPUT
+
+            elif data.startswith("time_ivlstart_"):
+                _, interval_hours, hour, minute = data.rsplit("_", 3)
+                start_time = time(int(hour), int(minute))
+                return await self._finalize_medicine(
+                    update,
+                    context,
+                    user_id,
+                    expand_interval_times(start_time, int(interval_hours)),
+                    interval_hours=int(interval_hours),
+                    start_time=start_time,
+                )
+
+            elif data.startswith("time_ivl_"):
+                interval_hours = int(data.rsplit("_", 1)[1])
+                await query.edit_message_text(
+                    f"{config.EMOJIS['clock']} <b>כל {interval_hours} שעות</b>\n\n"
+                    f"בחרו את שעת הנטילה הראשונה ביום:",
+                    parse_mode="HTML",
+                    reply_markup=get_interval_start_keyboard(interval_hours),
+                )
+                return MEDICINE_SCHEDULE
+
             elif data.startswith("time_"):
                 # Parse time from callback data
                 time_parts = data.replace("time_", "").split("_")
                 hour = int(time_parts[0])
                 minute = int(time_parts[1])
 
-                selected_time = time(hour, minute)
-
-                # Store time and finalize creation (inventory defaults to 0)
-                if "schedules" not in self.user_medicine_data[user_id]["medicine_data"]:
-                    self.user_medicine_data[user_id]["medicine_data"]["schedules"] = []
-
-                self.user_medicine_data[user_id]["medicine_data"]["schedules"].append(selected_time)
-
-                medicine_name = self.user_medicine_data[user_id]["medicine_data"]["name"]
-                dosage = self.user_medicine_data[user_id]["medicine_data"]["dosage"]
-                # Default inventory to 0 and create medicine immediately
-                self.user_medicine_data[user_id]["medicine_data"]["inventory_count"] = 0.0
-                success = await self._create_medicine_in_db(user_id)
-                if success:
-                    schedules_text = ", ".join(
-                        [t.strftime("%H:%M") for t in self.user_medicine_data[user_id]["medicine_data"]["schedules"]]
-                    )
-                    message = f"""
-{config.EMOJIS['success']} <b>התרופה נוספה בהצלחה!</b>
-
-{config.EMOJIS['medicine']} <b>{medicine_name}</b>
-{config.EMOJIS['dosage']} מינון: {dosage}
-⏰ שעות נטילה: {schedules_text}
-📦 מלאי התחלתי: 0 כדורים (ניתן לעדכן דרך "עדכן מלאי")
-
-התזכורות הופעלו אוטומטית!
-                    """
-                    await query.edit_message_text(message, parse_mode="HTML")
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id, text="תפריט ראשי:", reply_markup=get_main_menu_keyboard()
-                    )
-                else:
-                    await query.edit_message_text(f"{config.EMOJIS['error']} שגיאה בשמירת התרופה. אנא נסו שוב.")
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id, text="תפריט ראשי:", reply_markup=get_main_menu_keyboard()
-                    )
-                # Clean up and end
-                if user_id in self.user_medicine_data:
-                    del self.user_medicine_data[user_id]
-                return ConversationHandler.END
+                return await self._finalize_medicine(update, context, user_id, [time(hour, minute)])
 
         except Exception as e:
             logger.error(f"Error handling time selection: {e}")
             await self._send_error_message(update, "שגיאה בבחירת השעה")
             return ConversationHandler.END
+
+    async def _finalize_medicine(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        user_id: int,
+        times: List[time],
+        interval_hours: Optional[int] = None,
+        start_time: Optional[time] = None,
+    ):
+        """Store the chosen times, create the medicine, and report the result.
+
+        Shared by the fixed-time and every-X-hours paths, and by both the button
+        and free-text entry points, so all four report the schedule identically.
+        """
+        medicine_data = self.user_medicine_data[user_id]["medicine_data"]
+        medicine_data.setdefault("schedules", []).extend(times)
+        # Inventory defaults to 0 and is updated later via "עדכן מלאי"
+        medicine_data["inventory_count"] = 0.0
+
+        success = await self._create_medicine_in_db(user_id)
+
+        if success:
+            if interval_hours:
+                schedule_line = (
+                    f"🔁 כל {interval_hours} שעות (החל מ-{start_time.strftime('%H:%M')})\n"
+                    f"⏰ שעות נטילה: {format_times(medicine_data['schedules'])}"
+                )
+            else:
+                schedule_line = f"⏰ שעות נטילה: {format_times(medicine_data['schedules'])}"
+
+            message = f"""
+{config.EMOJIS['success']} <b>התרופה נוספה בהצלחה!</b>
+
+{config.EMOJIS['medicine']} <b>{medicine_data['name']}</b>
+{config.EMOJIS['dosage']} מינון: {medicine_data['dosage']}
+{schedule_line}
+📦 מלאי התחלתי: 0 כדורים (ניתן לעדכן דרך "עדכן מלאי")
+
+התזכורות הופעלו אוטומטית!
+            """
+        else:
+            message = f"{config.EMOJIS['error']} שגיאה בשמירת התרופה. אנא נסו שוב."
+
+        if update.callback_query:
+            await update.callback_query.edit_message_text(
+                message, parse_mode="HTML" if success else None
+            )
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id, text="תפריט ראשי:", reply_markup=get_main_menu_keyboard()
+            )
+        else:
+            await update.message.reply_text(
+                message, parse_mode="HTML" if success else None, reply_markup=get_main_menu_keyboard()
+            )
+
+        if user_id in self.user_medicine_data:
+            del self.user_medicine_data[user_id]
+        return ConversationHandler.END
 
     async def get_custom_time(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Get custom time input from user"""
@@ -287,38 +359,20 @@ class MedicineHandler:
             minute = int(match.group(2))
             selected_time = time(hour, minute)
 
-            # Store time and finalize creation (inventory defaults to 0)
-            if "schedules" not in self.user_medicine_data[user_id]["medicine_data"]:
-                self.user_medicine_data[user_id]["medicine_data"]["schedules"] = []
-
-            self.user_medicine_data[user_id]["medicine_data"]["schedules"].append(selected_time)
-
-            medicine_name = self.user_medicine_data[user_id]["medicine_data"]["name"]
-            dosage = self.user_medicine_data[user_id]["medicine_data"]["dosage"]
-            self.user_medicine_data[user_id]["medicine_data"]["inventory_count"] = 0.0
-            success = await self._create_medicine_in_db(user_id)
-            if success:
-                schedules_text = ", ".join(
-                    [t.strftime("%H:%M") for t in self.user_medicine_data[user_id]["medicine_data"]["schedules"]]
+            # A pending interval means this input is the interval's start time,
+            # not a one-off reminder hour.
+            interval_hours = self.user_medicine_data[user_id]["medicine_data"].pop("interval_hours", None)
+            if interval_hours:
+                return await self._finalize_medicine(
+                    update,
+                    context,
+                    user_id,
+                    expand_interval_times(selected_time, interval_hours),
+                    interval_hours=interval_hours,
+                    start_time=selected_time,
                 )
-                message = f"""
-{config.EMOJIS['success']} <b>התרופה נוספה בהצלחה!</b>
 
-{config.EMOJIS['medicine']} <b>{medicine_name}</b>
-{config.EMOJIS['dosage']} מינון: {dosage}
-⏰ שעות נטילה: {schedules_text}
-📦 מלאי התחלתי: 0 כדורים (ניתן לעדכן דרך "עדכן מלאי")
-
-התזכורות הופעלו אוטומטית!
-                """
-                await update.message.reply_text(message, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
-            else:
-                await update.message.reply_text(
-                    f"{config.EMOJIS['error']} שגיאה בשמירת התרופה. אנא נסו שוב.", reply_markup=get_main_menu_keyboard()
-                )
-            if user_id in self.user_medicine_data:
-                del self.user_medicine_data[user_id]
-            return ConversationHandler.END
+            return await self._finalize_medicine(update, context, user_id, [selected_time])
 
         except Exception as e:
             logger.error(f"Error getting custom time: {e}")
