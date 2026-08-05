@@ -1,10 +1,17 @@
 """Tests for the free-form notes feature (storage + handler flow)."""
 
+import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from handlers.notes_handler import NotesHandler, _preview
+
+# handlers/__init__.py does `from .notes_handler import notes_handler`, which rebinds
+# the package attribute from the module to the singleton instance. patch("handlers.
+# notes_handler.X") then resolves to the instance on some Python versions and to the
+# module on others - it failed only on 3.10. Resolve the module explicitly instead.
+notes_module = importlib.import_module("handlers.notes_handler")
 
 
 def _callbacks(markup):
@@ -86,7 +93,7 @@ def test_preview_survives_an_empty_note():
 @pytest.mark.asyncio
 async def test_empty_list_still_offers_adding(handler, ctx):
     update = _callback_update("notes_menu")
-    with patch("handlers.notes_handler.DatabaseManager") as db:
+    with patch.object(notes_module, "DatabaseManager") as db:
         db.get_user_by_telegram_id = AsyncMock(return_value=_user())
         db.get_user_notes = AsyncMock(return_value=[])
         await handler.show_notes(update, ctx)
@@ -99,7 +106,7 @@ async def test_empty_list_still_offers_adding(handler, ctx):
 async def test_each_note_gets_its_own_button(handler, ctx):
     update = _callback_update("notes_menu")
     notes = [_note(1, "ראשון"), _note(2, "שני")]
-    with patch("handlers.notes_handler.DatabaseManager") as db:
+    with patch.object(notes_module, "DatabaseManager") as db:
         db.get_user_by_telegram_id = AsyncMock(return_value=_user())
         db.get_user_notes = AsyncMock(return_value=notes)
         await handler.show_notes(update, ctx)
@@ -118,7 +125,7 @@ async def test_adding_a_note_arms_then_saves(handler, ctx):
     assert ctx.user_data["awaiting_note_text"] is True
 
     update = _text_update("לשאול את הרופא על המינון")
-    with patch("handlers.notes_handler.DatabaseManager") as db:
+    with patch.object(notes_module, "DatabaseManager") as db:
         db.get_user_by_telegram_id = AsyncMock(return_value=_user())
         db.create_note = AsyncMock()
         db.get_user_notes = AsyncMock(return_value=[])
@@ -140,7 +147,7 @@ async def test_unrelated_text_is_not_claimed(handler, ctx):
 async def test_an_empty_note_is_rejected(handler, ctx):
     ctx.user_data["awaiting_note_text"] = True
     update = _text_update("    ")
-    with patch("handlers.notes_handler.DatabaseManager") as db:
+    with patch.object(notes_module, "DatabaseManager") as db:
         db.create_note = AsyncMock()
         claimed = await handler.handle_text(update, ctx)
 
@@ -158,14 +165,15 @@ async def test_editing_updates_instead_of_creating(handler, ctx):
     assert ctx.user_data["editing_note_id"] == 5
 
     update = _text_update("תוכן מעודכן")
-    with patch("handlers.notes_handler.DatabaseManager") as db:
+    with patch.object(notes_module, "DatabaseManager") as db:
         db.get_user_by_telegram_id = AsyncMock(return_value=_user())
-        db.update_note = AsyncMock()
+        db.update_note_for_user = AsyncMock(return_value=True)
         db.create_note = AsyncMock()
         db.get_user_notes = AsyncMock(return_value=[])
         await handler.handle_text(update, ctx)
 
-    db.update_note.assert_awaited_once_with(5, "תוכן מעודכן")
+    # scoped to the owner - see tests/test_notes_reminders_security.py
+    db.update_note_for_user.assert_awaited_once_with(5, 11, "תוכן מעודכן")
     db.create_note.assert_not_awaited()
 
 
@@ -189,24 +197,25 @@ async def test_delete_asks_before_acting(handler, ctx):
 @pytest.mark.asyncio
 async def test_confirming_delete_removes_the_note(handler, ctx):
     update = _callback_update("notedel_5_confirm")
-    with patch("handlers.notes_handler.DatabaseManager") as db:
-        db.delete_note = AsyncMock()
+    with patch.object(notes_module, "DatabaseManager") as db:
+        db.delete_note_for_user = AsyncMock(return_value=True)
         db.get_user_by_telegram_id = AsyncMock(return_value=_user())
         db.get_user_notes = AsyncMock(return_value=[])
         await handler.confirm_delete_note(update, ctx)
 
-    db.delete_note.assert_awaited_once_with(5)
+    db.delete_note_for_user.assert_awaited_once_with(5, 11)
 
 
 @pytest.mark.asyncio
 async def test_cancelling_delete_keeps_the_note(handler, ctx):
     update = _callback_update("notedel_5_cancel")
-    with patch("handlers.notes_handler.DatabaseManager") as db:
-        db.delete_note = AsyncMock()
-        db.get_note_by_id = AsyncMock(return_value=_note(5, "עדיין כאן"))
+    with patch.object(notes_module, "DatabaseManager") as db:
+        db.delete_note_for_user = AsyncMock()
+        db.get_user_by_telegram_id = AsyncMock(return_value=_user())
+        db.get_note_for_user = AsyncMock(return_value=_note(5, "עדיין כאן"))
         await handler.cancel_delete_note(update, ctx)
 
-    db.delete_note.assert_not_awaited()
+    db.delete_note_for_user.assert_not_awaited()
     assert "עדיין כאן" in update.callback_query.edit_message_text.call_args.args[0]
 
 

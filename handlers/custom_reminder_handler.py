@@ -10,6 +10,7 @@ hangs off. The only text step is the reminder body, flagged on user_data and
 picked up by main.handle_text_message.
 """
 
+import html
 import logging
 from datetime import datetime, time, timedelta
 from typing import List, Optional
@@ -134,8 +135,10 @@ class CustomReminderHandler:
             text = text[:MAX_TEXT_LENGTH]
 
         context.user_data[DRAFT] = {"text": text}
+        # Escaped: free-form text with < or & would break HTML parsing and the
+        # message would not be delivered at all.
         await update.message.reply_text(
-            f'{config.EMOJIS["reminder"]} <b>{text}</b>\n\nמתי להזכיר?',
+            f'{config.EMOJIS["reminder"]} <b>{html.escape(text)}</b>\n\nמתי להזכיר?',
             parse_mode="HTML",
             reply_markup=self._repeat_keyboard(),
         )
@@ -214,13 +217,21 @@ class CustomReminderHandler:
                 weekday=draft.get("weekday") if repeat == "weekly" else None,
             )
 
-            job_id = await medicine_scheduler.schedule_custom_reminder(reminder)
+            try:
+                job_id = await medicine_scheduler.schedule_custom_reminder(reminder)
+            except Exception:
+                # The row is already committed. Leaving it would show the user an
+                # active reminder with no job behind it, and a retry would add a
+                # duplicate, so undo the row and keep the draft so they can retry.
+                await DatabaseManager.delete_custom_reminder_for_user(reminder.id, user.id)
+                raise
+
             self._clear_draft(context)
 
             if job_id:
                 confirmation = (
                     f"{config.EMOJIS['success']} התזכורת נוצרה\n\n"
-                    f"{config.EMOJIS['reminder']} <b>{reminder.text}</b>\n"
+                    f"{config.EMOJIS['reminder']} <b>{html.escape(reminder.text or '')}</b>\n"
                     f"🗓 {describe_reminder(reminder)}"
                 )
             else:
@@ -240,13 +251,18 @@ class CustomReminderHandler:
         query = update.callback_query
         await query.answer()
         reminder_id = int(query.data.rsplit("_", 1)[1])
-        reminder = await DatabaseManager.get_custom_reminder_by_id(reminder_id)
+        # Scoped to the owner: callback data is client-supplied, not proof of ownership
+        user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+        reminder = (
+            await DatabaseManager.get_custom_reminder_for_user(reminder_id, user.id) if user else None
+        )
         if not reminder:
             await self.show_menu(update, context)
             return
 
         await query.edit_message_text(
-            f"{config.EMOJIS['reminder']} <b>{reminder.text}</b>\n🗓 {describe_reminder(reminder)}\n\nלמחוק את התזכורת?",
+            f"{config.EMOJIS['reminder']} <b>{html.escape(reminder.text or '')}</b>\n"
+            f"🗓 {describe_reminder(reminder)}\n\nלמחוק את התזכורת?",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(
                 [
@@ -263,11 +279,14 @@ class CustomReminderHandler:
         await query.answer()
         reminder_id = int(query.data.split("_")[1])
 
-        reminder = await DatabaseManager.get_custom_reminder_by_id(reminder_id)
+        user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+        reminder = (
+            await DatabaseManager.get_custom_reminder_for_user(reminder_id, user.id) if user else None
+        )
         if reminder:
             # Drop the job first: a deleted row with a live job would fire into nothing
             await medicine_scheduler.cancel_custom_reminder(reminder.user_id, reminder_id)
-        await DatabaseManager.delete_custom_reminder(reminder_id)
+            await DatabaseManager.delete_custom_reminder_for_user(reminder_id, user.id)
         await self.show_menu(update, context)
 
     async def cancel_delete(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

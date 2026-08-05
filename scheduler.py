@@ -4,6 +4,7 @@ Using APScheduler 3.11.0 with async support
 """
 
 import asyncio
+import html
 import logging
 from datetime import datetime, time, timedelta
 from typing import Dict, List, Optional, Callable, Any
@@ -328,8 +329,11 @@ class MedicineScheduler:
                 logger.info(f"User {user_id} not found or inactive")
                 return
 
-            message = f"{config.EMOJIS['reminder']} *תזכורת*\n\n{reminder.text}"
-            await self.bot.send_message(chat_id=user.telegram_id, text=message, parse_mode="Markdown")
+            # HTML with the body escaped, not Markdown: an unescaped "*" or "_" in a
+            # user's reminder makes Telegram reject the whole message, and a reminder
+            # that fails to send is a reminder the user never gets.
+            message = f"{config.EMOJIS['reminder']} <b>תזכורת</b>\n\n{html.escape(reminder.text or '')}"
+            await self.bot.send_message(chat_id=user.telegram_id, text=message, parse_mode="HTML")
 
             if reminder.repeat == "once":
                 # Nothing left to fire; keep the list clean without deleting history
@@ -339,6 +343,15 @@ class MedicineScheduler:
 
         except Exception as e:
             logger.error(f"Failed to send custom reminder {reminder_id}: {e}")
+            # A one-off's DateTrigger has already fired, so nothing will retry it.
+            # Leaving it active would strand it in the user's list forever, looking
+            # pending when it can never fire again.
+            try:
+                reminder = await DatabaseManager.get_custom_reminder_by_id(reminder_id)
+                if reminder and reminder.repeat == "once" and reminder.is_active:
+                    await DatabaseManager.set_custom_reminder_active(reminder_id, False)
+            except Exception as cleanup_exc:
+                logger.error(f"Could not retire failed one-off reminder {reminder_id}: {cleanup_exc}")
 
     async def _reschedule_all_custom_reminders(self):
         """Re-arm standalone reminders after a restart, retiring stale one-offs."""

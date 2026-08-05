@@ -26,10 +26,10 @@ NEW_METHODS = [
 
 
 def test_both_backends_expose_the_same_methods():
-    from database import DatabaseManagerMongo
     import database
+    from database import DatabaseManagerMongo
 
-    sql_manager = getattr(database, "DatabaseManager")
+    sql_manager = database.DatabaseManager
     for name in NEW_METHODS:
         assert hasattr(sql_manager, name), f"SQL backend missing {name}"
         assert hasattr(DatabaseManagerMongo, name), f"Mongo backend missing {name}"

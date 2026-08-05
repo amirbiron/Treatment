@@ -1,6 +1,7 @@
 """Tests for standalone (non-medicine) reminders: creation flow and scheduling."""
 
 from datetime import date, datetime, time, timedelta
+import importlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,6 +11,11 @@ from handlers.custom_reminder_handler import (
     CustomReminderHandler,
     describe_reminder,
 )
+
+# handlers/__init__.py rebinds handlers.custom_reminder_handler from the module to the
+# singleton instance, so a string patch target resolves differently across Python
+# versions (it failed only on 3.10). Resolve the module explicitly instead.
+reminder_module = importlib.import_module("handlers.custom_reminder_handler")
 
 
 def _callbacks(markup):
@@ -155,7 +161,7 @@ async def test_weekly_asks_for_a_weekday_first(handler, ctx):
 async def test_one_off_offers_relative_days_so_buttons_never_go_stale(handler, ctx):
     ctx.user_data["custom_reminder_draft"] = {"text": "לקחת מרשם"}
     update = _callback_update("crem_rep_once")
-    with patch("handlers.custom_reminder_handler.DatabaseManager") as db:
+    with patch.object(reminder_module, "DatabaseManager") as db:
         db.get_user_by_telegram_id = AsyncMock(return_value=_user())
         await handler.pick_repeat(update, ctx)
 
@@ -184,9 +190,7 @@ async def test_daily_reminder_is_saved_and_armed(handler, ctx):
     update = _callback_update("crem_time_08_00")
 
     saved = _reminder(repeat="daily", remind_time=time(8, 0), text="למדוד לחץ דם")
-    with patch("handlers.custom_reminder_handler.DatabaseManager") as db, patch(
-        "handlers.custom_reminder_handler.medicine_scheduler"
-    ) as sched:
+    with patch.object(reminder_module, "DatabaseManager") as db, patch.object(reminder_module, "medicine_scheduler") as sched:
         db.get_user_by_telegram_id = AsyncMock(return_value=_user())
         db.create_custom_reminder = AsyncMock(return_value=saved)
         sched.schedule_custom_reminder = AsyncMock(return_value="job-1")
@@ -205,9 +209,7 @@ async def test_weekly_reminder_carries_the_weekday(handler, ctx):
     ctx.user_data["custom_reminder_draft"] = {"text": "שקילה", "repeat": "weekly", "weekday": 6}
     update = _callback_update("crem_time_07_00")
 
-    with patch("handlers.custom_reminder_handler.DatabaseManager") as db, patch(
-        "handlers.custom_reminder_handler.medicine_scheduler"
-    ) as sched:
+    with patch.object(reminder_module, "DatabaseManager") as db, patch.object(reminder_module, "medicine_scheduler") as sched:
         db.get_user_by_telegram_id = AsyncMock(return_value=_user())
         db.create_custom_reminder = AsyncMock(return_value=_reminder(repeat="weekly"))
         sched.schedule_custom_reminder = AsyncMock(return_value="job-1")
@@ -224,9 +226,7 @@ async def test_one_off_resolves_the_chosen_day_into_a_datetime(handler, ctx):
     ctx.user_data["custom_reminder_draft"] = {"text": "לקחת מרשם", "repeat": "once", "days_ahead": 2}
     update = _callback_update("crem_time_10_00")
 
-    with patch("handlers.custom_reminder_handler.DatabaseManager") as db, patch(
-        "handlers.custom_reminder_handler.medicine_scheduler"
-    ) as sched:
+    with patch.object(reminder_module, "DatabaseManager") as db, patch.object(reminder_module, "medicine_scheduler") as sched:
         db.get_user_by_telegram_id = AsyncMock(return_value=_user())
         db.create_custom_reminder = AsyncMock(return_value=_reminder())
         sched.schedule_custom_reminder = AsyncMock(return_value="job-1")
@@ -245,9 +245,7 @@ async def test_a_past_one_off_is_retired_not_left_dangling(handler, ctx):
     update = _callback_update("crem_time_06_00")
 
     saved = _reminder(id=9)
-    with patch("handlers.custom_reminder_handler.DatabaseManager") as db, patch(
-        "handlers.custom_reminder_handler.medicine_scheduler"
-    ) as sched:
+    with patch.object(reminder_module, "DatabaseManager") as db, patch.object(reminder_module, "medicine_scheduler") as sched:
         db.get_user_by_telegram_id = AsyncMock(return_value=_user())
         db.create_custom_reminder = AsyncMock(return_value=saved)
         db.set_custom_reminder_active = AsyncMock()
@@ -266,11 +264,9 @@ async def test_delete_cancels_the_job_before_removing_the_row(handler, ctx):
     update = _callback_update("cremdel_9_confirm")
     order = []
 
-    with patch("handlers.custom_reminder_handler.DatabaseManager") as db, patch(
-        "handlers.custom_reminder_handler.medicine_scheduler"
-    ) as sched:
-        db.get_custom_reminder_by_id = AsyncMock(return_value=_reminder(id=9, user_id=11))
-        db.delete_custom_reminder = AsyncMock(side_effect=lambda *a: order.append("delete"))
+    with patch.object(reminder_module, "DatabaseManager") as db, patch.object(reminder_module, "medicine_scheduler") as sched:
+        db.get_custom_reminder_for_user = AsyncMock(return_value=_reminder(id=9, user_id=11))
+        db.delete_custom_reminder_for_user = AsyncMock(side_effect=lambda *a: order.append("delete"))
         db.get_user_by_telegram_id = AsyncMock(return_value=_user())
         db.get_user_custom_reminders = AsyncMock(return_value=[])
         sched.cancel_custom_reminder = AsyncMock(side_effect=lambda *a: order.append("cancel"))
@@ -283,7 +279,7 @@ async def test_delete_cancels_the_job_before_removing_the_row(handler, ctx):
 @pytest.mark.asyncio
 async def test_cancelling_delete_keeps_the_reminder(handler, ctx):
     update = _callback_update("cremdel_9_cancel")
-    with patch("handlers.custom_reminder_handler.DatabaseManager") as db:
+    with patch.object(reminder_module, "DatabaseManager") as db:
         db.get_user_by_telegram_id = AsyncMock(return_value=_user())
         db.get_user_custom_reminders = AsyncMock(return_value=[_reminder(id=9)])
         db.delete_custom_reminder = AsyncMock()

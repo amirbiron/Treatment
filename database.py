@@ -937,6 +937,16 @@ class DatabaseManager:
             return await session.get(Note, note_id)
 
     @staticmethod
+    async def get_note_for_user(note_id: int, user_id: int) -> Optional["Note"]:
+        """Ownership-checked read. Callback data is not an authorization boundary,
+        so anything driven by a button id must go through the *_for_user methods."""
+        async with async_session() as session:
+            result = await session.execute(
+                select(Note).where(Note.id == note_id, Note.user_id == user_id)
+            )
+            return result.scalar_one_or_none()
+
+    @staticmethod
     async def update_note(note_id: int, content: str) -> bool:
         async with async_session() as session:
             note = await session.get(Note, note_id)
@@ -948,9 +958,36 @@ class DatabaseManager:
             return True
 
     @staticmethod
+    async def update_note_for_user(note_id: int, user_id: int, content: str) -> bool:
+        async with async_session() as session:
+            result = await session.execute(
+                select(Note).where(Note.id == note_id, Note.user_id == user_id)
+            )
+            note = result.scalar_one_or_none()
+            if not note:
+                return False
+            note.content = content
+            note.updated_at = datetime.utcnow()
+            await session.commit()
+            return True
+
+    @staticmethod
     async def delete_note(note_id: int) -> bool:
         async with async_session() as session:
             note = await session.get(Note, note_id)
+            if not note:
+                return False
+            await session.delete(note)
+            await session.commit()
+            return True
+
+    @staticmethod
+    async def delete_note_for_user(note_id: int, user_id: int) -> bool:
+        async with async_session() as session:
+            result = await session.execute(
+                select(Note).where(Note.id == note_id, Note.user_id == user_id)
+            )
+            note = result.scalar_one_or_none()
             if not note:
                 return False
             await session.delete(note)
@@ -993,8 +1030,19 @@ class DatabaseManager:
 
     @staticmethod
     async def get_custom_reminder_by_id(reminder_id: int) -> Optional["CustomReminder"]:
+        """Unscoped: used by the scheduler, which acts on behalf of the system."""
         async with async_session() as session:
             return await session.get(CustomReminder, reminder_id)
+
+    @staticmethod
+    async def get_custom_reminder_for_user(reminder_id: int, user_id: int) -> Optional["CustomReminder"]:
+        async with async_session() as session:
+            result = await session.execute(
+                select(CustomReminder).where(
+                    CustomReminder.id == reminder_id, CustomReminder.user_id == user_id
+                )
+            )
+            return result.scalar_one_or_none()
 
     @staticmethod
     async def set_custom_reminder_active(reminder_id: int, is_active: bool) -> bool:
@@ -1010,6 +1058,21 @@ class DatabaseManager:
     async def delete_custom_reminder(reminder_id: int) -> bool:
         async with async_session() as session:
             reminder = await session.get(CustomReminder, reminder_id)
+            if not reminder:
+                return False
+            await session.delete(reminder)
+            await session.commit()
+            return True
+
+    @staticmethod
+    async def delete_custom_reminder_for_user(reminder_id: int, user_id: int) -> bool:
+        async with async_session() as session:
+            result = await session.execute(
+                select(CustomReminder).where(
+                    CustomReminder.id == reminder_id, CustomReminder.user_id == user_id
+                )
+            )
+            reminder = result.scalar_one_or_none()
             if not reminder:
                 return False
             await session.delete(reminder)
@@ -1035,6 +1098,18 @@ try:
     _mongo_available = True
 except Exception:
     _mongo_available = False
+
+# Imported separately from motor on purpose: chaining them means a motor failure
+# leaves ReturnDocument unbound, and the id allocator would then raise NameError
+# at write time rather than at import time.
+try:
+    from pymongo import ReturnDocument
+except Exception:  # pragma: no cover - pymongo ships as a motor dependency
+    class ReturnDocument:  # type: ignore[no-redef]
+        """Mirrors pymongo's flag values so the module still imports without it."""
+
+        BEFORE = False
+        AFTER = True
 
 _mongo_client = None
 _mongo_db = None
@@ -2146,8 +2221,30 @@ class DatabaseManagerMongo:
 
     @staticmethod
     async def _next_mongo_id(collection) -> int:
-        last = await collection.find().sort("_id", -1).limit(1).to_list(1)
-        return (last[0]["_id"] + 1) if last else 1
+        """Allocate a numeric _id atomically.
+
+        Reading max(_id) and adding one races: two concurrent creates read the
+        same value and the second insert fails on duplicate key. A counter
+        document incremented server-side hands out each value exactly once.
+        """
+        name = collection.name
+        counter = await _mongo_db.counters.find_one_and_update(
+            {"_id": name}, {"$inc": {"seq": 1}}, upsert=True, return_document=ReturnDocument.AFTER
+        )
+        seq = int(counter["seq"])
+
+        if seq == 1:
+            # First allocation for this collection. It may already hold documents
+            # created before the counter existed, so start above the highest.
+            last = await collection.find().sort("_id", -1).limit(1).to_list(1)
+            highest = int(last[0]["_id"]) if last else 0
+            if highest >= seq:
+                counter = await _mongo_db.counters.find_one_and_update(
+                    {"_id": name}, {"$set": {"seq": highest + 1}}, return_document=ReturnDocument.AFTER
+                )
+                seq = int(counter["seq"])
+
+        return seq
 
     @staticmethod
     def _doc_to_note(d: dict) -> "Note":
@@ -2190,6 +2287,13 @@ class DatabaseManagerMongo:
         return DatabaseManagerMongo._doc_to_note(d) if d else None
 
     @staticmethod
+    async def get_note_for_user(note_id: int, user_id: int) -> Optional["Note"]:
+        """Ownership-checked read; the filter carries user_id so a foreign id misses."""
+        await _init_mongo()
+        d = await _mongo_db.notes.find_one({"_id": int(note_id), "user_id": int(user_id)})
+        return DatabaseManagerMongo._doc_to_note(d) if d else None
+
+    @staticmethod
     async def update_note(note_id: int, content: str) -> bool:
         await _init_mongo()
         res = await _mongo_db.notes.update_one(
@@ -2198,9 +2302,24 @@ class DatabaseManagerMongo:
         return res.matched_count > 0
 
     @staticmethod
+    async def update_note_for_user(note_id: int, user_id: int, content: str) -> bool:
+        await _init_mongo()
+        res = await _mongo_db.notes.update_one(
+            {"_id": int(note_id), "user_id": int(user_id)},
+            {"$set": {"content": content, "updated_at": datetime.utcnow()}},
+        )
+        return res.matched_count > 0
+
+    @staticmethod
     async def delete_note(note_id: int) -> bool:
         await _init_mongo()
         res = await _mongo_db.notes.delete_one({"_id": int(note_id)})
+        return res.deleted_count > 0
+
+    @staticmethod
+    async def delete_note_for_user(note_id: int, user_id: int) -> bool:
+        await _init_mongo()
+        res = await _mongo_db.notes.delete_one({"_id": int(note_id), "user_id": int(user_id)})
         return res.deleted_count > 0
 
     # --- Custom reminders ---
@@ -2260,8 +2379,17 @@ class DatabaseManagerMongo:
 
     @staticmethod
     async def get_custom_reminder_by_id(reminder_id: int) -> Optional["CustomReminder"]:
+        """Unscoped: used by the scheduler, which acts on behalf of the system."""
         await _init_mongo()
         d = await _mongo_db.custom_reminders.find_one({"_id": int(reminder_id)})
+        return DatabaseManagerMongo._doc_to_custom_reminder(d) if d else None
+
+    @staticmethod
+    async def get_custom_reminder_for_user(reminder_id: int, user_id: int) -> Optional["CustomReminder"]:
+        await _init_mongo()
+        d = await _mongo_db.custom_reminders.find_one(
+            {"_id": int(reminder_id), "user_id": int(user_id)}
+        )
         return DatabaseManagerMongo._doc_to_custom_reminder(d) if d else None
 
     @staticmethod
@@ -2276,6 +2404,14 @@ class DatabaseManagerMongo:
     async def delete_custom_reminder(reminder_id: int) -> bool:
         await _init_mongo()
         res = await _mongo_db.custom_reminders.delete_one({"_id": int(reminder_id)})
+        return res.deleted_count > 0
+
+    @staticmethod
+    async def delete_custom_reminder_for_user(reminder_id: int, user_id: int) -> bool:
+        await _init_mongo()
+        res = await _mongo_db.custom_reminders.delete_one(
+            {"_id": int(reminder_id), "user_id": int(user_id)}
+        )
         return res.deleted_count > 0
 
     @staticmethod

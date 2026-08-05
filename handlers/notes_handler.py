@@ -10,6 +10,7 @@ Menu driven rather than a ConversationHandler: the only text step is the note
 body, which is flagged on user_data and picked up by main.handle_text_message.
 """
 
+import html
 import logging
 from typing import List
 
@@ -113,15 +114,22 @@ class NotesHandler:
 
     @staticmethod
     async def _render_note(query, note_id: int):
-        """Show one note. Kept separate because two callbacks land on this view."""
-        note = await DatabaseManager.get_note_by_id(note_id)
+        """Show one note. Kept separate because two callbacks land on this view.
+
+        The lookup is scoped to the owner: callback data is client-supplied and
+        must never be trusted as proof that the note belongs to this user.
+        """
+        user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+        note = await DatabaseManager.get_note_for_user(note_id, user.id) if user else None
         if not note:
             await query.edit_message_text("הפתק לא נמצא.")
             return
 
         created = note.created_at.strftime("%d/%m/%Y %H:%M") if note.created_at else ""
+        # Escaped: a note containing < or & would otherwise break HTML parsing and
+        # Telegram would refuse to render the message at all.
         await query.edit_message_text(
-            f"📄 <b>פתק</b>\n<i>{created}</i>\n\n{note.content}",
+            f"📄 <b>פתק</b>\n<i>{created}</i>\n\n{html.escape(note.content or '')}",
             parse_mode="HTML",
             reply_markup=_note_detail_keyboard(note_id),
         )
@@ -159,7 +167,9 @@ class NotesHandler:
         query = update.callback_query
         await query.answer()
         note_id = int(query.data.split("_")[1])
-        await DatabaseManager.delete_note(note_id)
+        user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+        if user:
+            await DatabaseManager.delete_note_for_user(note_id, user.id)
         await self.show_notes(update, context)
 
     async def cancel_delete_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -183,14 +193,17 @@ class NotesHandler:
             await update.message.reply_text(f"{config.EMOJIS['error']} הפתק ריק, לא נשמר.")
             return True
 
+        user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
+        if not user:
+            await update.message.reply_text(config.ERROR_MESSAGES["unauthorized"])
+            return True
+
         if editing:
-            await DatabaseManager.update_note(int(editing), content)
+            if not await DatabaseManager.update_note_for_user(int(editing), user.id, content):
+                await update.message.reply_text("הפתק לא נמצא.")
+                return True
             await update.message.reply_text(f"{config.EMOJIS['success']} הפתק עודכן")
         else:
-            user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
-            if not user:
-                await update.message.reply_text(config.ERROR_MESSAGES["unauthorized"])
-                return True
             await DatabaseManager.create_note(user.id, content)
             await update.message.reply_text(f"{config.EMOJIS['success']} הפתק נשמר")
 

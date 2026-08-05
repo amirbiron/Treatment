@@ -33,6 +33,22 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 
+# Main menu labels to actions. Module level because handle_text_message needs to
+# recognise a menu press before it hands the text to any draft handler.
+MAIN_MENU_ACTIONS = {
+    f"{config.EMOJIS['medicine']} התרופות שלי": "my_medicines",
+    f"{config.EMOJIS['reminder']} תזכורות": "reminders",
+    f"{config.EMOJIS['inventory']} מלאי": "inventory",
+    f"{config.EMOJIS['symptoms']} תופעות לוואי": "symptoms",
+    f"{config.EMOJIS['report']} דוחות": "reports",
+    f"{config.EMOJIS['caregiver']} מטפלים": "caregivers",
+    f"{config.EMOJIS['calendar']} הוספת תור": "appointments",
+    f"{config.EMOJIS['settings']} הגדרות": "settings",
+    f"{config.EMOJIS['info']} עזרה": "help",
+    "🏥 מלאי בית מרקחת": "pharmacy",
+    "📝 פתקים": "notes",
+}
+
 # Upper bound on updates waiting to be handled. Far above normal load, so a full
 # queue means the bot is genuinely overloaded rather than merely busy.
 UPDATE_QUEUE_MAXSIZE = 1000
@@ -1374,12 +1390,23 @@ class MedicineReminderBot:
             # Notes and standalone reminders each own one text step. They report
             # whether the message was theirs, so an unrelated message falls through
             # to the main-menu routing below untouched.
+            #
+            # A main-menu label is never draft content: pressing "פתקים" while a note
+            # is being edited means navigate, not "replace the note with the word
+            # פתקים". Menu labels therefore bypass the draft handlers and clear the
+            # pending draft state on the way through.
             from handlers import custom_reminder_handler, notes_handler
 
-            if notes_handler and await notes_handler.handle_text(update, context):
-                return
-            if custom_reminder_handler and await custom_reminder_handler.handle_text(update, context):
-                return
+            pressed_menu_button = (update.message.text or "").strip() in MAIN_MENU_ACTIONS
+            if pressed_menu_button:
+                for key in ("awaiting_note_text", "editing_note_id",
+                            "awaiting_custom_reminder_text", "custom_reminder_draft"):
+                    context.user_data.pop(key, None)
+            else:
+                if notes_handler and await notes_handler.handle_text(update, context):
+                    return
+                if custom_reminder_handler and await custom_reminder_handler.handle_text(update, context):
+                    return
 
             # This would handle conversation states for adding medicines, etc.
             # For now, just acknowledge
@@ -1398,19 +1425,7 @@ class MedicineReminderBot:
                 get_reports_keyboard,
             )
 
-            mapping = {
-                f"{config.EMOJIS['medicine']} התרופות שלי": "my_medicines",
-                f"{config.EMOJIS['reminder']} תזכורות": "reminders",
-                f"{config.EMOJIS['inventory']} מלאי": "inventory",
-                f"{config.EMOJIS['symptoms']} תופעות לוואי": "symptoms",
-                f"{config.EMOJIS['report']} דוחות": "reports",
-                f"{config.EMOJIS['caregiver']} מטפלים": "caregivers",
-                f"{config.EMOJIS['calendar']} הוספת תור": "appointments",
-                f"{config.EMOJIS['settings']} הגדרות": "settings",
-                f"{config.EMOJIS['info']} עזרה": "help",
-                "🏥 מלאי בית מרקחת": "pharmacy",
-                "📝 פתקים": "notes",
-            }
+            mapping = MAIN_MENU_ACTIONS
 
             # If user pressed a main menu button, navigate immediately and clear edit states
             if text in mapping:
@@ -1441,7 +1456,10 @@ class MedicineReminderBot:
                 if action == "notes":
                     from handlers import notes_handler
 
-                    await notes_handler.show_notes(update, context)
+                    # Guarded like the other optional handlers: handlers/__init__.py
+                    # leaves this None if the module fails to import.
+                    if notes_handler:
+                        await notes_handler.show_notes(update, context)
                     return
                 if action == "settings":
                     await self.settings_command(update, context)
@@ -1724,7 +1742,10 @@ class MedicineReminderBot:
                 if action == "notes":
                     from handlers import notes_handler
 
-                    await notes_handler.show_notes(update, context)
+                    # Guarded like the other optional handlers: handlers/__init__.py
+                    # leaves this None if the module fails to import.
+                    if notes_handler:
+                        await notes_handler.show_notes(update, context)
                     return
                 if action == "settings":
                     await self.settings_command(update, context)
