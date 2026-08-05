@@ -56,6 +56,32 @@ MAIN_MENU_ACTIONS = {
 RETIRED_MENU_LABELS = {"🏥 מלאי בית מרקחת"}
 RETIRED_MENU_REPLY = "האפשרות הזאת הוסרה. הנה התפריט המעודכן:"
 
+# Everything a tap on the menu abandons. Kept in one place because the live and
+# retired paths both need it, and two copies would drift.
+TRANSIENT_STATE_KEYS = (
+    "awaiting_note_text",
+    "editing_note_id",
+    "appending_note_id",
+    "titling_note_id",
+    "awaiting_custom_reminder_text",
+    "custom_reminder_draft",
+    "editing_medicine_for",
+    "editing_field_for",
+    "editing_caregiver_field",
+    "editing_schedule_for",
+    "updating_inventory_for",
+    "awaiting_symptom_text",
+    "editing_symptom_log",
+    "suppress_menu_mapping",
+    "appt_state",
+)
+
+
+def clear_transient_state(user_data) -> None:
+    """Forget any half-finished edit. Navigating away abandons the draft."""
+    for key in TRANSIENT_STATE_KEYS:
+        user_data.pop(key, None)
+
 # Upper bound on updates waiting to be handled. Far above normal load, so a full
 # queue means the bot is genuinely overloaded rather than merely busy.
 UPDATE_QUEUE_MAXSIZE = 1000
@@ -1388,6 +1414,19 @@ class MedicineReminderBot:
     async def handle_text_message(self, update: Update, context):
         """Handle plain text messages"""
         try:
+            # Before any routing: a tap on a button that no longer exists is
+            # navigation, not content. It has to be caught ahead of the
+            # appointment and draft handlers, because each of those would
+            # otherwise consume the label as the text it was waiting for.
+            if (update.message.text or "").strip() in RETIRED_MENU_LABELS:
+                from utils.keyboards import get_main_menu_keyboard
+
+                clear_transient_state(context.user_data)
+                await update.message.reply_text(
+                    RETIRED_MENU_REPLY, reply_markup=get_main_menu_keyboard()
+                )
+                return
+
             # Route appointment flow text first if active
             if context.user_data.get("appt_state"):
                 try:
@@ -1406,21 +1445,11 @@ class MedicineReminderBot:
             # pending draft state on the way through.
             from handlers import custom_reminder_handler, notes_handler
 
-            label = (update.message.text or "").strip()
-            pressed_menu_button = label in MAIN_MENU_ACTIONS or label in RETIRED_MENU_LABELS
+            pressed_menu_button = (update.message.text or "").strip() in MAIN_MENU_ACTIONS
             if pressed_menu_button:
                 for key in ("awaiting_note_text", "editing_note_id", "appending_note_id", "titling_note_id",
                             "awaiting_custom_reminder_text", "custom_reminder_draft"):
                     context.user_data.pop(key, None)
-
-            if label in RETIRED_MENU_LABELS:
-                # Say so and send the current keyboard, so the stale button goes away.
-                from utils.keyboards import get_main_menu_keyboard
-
-                await update.message.reply_text(
-                    RETIRED_MENU_REPLY, reply_markup=get_main_menu_keyboard()
-                )
-                return
             else:
                 if notes_handler and await notes_handler.handle_text(update, context):
                     return

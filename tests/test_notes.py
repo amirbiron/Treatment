@@ -537,3 +537,85 @@ def test_every_retired_label_is_off_the_keyboard():
         for button in row
     }
     assert not (main.RETIRED_MENU_LABELS & live), "a retired label is still on the menu"
+
+
+# --- a retired label, end to end ---------------------------------------------
+
+
+def _bot_and_update(label="🏥 מלאי בית מרקחת"):
+    import importlib
+    from unittest.mock import AsyncMock, MagicMock
+
+    main = importlib.import_module("main")
+    bot = main.MedicineReminderBot.__new__(main.MedicineReminderBot)
+
+    update = MagicMock()
+    update.message.text = label
+    update.message.reply_text = AsyncMock()
+    context = MagicMock()
+    context.user_data = {}
+    return main, bot, update, context
+
+
+@pytest.mark.asyncio
+async def test_a_retired_label_is_answered_and_never_saved_as_a_draft():
+    """The regression: mid-note, the stale button became the note's text."""
+    from unittest.mock import AsyncMock, patch
+
+    main, bot, update, context = _bot_and_update()
+    context.user_data.update({"awaiting_note_text": True, "custom_reminder_draft": {"text": "x"}})
+
+    from handlers import notes_handler
+
+    with patch.object(notes_handler, "handle_text", AsyncMock(return_value=True)) as notes:
+        await bot.handle_text_message(update, context)
+
+    assert not notes.await_count, "the label reached the notes handler"
+    assert "awaiting_note_text" not in context.user_data
+    assert "custom_reminder_draft" not in context.user_data
+    assert update.message.reply_text.await_args.args[0] == main.RETIRED_MENU_REPLY
+
+
+@pytest.mark.asyncio
+async def test_a_retired_label_beats_an_open_appointment_flow():
+    """appt_state routes before everything else, so the check has to precede it."""
+    from unittest.mock import AsyncMock, patch
+
+    _main, bot, update, context = _bot_and_update()
+    context.user_data["appt_state"] = "awaiting_title"
+
+    import main as main_module
+
+    with patch.object(main_module.appointments_handler, "handle_text", AsyncMock()) as appts:
+        await bot.handle_text_message(update, context)
+
+    assert not appts.await_count, "the label was taken as the appointment title"
+    assert "appt_state" not in context.user_data
+
+
+@pytest.mark.asyncio
+async def test_a_retired_label_clears_edit_state_too():
+    """Otherwise the next message is read as input for a flow the user left."""
+    _main, bot, update, context = _bot_and_update()
+    context.user_data.update({"updating_inventory_for": 3, "editing_field_for": {"id": 1}})
+
+    await bot.handle_text_message(update, context)
+
+    assert "updating_inventory_for" not in context.user_data
+    assert "editing_field_for" not in context.user_data
+
+
+@pytest.mark.asyncio
+async def test_a_live_menu_label_is_not_handed_to_the_draft_handlers():
+    """The original code skipped them for menu labels; that must stay true."""
+    from unittest.mock import AsyncMock, patch
+
+    _main, bot, update, context = _bot_and_update(label="📝 פתקים")
+    context.user_data["awaiting_note_text"] = True
+
+    from handlers import notes_handler
+
+    with patch.object(notes_handler, "handle_text", AsyncMock(return_value=True)) as notes:
+        await bot.handle_text_message(update, context)
+
+    assert not notes.await_count
