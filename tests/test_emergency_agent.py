@@ -268,6 +268,31 @@ async def test_an_ordinary_question_reaches_the_model_and_is_remembered():
 
 
 @pytest.mark.asyncio
+async def test_the_history_stops_growing():
+    """The whole history is resent every request, so an uncapped one costs more
+    with every message in the session."""
+    ctx = _ctx("לכו לטרם.")
+    update = _message("מתי הולכים לטרם?")
+
+    for _ in range(30):
+        await agent.handle_message(update, ctx)
+
+    assert len(ctx.user_data["emerg_chat_history"]) == agent.MAX_HISTORY_MESSAGES
+
+
+def test_trimming_keeps_the_most_recent_exchange():
+    ctx = MagicMock()
+    ctx.user_data = {}
+
+    for i in range(agent.MAX_HISTORY_MESSAGES):
+        agent.remember(ctx, f"שאלה {i}", f"תשובה {i}")
+
+    history = ctx.user_data["emerg_chat_history"]
+    assert history[-2]["parts"] == [f"שאלה {agent.MAX_HISTORY_MESSAGES - 1}"]
+    assert history[0]["role"] == "user", "trimming must not start mid-exchange"
+
+
+@pytest.mark.asyncio
 async def test_a_rejected_answer_is_not_remembered():
     ctx = _ctx("חייגו 108.")
     update = _message("מתי הולכים לטרם?")

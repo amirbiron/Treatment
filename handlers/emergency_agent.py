@@ -43,6 +43,11 @@ logger = logging.getLogger(__name__)
 
 EMERGENCY_STATE = 400
 
+# The whole history is resent on every request, so without a cap a long session
+# grows what each message costs. Ten exchanges is far more than these
+# conversations run, and the guide itself carries the context that matters.
+MAX_HISTORY_MESSAGES = 20
+
 GUIDE_DIR = os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "docs", "israeli-emergency-guide"
 )
@@ -414,9 +419,7 @@ async def handle_message(update: Update, context):
     reply, is_real = await ask_guide(context, text)
 
     if is_real:
-        history = context.user_data.setdefault("emerg_chat_history", [])
-        history.append({"role": "user", "parts": [text]})
-        history.append({"role": "model", "parts": [reply]})
+        remember(context, text, reply)
 
     await update.message.reply_text(
         reply, parse_mode="Markdown", reply_markup=get_emergency_keyboard()
@@ -441,14 +444,21 @@ async def handle_shortcut(update: Update, context):
     reply, is_real = await ask_guide(context, prompt)
 
     if is_real:
-        history = context.user_data.setdefault("emerg_chat_history", [])
-        history.append({"role": "user", "parts": [prompt]})
-        history.append({"role": "model", "parts": [reply]})
+        remember(context, prompt, reply)
 
     await query.message.reply_text(
         reply, parse_mode="Markdown", reply_markup=get_emergency_keyboard()
     )
     return EMERGENCY_STATE
+
+
+def remember(context, user_message: str, reply: str) -> None:
+    """Append one exchange, keeping only the most recent turns."""
+    history = context.user_data.setdefault("emerg_chat_history", [])
+    history.append({"role": "user", "parts": [user_message]})
+    history.append({"role": "model", "parts": [reply]})
+    if len(history) > MAX_HISTORY_MESSAGES:
+        del history[:-MAX_HISTORY_MESSAGES]
 
 
 def _cleanup_session(context):
