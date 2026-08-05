@@ -577,3 +577,80 @@ def test_the_shortcut_prompts_are_all_dispatchable():
 
     for key in agent.TOPIC_SHORTCUTS:
         assert re.match(pattern, key), f"{key} is declared but never routed"
+
+
+# --- the model's reasoning is not the answer ---------------------------------
+#
+# gemini-2.5-flash reasons before answering, and google-generativeai 0.8.6 gives
+# no way to switch that off or to tell a thought part from an answer part. The
+# reasoning arrived in front of the answer, in English, and users saw it.
+
+
+def test_only_the_text_after_the_marker_reaches_the_user():
+    raw = (
+        "THOUGHT: The user is asking about patient rights. The guide does not\n"
+        "mention transfers, so I should not mention it.\n"
+        f"{agent.ANSWER_MARKER}\n"
+        "יש לך זכות לסרב לטיפול."
+    )
+    assert agent.extract_answer(raw) == "יש לך זכות לסרב לטיפול."
+
+
+def test_reasoning_spanning_paragraphs_is_still_removed():
+    """The leak ran to several paragraphs and into the answer with no blank line."""
+    raw = f"THOUGHT: one\n\nstill thinking\nand more\n{agent.ANSWER_MARKER}\nהתשובה."
+    assert agent.extract_answer(raw) == "התשובה."
+
+
+def test_the_last_marker_wins():
+    """A model that echoes the marker while reasoning must not split the answer."""
+    raw = f"THOUGHT: I will end with {agent.ANSWER_MARKER}\n{agent.ANSWER_MARKER}\nהתשובה."
+    assert agent.extract_answer(raw) == "התשובה."
+
+
+def test_an_answer_without_a_marker_is_still_delivered():
+    """Losing a real emergency answer is worse than showing stray reasoning."""
+    assert agent.extract_answer("חייגו 101.") == "חייגו 101."
+
+
+def test_a_missing_marker_over_reasoning_is_logged():
+    with patch.object(agent.logger, "warning") as warn:
+        agent.extract_answer("THOUGHT: hmm\nחייגו 101.")
+
+    assert warn.called, "a silent leak gives no signal that the marker stopped working"
+
+
+def test_the_marker_itself_is_never_shown():
+    assert agent.ANSWER_MARKER not in agent.extract_answer(
+        f"reasoning\n{agent.ANSWER_MARKER}\nהתשובה."
+    )
+
+
+def test_the_prompt_asks_for_the_marker():
+    prompt = agent.SYSTEM_PROMPT_TEMPLATE.format(guide="x", marker=agent.ANSWER_MARKER)
+    assert agent.ANSWER_MARKER in prompt
+
+
+@pytest.mark.asyncio
+async def test_reasoning_never_survives_a_real_turn():
+    ctx = _ctx(f"THOUGHT: planning\n{agent.ANSWER_MARKER}\nחייגו 101.")
+
+    reply, _ = await agent.ask_guide(ctx, "שאלה")
+
+    assert "THOUGHT" not in reply
+    assert reply.startswith("חייגו 101.")
+
+
+# --- what the intro promises -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "topic",
+    ["בלי שיחת קול", "מרחב המוגן", "בריאות הנפש", "טרם", "חדר מיון", "טראומה דרג 1"],
+)
+def test_the_intro_lists_what_the_guide_actually_covers(topic):
+    assert topic in agent.INTRO
+
+
+def test_the_intro_still_says_not_to_use_it_in_a_real_emergency():
+    assert "101" in agent.INTRO

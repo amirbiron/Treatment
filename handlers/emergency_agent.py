@@ -326,6 +326,36 @@ def critical_reply() -> str:
 
 # ═══ The model, with the guide as its only material ═══
 
+# gemini-2.5-flash reasons before it answers, and google-generativeai 0.8.6 has
+# no thinking_config and no `thought` flag on a Part - the reasoning simply
+# arrives as ordinary text at the front of the response. It ran to several
+# paragraphs and ran straight into the answer without a blank line, so there is
+# no reliable way to find the seam after the fact. Asking for an explicit marker
+# makes the boundary something the code can actually locate.
+ANSWER_MARKER = "===תשובה==="
+
+# Leading reasoning openers, for when the marker does not come back.
+_THOUGHT_OPENER = re.compile(
+    r"^\s*(?:\*\*)?(?:THOUGHT|THINKING|Thought|Thinking|מחשבה)(?:\*\*)?\s*:",
+)
+
+
+def extract_answer(text: str) -> str:
+    """Return only the part of a model response meant for the user.
+
+    Falls back to the whole text when the marker is missing. Showing stray
+    reasoning is embarrassing; dropping a real emergency answer because the
+    model forgot a marker is worse, so the fallback keeps the text and only
+    logs.
+    """
+    if ANSWER_MARKER in text:
+        return text.rsplit(ANSWER_MARKER, 1)[1].strip()
+
+    if _THOUGHT_OPENER.match(text):
+        logger.warning("Emergency answer arrived without the marker and opens with reasoning")
+    return text.strip()
+
+
 SYSTEM_PROMPT_TEMPLATE = """אתה עוזר שעונה על שאלות בנושא חירום בישראל, על סמך מדריך מאומת בלבד.
 
 חוקים מוחלטים:
@@ -337,6 +367,10 @@ SYSTEM_PROMPT_TEMPLATE = """אתה עוזר שעונה על שאלות בנוש�
 
 סגנון: עברית פשוטה, משפטים קצרים, בלי ז'רגון. הבוט משמש גם אנשים מבוגרים.
 ענה בקצרה — עד כ-8 שורות — ותן את הפעולה המעשית קודם.
+
+פורמט הפלט:
+סיים תמיד בשורה שמכילה בדיוק {marker} ואחריה התשובה למשתמש בלבד.
+כל שיקול, ניתוח או תכנון — לפני השורה הזאת. המשתמש רואה רק את מה שאחריה.
 
 === המדריך ===
 
@@ -357,7 +391,9 @@ def _init_ai_session(context) -> None:
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(
         "gemini-2.5-flash",
-        system_instruction=SYSTEM_PROMPT_TEMPLATE.format(guide=GUIDE_TEXT),
+        system_instruction=SYSTEM_PROMPT_TEMPLATE.format(
+            guide=GUIDE_TEXT, marker=ANSWER_MARKER
+        ),
     )
     context.user_data["emerg_model"] = model
     context.user_data["emerg_chat_history"] = []
@@ -392,7 +428,7 @@ async def ask_guide(context, user_message: str):
     try:
         chat = model.start_chat(history=history)
         response = await chat.send_message_async(user_message)
-        answer = response.text
+        answer = extract_answer(response.text)
     except Exception as exc:
         logger.exception(f"Emergency agent Gemini call failed: {exc}")
         return _ERR_AI_COMM, False
@@ -429,9 +465,15 @@ TOPIC_SHORTCUTS = {
 }
 
 INTRO = (
-    "🚑 *מדריך חירום ישראלי*\n\n"
-    "שאלו אותי כל שאלה על שירותי חירום בארץ — מספרי חירום, לאן לפנות, "
-    "חדר מיון וזכויות, אזעקות ומרחב מוגן, קווי סיוע נפשי.\n\n"
+    "🚑 *מדריך לשירותי חירום בארץ:*\n"
+    "• מספרי החירום ואיך פונים אליהם גם בלי שיחת קול\n"
+    "• מה עושים באזעקה וכמה זמן נשארים במרחב המוגן\n"
+    "• קווי חירום לבריאות הנפש\n"
+    "• חיוג למד\"א (מגן דוד אדום)\n"
+    "• מתי הולכים לטרם\n"
+    "• איך מתנהלים בחדר מיון וזכויות המטופל\n\n"
+    "מכסה את מרכזי הטראומה דרג 1, כללי ההשתתפות העצמית בחדר מיון "
+    "ותרומת דם דרך מד\"א.\n\n"
     "⚠️ *במצב חירום ממשי אל תתכתבו איתי — חייגו 101.*"
 )
 
