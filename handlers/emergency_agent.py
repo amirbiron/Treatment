@@ -130,6 +130,7 @@ GUIDE_TEXT = _load_guide()
 
 
 def is_guide_available() -> bool:
+    """Whether the full guide loaded. False means the agent must stay silent."""
     return bool(GUIDE_TEXT.strip())
 
 
@@ -250,10 +251,12 @@ _PHONE_TOKEN = re.compile(
 
 
 def _normalize_number(token: str) -> str:
+    """Reduce a phone token to digits, so 052-8451201 and 0528451201 compare equal."""
     return re.sub(r"[^\d]", "", token)
 
 
 def _guide_numbers() -> frozenset:
+    """Every phone number the guide contains, as digit strings."""
     return frozenset(
         _normalize_number(match) for match in _PHONE_TOKEN.findall(GUIDE_TEXT)
     )
@@ -287,6 +290,7 @@ def verify_answer(text: str) -> Verdict:
 
 
 def _matches(patterns, text: str) -> bool:
+    """Whether any pattern occurs anywhere in the text."""
     return any(re.search(pattern, text) for pattern in patterns)
 
 
@@ -303,6 +307,7 @@ def classify(text: str) -> str:
 
 
 def uncovered_topic(text: str) -> str:
+    """Name the uncovered scenario a message is about, for the refusal message."""
     for pattern, topic in UNCOVERED_PATTERNS:
         if re.search(pattern, text):
             return topic
@@ -310,6 +315,7 @@ def uncovered_topic(text: str) -> str:
 
 
 def critical_reply() -> str:
+    """The reply for a possible life-threatening situation. Fixed text, never generated."""
     return (
         "🚨 *זה נשמע כמו מצב חירום רפואי.*\n\n"
         f"{_CALL_101}\n\n"
@@ -339,6 +345,11 @@ SYSTEM_PROMPT_TEMPLATE = """אתה עוזר שעונה על שאלות בנוש�
 
 
 def _init_ai_session(context) -> None:
+    """Build the model with the guide as its system instruction.
+
+    Raises RuntimeError when GEMINI_API_KEY is unset. Callers turn that into the
+    emergency numbers rather than letting it reach the generic error handler.
+    """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not set")
@@ -399,6 +410,7 @@ async def ask_guide(context, user_message: str):
 
 
 def get_emergency_keyboard() -> InlineKeyboardMarkup:
+    """Buttons kept on every reply, so the numbers are always one tap away."""
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("🚨 מספרי חירום", callback_data="emerg_numbers")],
@@ -439,6 +451,7 @@ async def send_reply(message, text: str, **kwargs):
 
 
 async def entry_from_callback(update: Update, context):
+    """Open the Q&A session, refusing to start if the guide or the model is unavailable."""
     query = update.callback_query
     await query.answer()
 
@@ -458,6 +471,7 @@ async def entry_from_callback(update: Update, context):
 
 
 async def handle_message(update: Update, context):
+    """Route a question: canned answer for the three deterministic cases, else the guide."""
     text = (update.message.text or "").strip()
     if not text:
         return EMERGENCY_STATE
@@ -484,6 +498,7 @@ async def handle_message(update: Update, context):
 
 
 async def handle_numbers(update: Update, context):
+    """Show the emergency numbers card. Never calls the model."""
     query = update.callback_query
     await query.answer()
     await send_reply(
@@ -493,6 +508,7 @@ async def handle_numbers(update: Update, context):
 
 
 async def handle_shortcut(update: Update, context):
+    """Ask the guide one of the preset questions behind the topic buttons."""
     query = update.callback_query
     await query.answer()
 
@@ -520,11 +536,13 @@ def remember(context, user_message: str, reply: str) -> None:
 
 
 def _cleanup_session(context):
+    """Drop the model and history so a stale session is not reused."""
     context.user_data.pop("emerg_model", None)
     context.user_data.pop("emerg_chat_history", None)
 
 
 async def end_chat(update: Update, context):
+    """Leave the agent and return to the main menu."""
     _cleanup_session(context)
 
     from utils.keyboards import get_main_menu_keyboard
@@ -542,10 +560,12 @@ async def end_chat(update: Update, context):
 
 
 async def end_chat_command(update: Update, context):
+    """End the session via /end_emerg."""
     return await end_chat(update, context)
 
 
 async def fallback_start(update: Update, context):
+    """Clean up and hand back to /start."""
     _cleanup_session(context)
 
     from utils.keyboards import get_main_menu_keyboard
@@ -558,6 +578,7 @@ async def fallback_start(update: Update, context):
 
 
 async def timeout_handler(update: Update, context):
+    """Release the session when the conversation times out."""
     _cleanup_session(context)
     return ConversationHandler.END
 
