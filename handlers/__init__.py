@@ -24,6 +24,16 @@ except ImportError:
 	reports_handler = None
 
 try:
+	from .notes_handler import NotesHandler, notes_handler
+except ImportError:
+	notes_handler = None
+
+try:
+	from .custom_reminder_handler import CustomReminderHandler, custom_reminder_handler
+except ImportError:
+	custom_reminder_handler = None
+
+try:
 	from .pharmacy_agent import create_pharmacy_conversation
 	_pharmacy_conversation = create_pharmacy_conversation()
 except ImportError:
@@ -39,6 +49,8 @@ handlers = {
 	'symptoms': symptoms_handler,
 	'caregiver': caregiver_handler,
 	'reports': reports_handler,
+	'notes': notes_handler,
+	'custom_reminder': custom_reminder_handler,
 }
 
 
@@ -98,6 +110,14 @@ def get_all_callback_handlers():
 	if reports_handler:
 		callback_handlers.extend(reports_handler.get_handlers())
 
+	# Free-form notes
+	if notes_handler:
+		callback_handlers.extend(notes_handler.get_handlers())
+
+	# Standalone (non-medicine) reminders
+	if custom_reminder_handler:
+		callback_handlers.extend(custom_reminder_handler.get_handlers())
+
 	return callback_handlers
 
 
@@ -106,6 +126,8 @@ __all__ = [
 	"ReminderHandler", "reminder_handler",
 	"SymptomsHandler", "symptoms_handler",
 	"caregiver_handler", "reports_handler",
+	"NotesHandler", "notes_handler",
+	"CustomReminderHandler", "custom_reminder_handler",
 	"handlers", "get_all_handlers",
 	"get_all_conversation_handlers", "get_all_callback_handlers",
 ]

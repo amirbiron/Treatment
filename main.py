@@ -1371,6 +1371,16 @@ class MedicineReminderBot:
                 except Exception:
                     pass
 
+            # Notes and standalone reminders each own one text step. They report
+            # whether the message was theirs, so an unrelated message falls through
+            # to the main-menu routing below untouched.
+            from handlers import custom_reminder_handler, notes_handler
+
+            if notes_handler and await notes_handler.handle_text(update, context):
+                return
+            if custom_reminder_handler and await custom_reminder_handler.handle_text(update, context):
+                return
+
             # This would handle conversation states for adding medicines, etc.
             # For now, just acknowledge
             user_data = context.user_data
@@ -1399,6 +1409,7 @@ class MedicineReminderBot:
                 f"{config.EMOJIS['settings']} הגדרות": "settings",
                 f"{config.EMOJIS['info']} עזרה": "help",
                 "🏥 מלאי בית מרקחת": "pharmacy",
+                "📝 פתקים": "notes",
             }
 
             # If user pressed a main menu button, navigate immediately and clear edit states
@@ -1426,6 +1437,11 @@ class MedicineReminderBot:
                     from handlers import reminder_handler
 
                     await reminder_handler.show_next_reminders(update, context)
+                    return
+                if action == "notes":
+                    from handlers import notes_handler
+
+                    await notes_handler.show_notes(update, context)
                     return
                 if action == "settings":
                     await self.settings_command(update, context)
@@ -1704,6 +1720,11 @@ class MedicineReminderBot:
                     from handlers import reminder_handler
 
                     await reminder_handler.show_next_reminders(update, context)
+                    return
+                if action == "notes":
+                    from handlers import notes_handler
+
+                    await notes_handler.show_notes(update, context)
                     return
                 if action == "settings":
                     await self.settings_command(update, context)

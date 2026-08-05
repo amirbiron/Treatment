@@ -204,6 +204,43 @@ class Invite(Base):
     user: Mapped["User"] = relationship("User")
 
 
+class Note(Base):
+    """A free-form note, not tied to any particular medicine"""
+
+    __tablename__ = "notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    user: Mapped["User"] = relationship("User")
+
+
+class CustomReminder(Base):
+    """A standalone reminder with its own text, unrelated to a medicine.
+
+    Either one-off (remind_at holds a full date and time) or repeating
+    (remind_time holds the hour, with repeat saying how often). Keeping both in
+    one row avoids a second table for what is the same thing to the user.
+    """
+
+    __tablename__ = "custom_reminders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
+    text: Mapped[str] = mapped_column(String(300))
+    repeat: Mapped[str] = mapped_column(String(20), default="once")  # once, daily, weekly
+    remind_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)  # once
+    remind_time: Mapped[Optional[time]] = mapped_column(Time, nullable=True)  # daily/weekly
+    weekday: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # weekly: 0=Mon..6=Sun
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    user: Mapped["User"] = relationship("User")
+
+
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./medicine_bot.db")
 
@@ -874,6 +911,120 @@ class DatabaseManager:
             await session.commit()
             return True
 
+    # --- Notes ---
+
+    @staticmethod
+    async def create_note(user_id: int, content: str) -> "Note":
+        async with async_session() as session:
+            note = Note(user_id=user_id, content=content)
+            session.add(note)
+            await session.commit()
+            await session.refresh(note)
+            return note
+
+    @staticmethod
+    async def get_user_notes(user_id: int) -> List["Note"]:
+        """Newest first, which is the order the list is shown in."""
+        async with async_session() as session:
+            result = await session.execute(
+                select(Note).where(Note.user_id == user_id).order_by(Note.created_at.desc(), Note.id.desc())
+            )
+            return list(result.scalars().all())
+
+    @staticmethod
+    async def get_note_by_id(note_id: int) -> Optional["Note"]:
+        async with async_session() as session:
+            return await session.get(Note, note_id)
+
+    @staticmethod
+    async def update_note(note_id: int, content: str) -> bool:
+        async with async_session() as session:
+            note = await session.get(Note, note_id)
+            if not note:
+                return False
+            note.content = content
+            note.updated_at = datetime.utcnow()
+            await session.commit()
+            return True
+
+    @staticmethod
+    async def delete_note(note_id: int) -> bool:
+        async with async_session() as session:
+            note = await session.get(Note, note_id)
+            if not note:
+                return False
+            await session.delete(note)
+            await session.commit()
+            return True
+
+    # --- Custom reminders ---
+
+    @staticmethod
+    async def create_custom_reminder(
+        user_id: int,
+        text: str,
+        repeat: str = "once",
+        remind_at: Optional[datetime] = None,
+        remind_time: Optional[time] = None,
+        weekday: Optional[int] = None,
+    ) -> "CustomReminder":
+        async with async_session() as session:
+            reminder = CustomReminder(
+                user_id=user_id,
+                text=text,
+                repeat=repeat,
+                remind_at=remind_at,
+                remind_time=remind_time,
+                weekday=weekday,
+            )
+            session.add(reminder)
+            await session.commit()
+            await session.refresh(reminder)
+            return reminder
+
+    @staticmethod
+    async def get_user_custom_reminders(user_id: int, active_only: bool = True) -> List["CustomReminder"]:
+        async with async_session() as session:
+            query = select(CustomReminder).where(CustomReminder.user_id == user_id)
+            if active_only:
+                query = query.where(CustomReminder.is_active == True)  # noqa: E712
+            result = await session.execute(query.order_by(CustomReminder.id))
+            return list(result.scalars().all())
+
+    @staticmethod
+    async def get_custom_reminder_by_id(reminder_id: int) -> Optional["CustomReminder"]:
+        async with async_session() as session:
+            return await session.get(CustomReminder, reminder_id)
+
+    @staticmethod
+    async def set_custom_reminder_active(reminder_id: int, is_active: bool) -> bool:
+        async with async_session() as session:
+            reminder = await session.get(CustomReminder, reminder_id)
+            if not reminder:
+                return False
+            reminder.is_active = is_active
+            await session.commit()
+            return True
+
+    @staticmethod
+    async def delete_custom_reminder(reminder_id: int) -> bool:
+        async with async_session() as session:
+            reminder = await session.get(CustomReminder, reminder_id)
+            if not reminder:
+                return False
+            await session.delete(reminder)
+            await session.commit()
+            return True
+
+    @staticmethod
+    async def get_all_active_custom_reminders() -> List["CustomReminder"]:
+        """Used to re-arm every reminder after a restart."""
+        async with async_session() as session:
+            result = await session.execute(
+                select(CustomReminder).where(CustomReminder.is_active == True)  # noqa: E712
+            )
+            return list(result.scalars().all())
+
 
 # ==============================
 # MongoDB Backend (Motor)
@@ -906,6 +1057,9 @@ async def _init_mongo():
         await _mongo_db.caregivers.create_index([("phone", 1)])
         await _mongo_db.appointments.create_index([("user_id", 1), ("when_at", 1)])
         await _mongo_db.user_settings.create_index([("user_id", 1)], unique=True)
+        await _mongo_db.notes.create_index([("user_id", 1), ("created_at", -1)])
+        await _mongo_db.custom_reminders.create_index([("user_id", 1)])
+        await _mongo_db.custom_reminders.create_index([("is_active", 1)])
 
 
 # Wrap SQLAlchemy models into dict converters for Mongo
@@ -1987,6 +2141,148 @@ class DatabaseManagerMongo:
         await _init_mongo()
         res = await _mongo_db.invites.update_one({"code": code}, {"$set": {"status": "canceled"}})
         return res.matched_count > 0
+
+    # --- Notes ---
+
+    @staticmethod
+    async def _next_mongo_id(collection) -> int:
+        last = await collection.find().sort("_id", -1).limit(1).to_list(1)
+        return (last[0]["_id"] + 1) if last else 1
+
+    @staticmethod
+    def _doc_to_note(d: dict) -> "Note":
+        note = Note()
+        note.id = d.get("_id")
+        note.user_id = d.get("user_id")
+        note.content = d.get("content")
+        note.created_at = d.get("created_at")
+        note.updated_at = d.get("updated_at")
+        return note
+
+    @staticmethod
+    async def create_note(user_id: int, content: str) -> "Note":
+        await _init_mongo()
+        now = datetime.utcnow()
+        doc = {
+            "_id": await DatabaseManagerMongo._next_mongo_id(_mongo_db.notes),
+            "user_id": int(user_id),
+            "content": content,
+            "created_at": now,
+            "updated_at": now,
+        }
+        await _mongo_db.notes.insert_one(doc)
+        return DatabaseManagerMongo._doc_to_note(doc)
+
+    @staticmethod
+    async def get_user_notes(user_id: int) -> List["Note"]:
+        await _init_mongo()
+        docs = (
+            await _mongo_db.notes.find({"user_id": int(user_id)})
+            .sort([("created_at", -1), ("_id", -1)])
+            .to_list(1000)
+        )
+        return [DatabaseManagerMongo._doc_to_note(d) for d in docs]
+
+    @staticmethod
+    async def get_note_by_id(note_id: int) -> Optional["Note"]:
+        await _init_mongo()
+        d = await _mongo_db.notes.find_one({"_id": int(note_id)})
+        return DatabaseManagerMongo._doc_to_note(d) if d else None
+
+    @staticmethod
+    async def update_note(note_id: int, content: str) -> bool:
+        await _init_mongo()
+        res = await _mongo_db.notes.update_one(
+            {"_id": int(note_id)}, {"$set": {"content": content, "updated_at": datetime.utcnow()}}
+        )
+        return res.matched_count > 0
+
+    @staticmethod
+    async def delete_note(note_id: int) -> bool:
+        await _init_mongo()
+        res = await _mongo_db.notes.delete_one({"_id": int(note_id)})
+        return res.deleted_count > 0
+
+    # --- Custom reminders ---
+
+    @staticmethod
+    def _doc_to_custom_reminder(d: dict) -> "CustomReminder":
+        reminder = CustomReminder()
+        reminder.id = d.get("_id")
+        reminder.user_id = d.get("user_id")
+        reminder.text = d.get("text")
+        reminder.repeat = d.get("repeat", "once")
+        reminder.remind_at = d.get("remind_at")
+        # times are stored as HH:MM strings, like the appointment same-day time
+        val = d.get("remind_time")
+        if isinstance(val, str) and ":" in val:
+            hh, mm = map(int, val.split(":"))
+            reminder.remind_time = time(hour=hh, minute=mm)
+        else:
+            reminder.remind_time = None
+        reminder.weekday = d.get("weekday")
+        reminder.is_active = bool(d.get("is_active", True))
+        reminder.created_at = d.get("created_at")
+        return reminder
+
+    @staticmethod
+    async def create_custom_reminder(
+        user_id: int,
+        text: str,
+        repeat: str = "once",
+        remind_at: Optional[datetime] = None,
+        remind_time: Optional[time] = None,
+        weekday: Optional[int] = None,
+    ) -> "CustomReminder":
+        await _init_mongo()
+        doc = {
+            "_id": await DatabaseManagerMongo._next_mongo_id(_mongo_db.custom_reminders),
+            "user_id": int(user_id),
+            "text": text,
+            "repeat": repeat,
+            "remind_at": remind_at,
+            "remind_time": remind_time.strftime("%H:%M") if remind_time else None,
+            "weekday": weekday,
+            "is_active": True,
+            "created_at": datetime.utcnow(),
+        }
+        await _mongo_db.custom_reminders.insert_one(doc)
+        return DatabaseManagerMongo._doc_to_custom_reminder(doc)
+
+    @staticmethod
+    async def get_user_custom_reminders(user_id: int, active_only: bool = True) -> List["CustomReminder"]:
+        await _init_mongo()
+        query = {"user_id": int(user_id)}
+        if active_only:
+            query["is_active"] = True
+        docs = await _mongo_db.custom_reminders.find(query).sort("_id", 1).to_list(1000)
+        return [DatabaseManagerMongo._doc_to_custom_reminder(d) for d in docs]
+
+    @staticmethod
+    async def get_custom_reminder_by_id(reminder_id: int) -> Optional["CustomReminder"]:
+        await _init_mongo()
+        d = await _mongo_db.custom_reminders.find_one({"_id": int(reminder_id)})
+        return DatabaseManagerMongo._doc_to_custom_reminder(d) if d else None
+
+    @staticmethod
+    async def set_custom_reminder_active(reminder_id: int, is_active: bool) -> bool:
+        await _init_mongo()
+        res = await _mongo_db.custom_reminders.update_one(
+            {"_id": int(reminder_id)}, {"$set": {"is_active": bool(is_active)}}
+        )
+        return res.matched_count > 0
+
+    @staticmethod
+    async def delete_custom_reminder(reminder_id: int) -> bool:
+        await _init_mongo()
+        res = await _mongo_db.custom_reminders.delete_one({"_id": int(reminder_id)})
+        return res.deleted_count > 0
+
+    @staticmethod
+    async def get_all_active_custom_reminders() -> List["CustomReminder"]:
+        await _init_mongo()
+        docs = await _mongo_db.custom_reminders.find({"is_active": True}).to_list(10000)
+        return [DatabaseManagerMongo._doc_to_custom_reminder(d) for d in docs]
 
     @staticmethod
     async def get_active_users_with_last_activity(since_dt: datetime) -> List[dict]:
