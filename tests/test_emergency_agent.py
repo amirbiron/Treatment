@@ -280,6 +280,57 @@ async def test_the_history_stops_growing():
     assert len(ctx.user_data["emerg_chat_history"]) == agent.MAX_HISTORY_MESSAGES
 
 
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (None, agent.DEFAULT_HISTORY_TURNS),
+        ("", agent.DEFAULT_HISTORY_TURNS),
+        ("   ", agent.DEFAULT_HISTORY_TURNS),
+        ("3", 3),
+        (" 4 ", 4),
+        ("0", 0),
+    ],
+)
+def test_the_history_length_reads_from_the_environment(raw, expected):
+    environ = {} if raw is None else {agent.HISTORY_TURNS_ENV: raw}
+    assert agent.history_turns_from_env(environ) == expected
+
+
+@pytest.mark.parametrize("bad", ["abc", "5.5", "-1", "ten", "1e3"])
+def test_a_bad_value_falls_back_instead_of_crashing(bad):
+    """This knob is typed into a hosting dashboard; a typo must not kill the bot."""
+    assert agent.history_turns_from_env({agent.HISTORY_TURNS_ENV: bad}) == (
+        agent.DEFAULT_HISTORY_TURNS
+    )
+
+
+def test_an_absurd_value_is_clamped():
+    turns = agent.history_turns_from_env({agent.HISTORY_TURNS_ENV: "10000"})
+    assert turns == agent.MAX_HISTORY_TURNS
+
+
+def test_zero_turns_keeps_no_history_at_all():
+    """A legitimate setting: every question independent, grounded by the guide."""
+    ctx = MagicMock()
+    ctx.user_data = {}
+
+    with patch.object(agent, "MAX_HISTORY_MESSAGES", 0):
+        agent.remember(ctx, "שאלה", "תשובה")
+
+    assert ctx.user_data["emerg_chat_history"] == []
+
+
+def test_a_configured_length_is_honoured():
+    ctx = MagicMock()
+    ctx.user_data = {}
+
+    with patch.object(agent, "MAX_HISTORY_MESSAGES", 4):
+        for i in range(10):
+            agent.remember(ctx, f"שאלה {i}", f"תשובה {i}")
+
+    assert len(ctx.user_data["emerg_chat_history"]) == 4
+
+
 def test_trimming_keeps_the_most_recent_exchange():
     ctx = MagicMock()
     ctx.user_data = {}

@@ -46,7 +46,46 @@ EMERGENCY_STATE = 400
 # The whole history is resent on every request, so without a cap a long session
 # grows what each message costs. Ten exchanges is far more than these
 # conversations run, and the guide itself carries the context that matters.
-MAX_HISTORY_MESSAGES = 20
+DEFAULT_HISTORY_TURNS = 10
+# An upper bound on the knob itself. Someone tuning for "more memory" should not
+# be able to make a single message cost twenty times what it should.
+MAX_HISTORY_TURNS = 50
+HISTORY_TURNS_ENV = "EMERGENCY_HISTORY_TURNS"
+
+
+def history_turns_from_env(environ=None) -> int:
+    """Read the configured number of exchanges to keep.
+
+    A bad value here must not take the bot down: this is a tuning knob typed
+    into a hosting dashboard, and the only sane response to a typo is to log it
+    and carry on with the default. Zero is a legitimate setting - it makes every
+    question independent, which is defensible when each answer is grounded in
+    the guide anyway.
+    """
+    raw = (environ if environ is not None else os.environ).get(HISTORY_TURNS_ENV)
+    if raw is None or not raw.strip():
+        return DEFAULT_HISTORY_TURNS
+
+    try:
+        turns = int(raw.strip())
+    except ValueError:
+        logger.warning(
+            f"{HISTORY_TURNS_ENV}={raw!r} is not a number, using {DEFAULT_HISTORY_TURNS}"
+        )
+        return DEFAULT_HISTORY_TURNS
+
+    if turns < 0:
+        logger.warning(f"{HISTORY_TURNS_ENV}={turns} is negative, using {DEFAULT_HISTORY_TURNS}")
+        return DEFAULT_HISTORY_TURNS
+    if turns > MAX_HISTORY_TURNS:
+        logger.warning(f"{HISTORY_TURNS_ENV}={turns} exceeds the cap, using {MAX_HISTORY_TURNS}")
+        return MAX_HISTORY_TURNS
+    return turns
+
+
+# One turn is a user message plus a model reply, so trimming never leaves a
+# question without its answer.
+MAX_HISTORY_MESSAGES = history_turns_from_env() * 2
 
 GUIDE_DIR = os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "docs", "israeli-emergency-guide"
@@ -455,6 +494,10 @@ async def handle_shortcut(update: Update, context):
 def remember(context, user_message: str, reply: str) -> None:
     """Append one exchange, keeping only the most recent turns."""
     history = context.user_data.setdefault("emerg_chat_history", [])
+    if MAX_HISTORY_MESSAGES <= 0:
+        history.clear()
+        return
+
     history.append({"role": "user", "parts": [user_message]})
     history.append({"role": "model", "parts": [reply]})
     if len(history) > MAX_HISTORY_MESSAGES:
