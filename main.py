@@ -1399,7 +1399,7 @@ class MedicineReminderBot:
 
             pressed_menu_button = (update.message.text or "").strip() in MAIN_MENU_ACTIONS
             if pressed_menu_button:
-                for key in ("awaiting_note_text", "editing_note_id",
+                for key in ("awaiting_note_text", "editing_note_id", "titling_note_id",
                             "awaiting_custom_reminder_text", "custom_reminder_draft"):
                     context.user_data.pop(key, None)
             else:

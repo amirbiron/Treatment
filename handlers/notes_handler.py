@@ -24,10 +24,12 @@ logger = logging.getLogger(__name__)
 
 # How much of a note to show in the list before truncating
 PREVIEW_LENGTH = 40
+MAX_TITLE_LENGTH = 100
 
 # user_data flags
 AWAITING_NEW_NOTE = "awaiting_note_text"
 EDITING_NOTE = "editing_note_id"
+TITLING_NOTE = "titling_note_id"
 
 
 def _preview(content: str) -> str:
@@ -38,9 +40,15 @@ def _preview(content: str) -> str:
     return first_line or "(פתק ריק)"
 
 
+def _label(note) -> str:
+    """What to call a note in the list: its name, or its opening line."""
+    title = (getattr(note, "title", None) or "").strip()
+    return _preview(title) if title else _preview(note.content)
+
+
 def _notes_list_keyboard(notes: List) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(f"📄 {_preview(n.content)}", callback_data=f"note_view_{n.id}")]
+        [InlineKeyboardButton(f"📄 {_label(n)}", callback_data=f"note_view_{n.id}")]
         for n in notes
     ]
     rows.append([InlineKeyboardButton("➕ פתק חדש", callback_data="note_add")])
@@ -48,13 +56,18 @@ def _notes_list_keyboard(notes: List) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def _note_detail_keyboard(note_id: int) -> InlineKeyboardMarkup:
+def _note_detail_keyboard(note_id: int, has_title: bool = False) -> InlineKeyboardMarkup:
+    naming_row = [InlineKeyboardButton("🏷 שנה שם" if has_title else "🏷 תן שם", callback_data=f"note_title_{note_id}")]
+    if has_title:
+        naming_row.append(InlineKeyboardButton("🚫 הסר שם", callback_data=f"note_untitle_{note_id}"))
+
     return InlineKeyboardMarkup(
         [
             [
                 InlineKeyboardButton(f"{config.EMOJIS['settings']} ערוך", callback_data=f"note_edit_{note_id}"),
                 InlineKeyboardButton(f"{config.EMOJIS['error']} מחק", callback_data=f"note_del_{note_id}"),
             ],
+            naming_row,
             [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור לפתקים", callback_data="notes_menu")],
         ]
     )
@@ -69,6 +82,8 @@ class NotesHandler:
             CallbackQueryHandler(self.start_add_note, pattern="^note_add$"),
             CallbackQueryHandler(self.view_note, pattern=r"^note_view_\d+$"),
             CallbackQueryHandler(self.start_edit_note, pattern=r"^note_edit_\d+$"),
+            CallbackQueryHandler(self.start_title_note, pattern=r"^note_title_\d+$"),
+            CallbackQueryHandler(self.remove_note_title, pattern=r"^note_untitle_\d+$"),
             CallbackQueryHandler(self.ask_delete_note, pattern=r"^note_del_\d+$"),
             CallbackQueryHandler(self.confirm_delete_note, pattern=r"^notedel_\d+_confirm$"),
             CallbackQueryHandler(self.cancel_delete_note, pattern=r"^notedel_\d+_cancel$"),
@@ -126,12 +141,14 @@ class NotesHandler:
             return
 
         created = note.created_at.strftime("%d/%m/%Y %H:%M") if note.created_at else ""
+        title = (getattr(note, "title", None) or "").strip()
+        heading = html.escape(title) if title else "פתק"
         # Escaped: a note containing < or & would otherwise break HTML parsing and
         # Telegram would refuse to render the message at all.
         await query.edit_message_text(
-            f"📄 <b>פתק</b>\n<i>{created}</i>\n\n{html.escape(note.content or '')}",
+            f"📄 <b>{heading}</b>\n<i>{created}</i>\n\n{html.escape(note.content or '')}",
             parse_mode="HTML",
-            reply_markup=_note_detail_keyboard(note_id),
+            reply_markup=_note_detail_keyboard(note_id, has_title=bool(title)),
         )
 
     async def start_edit_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -146,6 +163,30 @@ class NotesHandler:
                 [[InlineKeyboardButton(f"{config.EMOJIS['back']} ביטול", callback_data=f"note_view_{note_id}")]]
             ),
         )
+
+    async def start_title_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        note_id = int(query.data.rsplit("_", 1)[1])
+        self._clear_flags(context)
+        context.user_data[TITLING_NOTE] = note_id
+        await query.edit_message_text(
+            "🏷 איך לקרוא לפתק?",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton(f"{config.EMOJIS['back']} ביטול", callback_data=f"note_view_{note_id}")]]
+            ),
+        )
+
+    async def remove_note_title(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Drop the name; the list falls back to the note's first line."""
+        query = update.callback_query
+        await query.answer()
+        note_id = int(query.data.rsplit("_", 1)[1])
+        self._clear_flags(context)
+        user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+        if user:
+            await DatabaseManager.set_note_title_for_user(note_id, user.id, None)
+        await self._render_note(query, note_id)
 
     async def ask_delete_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -183,14 +224,16 @@ class NotesHandler:
         user_data = context.user_data
         adding = user_data.get(AWAITING_NEW_NOTE)
         editing = user_data.get(EDITING_NOTE)
-        if not adding and not editing:
+        titling = user_data.get(TITLING_NOTE)
+        if not adding and not editing and not titling:
             return False
 
         content = (update.message.text or "").strip()
         self._clear_flags(context)
 
         if not content:
-            await update.message.reply_text(f"{config.EMOJIS['error']} הפתק ריק, לא נשמר.")
+            message = "השם ריק, לא נשמר." if titling else "הפתק ריק, לא נשמר."
+            await update.message.reply_text(f"{config.EMOJIS['error']} {message}")
             return True
 
         user = await DatabaseManager.get_user_by_telegram_id(update.effective_user.id)
@@ -198,7 +241,13 @@ class NotesHandler:
             await update.message.reply_text(config.ERROR_MESSAGES["unauthorized"])
             return True
 
-        if editing:
+        if titling:
+            title = content[:MAX_TITLE_LENGTH]
+            if not await DatabaseManager.set_note_title_for_user(int(titling), user.id, title):
+                await update.message.reply_text("הפתק לא נמצא.")
+                return True
+            await update.message.reply_text(f"{config.EMOJIS['success']} הפתק נקרא עכשיו \"{title}\"")
+        elif editing:
             if not await DatabaseManager.update_note_for_user(int(editing), user.id, content):
                 await update.message.reply_text("הפתק לא נמצא.")
                 return True
@@ -214,6 +263,7 @@ class NotesHandler:
     def _clear_flags(context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop(AWAITING_NEW_NOTE, None)
         context.user_data.pop(EDITING_NOTE, None)
+        context.user_data.pop(TITLING_NOTE, None)
 
     @staticmethod
     async def _reply(update: Update, text: str, **kwargs):
