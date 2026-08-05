@@ -215,18 +215,29 @@ class MedicineScheduler:
                 logger.info(f"User {user_id} not found or inactive")
                 return
 
+            # A user who does not count pills should not be told the count on
+            # every single reminder - that is the noise the setting exists for.
+            show_inventory = True
+            try:
+                settings = await DatabaseManager.get_user_settings(user.id)
+                show_inventory = bool(getattr(settings, "track_inventory", True))
+            except Exception:
+                logger.exception("Could not read the inventory setting; showing inventory")
+
             # Create reminder message
             message = f"""
 {config.EMOJIS['reminder']} *זמן לקחת תרופה!*
 
 {config.EMOJIS['medicine']} *{medicine.name}*
 {config.EMOJIS['dosage']} מינון: {medicine.dosage}
-
-{config.EMOJIS['inventory']} מלאי נותר: {medicine.inventory_count} כדורים
             """
 
-            if medicine.inventory_count <= medicine.low_stock_threshold:
-                message += f"\n{config.EMOJIS['warning']} *מלאי נמוך! כדאי להזמין עוד*"
+            if show_inventory:
+                message += (
+                    f"\n{config.EMOJIS['inventory']} מלאי נותר: {medicine.inventory_count} כדורים"
+                )
+                if medicine.inventory_count <= medicine.low_stock_threshold:
+                    message += f"\n{config.EMOJIS['warning']} *מלאי נמוך! כדאי להזמין עוד*"
 
             # Send reminder with inline keyboard
             from utils.keyboards import get_reminder_keyboard
@@ -480,6 +491,14 @@ class MedicineScheduler:
         try:
             low_stock_medicines = await DatabaseManager.get_low_stock_medicines()
             for medicine in low_stock_medicines:
+                # An unsolicited "you are low on pills" is the loudest part of
+                # the feature, so it is the first thing the setting silences.
+                try:
+                    settings = await DatabaseManager.get_user_settings(medicine.user_id)
+                    if not getattr(settings, "track_inventory", True):
+                        continue
+                except Exception:
+                    logger.exception("Could not read the inventory setting; sending the alert")
                 await self._send_low_stock_alert(medicine)
         except Exception as e:
             logger.error(f"Failed to check inventory: {e}")

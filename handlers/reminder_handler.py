@@ -123,8 +123,22 @@ class ReminderHandler:
             query = update.callback_query
             await query.answer()
 
-            medicine_id = int(query.data.split("_")[2])
+            from utils.keyboards import parse_snooze_callback
+
             user_id = query.from_user.id
+            settings = None
+            try:
+                db_user = await DatabaseManager.get_user_by_telegram_id(user_id)
+                if db_user:
+                    settings = await DatabaseManager.get_user_settings(db_user.id)
+            except Exception:
+                settings = None
+            default_minutes = getattr(settings, "snooze_minutes", None) or config.REMINDER_SNOOZE_MINUTES
+
+            medicine_id, snooze_minutes = parse_snooze_callback(query.data, default_minutes)
+            if medicine_id is None:
+                await query.edit_message_text(f"{config.EMOJIS['error']} שגיאה בדחיית התזכורת")
+                return
 
             # Get medicine info
             medicine = await DatabaseManager.get_medicine_by_id(medicine_id)
@@ -134,13 +148,13 @@ class ReminderHandler:
 
             # Schedule snooze reminder
             job_id = await medicine_scheduler.schedule_snooze_reminder(
-                user_id=user_id, medicine_id=medicine_id, snooze_minutes=config.REMINDER_SNOOZE_MINUTES
+                user_id=user_id, medicine_id=medicine_id, snooze_minutes=snooze_minutes
             )
 
             # Display snooze time in user's timezone
             user = await DatabaseManager.get_user_by_telegram_id(user_id)
             tz_name = get_user_timezone_name(user) if user else None
-            snooze_time_local = now_in_timezone(tz_name) + timedelta(minutes=config.REMINDER_SNOOZE_MINUTES)
+            snooze_time_local = now_in_timezone(tz_name) + timedelta(minutes=snooze_minutes)
 
             message = f"""
 {config.EMOJIS['clock']} <b>תזכורת נדחתה</b>
@@ -149,14 +163,14 @@ class ReminderHandler:
 {config.EMOJIS['dosage']} מינון: {medicine.dosage}
 
 ⏰ תזכורת חוזרת: {snooze_time_local.strftime('%H:%M')}
-({config.REMINDER_SNOOZE_MINUTES} דקות)
+({snooze_minutes} דקות)
 
 {config.EMOJIS['info']} תקבלו תזכורת נוספת בזמן שנקבע.
             """
 
             await query.edit_message_text(message, parse_mode="HTML", reply_markup=self._get_snooze_keyboard(medicine_id))
 
-            logger.info(f"User {user_id} snoozed medicine {medicine_id} for {config.REMINDER_SNOOZE_MINUTES} minutes")
+            logger.info(f"User {user_id} snoozed medicine {medicine_id} for {snooze_minutes} minutes")
 
         except Exception as e:
             logger.error(f"Error handling dose snooze: {e}")
@@ -301,15 +315,26 @@ class ReminderHandler:
                 )
                 return
 
-            # Schedule snooze
-            job_id = await medicine_scheduler.schedule_snooze_reminder(
-                user_id=user_id, medicine_id=latest_reminder["medicine_id"], snooze_minutes=config.REMINDER_SNOOZE_MINUTES
+            # The /snooze command has no button behind it, so there is no
+            # choice to read: it uses the user's configured default.
+            user = await DatabaseManager.get_user_by_telegram_id(user_id)
+            snooze_minutes = config.REMINDER_SNOOZE_MINUTES
+            if user:
+                try:
+                    settings = await DatabaseManager.get_user_settings(user.id)
+                    snooze_minutes = getattr(settings, "snooze_minutes", None) or snooze_minutes
+                except Exception:
+                    logger.exception("Could not read the snooze setting; using the default")
+
+            await medicine_scheduler.schedule_snooze_reminder(
+                user_id=user_id,
+                medicine_id=latest_reminder["medicine_id"],
+                snooze_minutes=snooze_minutes,
             )
 
             # Display snooze time in user's timezone
-            user = await DatabaseManager.get_user_by_telegram_id(user_id)
             tz_name = get_user_timezone_name(user) if user else None
-            snooze_time_local = now_in_timezone(tz_name) + timedelta(minutes=config.REMINDER_SNOOZE_MINUTES)
+            snooze_time_local = now_in_timezone(tz_name) + timedelta(minutes=snooze_minutes)
 
             message = f"""
 {config.EMOJIS['clock']} <b>התזכורת האחרונה נדחתה</b>

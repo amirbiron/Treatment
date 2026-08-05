@@ -10,7 +10,14 @@ from config import config
 
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
-    """Main menu keyboard with large, clear buttons"""
+    """Main menu keyboard with large, clear buttons.
+
+    The מלאי button stays even when inventory tracking is off. Thirty-five call
+    sites build this keyboard, and any one of them still passing the default
+    would put the button back - so it would appear and vanish depending on which
+    screen the user came from. Pressing it with tracking off explains itself and
+    offers to turn it back on.
+    """
     keyboard = [
         # Full-width row for "התרופות שלי"
         [KeyboardButton(f"{config.EMOJIS['medicine']} התרופות שלי")],
@@ -151,16 +158,65 @@ def get_appointment_reminder_keyboard(rem1: bool, rem3: bool, rem0: bool = False
     return InlineKeyboardMarkup(keyboard)
 
 
+# Offered on every reminder. Kept short so the row fits without wrapping on a
+# narrow phone, which is what most of these users are reading it on.
+SNOOZE_CHOICES = (5, 15, 30)
+
+
+def format_snooze_label(minutes: int) -> str:
+    """Button text for a snooze choice. Half an hour reads better than 30 דקות."""
+    if minutes == 60:
+        return f"{config.EMOJIS['clock']} שעה"
+    if minutes == 30:
+        return f"{config.EMOJIS['clock']} חצי שעה"
+    return f"{config.EMOJIS['clock']} {minutes} דק'"
+
+
+def parse_snooze_callback(data: str, default_minutes: int):
+    """Read (medicine_id, minutes) out of a dose_snooze callback.
+
+    Reminders already sitting in a chat carry the old `dose_snooze_<id>` form,
+    and their buttons keep working forever - Telegram never rewrites a message
+    that was already delivered. Those fall back to the user's configured
+    default, which is what they did before the choices existed.
+
+    Returns (None, default) when the data is not a snooze callback at all.
+    """
+    parts = data.split("_")
+    if len(parts) < 3 or parts[0] != "dose" or parts[1] != "snooze":
+        return None, default_minutes
+
+    try:
+        medicine_id = int(parts[2])
+    except ValueError:
+        return None, default_minutes
+
+    if len(parts) < 4:
+        return medicine_id, default_minutes
+
+    try:
+        minutes = int(parts[3])
+    except ValueError:
+        return medicine_id, default_minutes
+
+    # Only honour a choice this build actually offers, so a crafted or stale
+    # callback cannot schedule an arbitrary delay.
+    return medicine_id, minutes if minutes in SNOOZE_CHOICES else default_minutes
+
+
 def get_reminder_keyboard(medicine_id: int) -> InlineKeyboardMarkup:
     """Keyboard for medicine reminder notifications"""
+    snooze_row = [
+        InlineKeyboardButton(
+            format_snooze_label(minutes), callback_data=f"dose_snooze_{medicine_id}_{minutes}"
+        )
+        for minutes in SNOOZE_CHOICES
+    ]
     keyboard = [
         [InlineKeyboardButton(f"{config.EMOJIS['success']} לקחתי!", callback_data=f"dose_taken_{medicine_id}")],
-        [
-            InlineKeyboardButton(
-                f"{config.EMOJIS['clock']} דחה ל-{config.REMINDER_SNOOZE_MINUTES} דקות",
-                callback_data=f"dose_snooze_{medicine_id}",
-            )
-        ],
+        # One row: three taps of the same weight, rather than a default plus
+        # alternatives buried a level down.
+        snooze_row,
         [InlineKeyboardButton(f"{config.EMOJIS['error']} לא אקח", callback_data=f"dose_skip_{medicine_id}")],
     ]
 
@@ -627,4 +683,14 @@ def get_symptom_logs_list_keyboard(logs: List, back_callback: str = "symptoms_hi
             ]
         )
     keyboard.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data=back_callback)])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_inventory_settings_keyboard(track_inventory: bool) -> InlineKeyboardMarkup:
+    """Toggle inventory tracking on or off."""
+    state = "✅ מופעל" if track_inventory else "⭕ כבוי"
+    keyboard = [
+        [InlineKeyboardButton(f"מעקב מלאי: {state}", callback_data="settings_inventory_toggle")],
+        [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="settings_menu")],
+    ]
     return InlineKeyboardMarkup(keyboard)

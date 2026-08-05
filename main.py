@@ -35,6 +35,23 @@ logger = logging.getLogger(__name__)
 
 # Main menu labels to actions. Module level because handle_text_message needs to
 # recognise a menu press before it hands the text to any draft handler.
+async def tracks_inventory(telegram_user_id) -> bool:
+    """Whether this user wants inventory numbers shown.
+
+    Defaults to True on any failure: hiding a count someone relies on is worse
+    than showing one they do not care about.
+    """
+    try:
+        user = await DatabaseManager.get_user_by_telegram_id(telegram_user_id)
+        if not user:
+            return True
+        settings = await DatabaseManager.get_user_settings(user.id)
+        return bool(getattr(settings, "track_inventory", True))
+    except Exception:
+        logger.exception("Could not read the inventory setting; showing inventory")
+        return True
+
+
 MAIN_MENU_ACTIONS = {
     f"{config.EMOJIS['medicine']} התרופות שלי": "my_medicines",
     f"{config.EMOJIS['reminder']} תזכורות": "reminders",
@@ -370,6 +387,7 @@ class MedicineReminderBot:
                 await update.message.reply_text("אנא התחילו עם /start")
                 return
 
+            show_inventory = await tracks_inventory(user.id)
             medicines = await DatabaseManager.get_user_medicines(db_user.id, active_only=False)
 
             if not medicines:
@@ -389,7 +407,10 @@ class MedicineReminderBot:
 
                     message += f"{status_emoji} <b>{medicine.name}</b>\n"
                     message += f"   {config.EMOJIS['dosage']} {medicine.dosage}\n"
-                    message += f"   📦 מלאי: {medicine.inventory_count}{inventory_warning}\n\n"
+                    if show_inventory:
+                        message += f"   📦 מלאי: {medicine.inventory_count}{inventory_warning}\n\n"
+                    else:
+                        message += "\n"
 
             from utils.keyboards import get_medicines_keyboard
 
@@ -1030,13 +1051,26 @@ class MedicineReminderBot:
 
     async def _handle_dose_snooze(self, query, context):
         """Handle dose snooze request"""
-        medicine_id = int(query.data.split("_")[2])
+        from utils.keyboards import parse_snooze_callback
+
         user_id = query.from_user.id
+        settings = None
+        try:
+            db_user = await DatabaseManager.get_user_by_telegram_id(user_id)
+            if db_user:
+                settings = await DatabaseManager.get_user_settings(db_user.id)
+        except Exception:
+            settings = None
+        default_minutes = getattr(settings, "snooze_minutes", None) or config.REMINDER_SNOOZE_MINUTES
 
-        # Schedule snooze reminder
-        job_id = await medicine_scheduler.schedule_snooze_reminder(user_id, medicine_id)
+        medicine_id, snooze_minutes = parse_snooze_callback(query.data, default_minutes)
+        if medicine_id is None:
+            await query.edit_message_text(f"{config.EMOJIS['error']} שגיאה בדחיית התזכורת")
+            return
 
-        await query.edit_message_text(f"{config.EMOJIS['clock']} תזכורת נדחתה ל-{config.REMINDER_SNOOZE_MINUTES} דקות")
+        await medicine_scheduler.schedule_snooze_reminder(user_id, medicine_id, snooze_minutes)
+
+        await query.edit_message_text(f"{config.EMOJIS['clock']} תזכורת נדחתה ל-{snooze_minutes} דקות")
 
     async def _handle_add_medicine_flow(self, update: Update, context):
         """Very simple add-medicine text flow: name -> dosage -> create"""
@@ -1092,6 +1126,7 @@ class MedicineReminderBot:
         try:
             data = query.data
             user = query.from_user
+            show_inventory = await tracks_inventory(user.id)
 
             # Back to medicines list
             if data == "medicines_list" or data == "medicine_manage" or data.startswith("medicines_page_"):
@@ -1122,7 +1157,10 @@ class MedicineReminderBot:
                             inventory_warning = f" {config.EMOJIS['warning']}"
                         message += f"{status_emoji} <b>{medicine.name}</b>\n"
                         message += f"   {config.EMOJIS['dosage']} {medicine.dosage}\n"
-                        message += f"   📦 מלאי: {medicine.inventory_count}{inventory_warning}\n\n"
+                        if show_inventory:
+                            message += f"   📦 מלאי: {medicine.inventory_count}{inventory_warning}\n\n"
+                        else:
+                            message += "\n"
                 try:
                     await query.edit_message_text(
                         message,
@@ -1165,7 +1203,7 @@ class MedicineReminderBot:
                 details = [
                     f"{config.EMOJIS['medicine']} <b>{medicine.name}</b>",
                     f"{config.EMOJIS['dosage']} מינון: {medicine.dosage}",
-                    f"📦 מלאי: {medicine.inventory_count}",
+                    *([f"📦 מלאי: {medicine.inventory_count}"] if show_inventory else []),
                     f"⚙️ סטטוס: {'פעילה' if medicine.is_active else 'מושבתת'}",
                 ]
                 await query.edit_message_text(
@@ -1243,7 +1281,7 @@ class MedicineReminderBot:
                 details = [
                     f"{config.EMOJIS['medicine']} <b>{med.name}</b>",
                     f"{config.EMOJIS['dosage']} מינון: {med.dosage}",
-                    f"📦 מלאי: {med.inventory_count}",
+                    *([f"📦 מלאי: {med.inventory_count}"] if show_inventory else []),
                     f"⚙️ סטטוס: {'פעילה' if med.is_active else 'מושבתת'}",
                 ]
                 await query.edit_message_text(
@@ -1349,8 +1387,25 @@ class MedicineReminderBot:
                     ),
                 )
 
-            elif data == "settings_inventory":
-                await query.edit_message_text("הגדרות מלאי בסיסיות: התראות מלאי נמוכים מופעלות.")
+            elif data == "settings_inventory" or data == "settings_inventory_toggle":
+                from utils.keyboards import get_inventory_settings_keyboard
+
+                user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+                settings = await DatabaseManager.get_user_settings(user.id)
+                if data == "settings_inventory_toggle":
+                    settings = await DatabaseManager.update_user_settings(
+                        user.id, track_inventory=not settings.track_inventory
+                    )
+                explanation = (
+                    "מעקב מלאי מציג את מספר הכדורים שנותרו ומתריע כשהמלאי נמוך."
+                    if settings.track_inventory
+                    else "מעקב מלאי כבוי: מספרי המלאי וההתראות מוסתרים."
+                )
+                await query.edit_message_text(
+                    f"{config.EMOJIS['inventory']} *הגדרות מלאי*\n\n{explanation}",
+                    parse_mode="Markdown",
+                    reply_markup=get_inventory_settings_keyboard(settings.track_inventory),
+                )
             elif data == "settings_caregivers":
                 await query.edit_message_text("ניהול מטפלים זמין דרך תפריט 'מטפלים'.")
             elif data == "settings_reports":
@@ -1446,6 +1501,19 @@ class MedicineReminderBot:
                 action = mapping[text]
                 if action == "my_medicines" or action == "inventory":
                     if action == "inventory":
+                        if not await tracks_inventory(update.effective_user.id):
+                            # The button stays on the keyboard for everyone, so
+                            # this is the one place that has to explain itself.
+                            await update.message.reply_text(
+                                f"{config.EMOJIS['inventory']} מעקב מלאי כבוי.\n\n"
+                                "אפשר להפעיל אותו שוב בהגדרות ← הגדרות מלאי.",
+                                reply_markup=InlineKeyboardMarkup(
+                                    [[InlineKeyboardButton(
+                                        "הפעל מעקב מלאי", callback_data="settings_inventory_toggle"
+                                    )]]
+                                ),
+                            )
+                            return
                         await self._open_inventory_center(update)
                     else:
                         await self.my_medicines_command(update, context)
@@ -1746,6 +1814,19 @@ class MedicineReminderBot:
                 if action == "my_medicines" or action == "inventory":
                     # Inventory from main menu goes to a simple inventory center
                     if action == "inventory":
+                        if not await tracks_inventory(update.effective_user.id):
+                            # The button stays on the keyboard for everyone, so
+                            # this is the one place that has to explain itself.
+                            await update.message.reply_text(
+                                f"{config.EMOJIS['inventory']} מעקב מלאי כבוי.\n\n"
+                                "אפשר להפעיל אותו שוב בהגדרות ← הגדרות מלאי.",
+                                reply_markup=InlineKeyboardMarkup(
+                                    [[InlineKeyboardButton(
+                                        "הפעל מעקב מלאי", callback_data="settings_inventory_toggle"
+                                    )]]
+                                ),
+                            )
+                            return
                         await self._open_inventory_center(update)
                     else:
                         await self.my_medicines_command(update, context)
