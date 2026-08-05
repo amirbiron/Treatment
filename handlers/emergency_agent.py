@@ -26,7 +26,8 @@ import re
 from dataclasses import dataclass
 from datetime import timedelta
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest
 from telegram.ext import (
@@ -326,34 +327,36 @@ def critical_reply() -> str:
 
 # ═══ The model, with the guide as its only material ═══
 
-# gemini-2.5-flash reasons before it answers, and google-generativeai 0.8.6 has
-# no thinking_config and no `thought` flag on a Part - the reasoning simply
-# arrives as ordinary text at the front of the response. It ran to several
-# paragraphs and ran straight into the answer without a blank line, so there is
-# no reliable way to find the seam after the fact. Asking for an explicit marker
-# makes the boundary something the code can actually locate.
-ANSWER_MARKER = "===תשובה==="
+MODEL_NAME = "gemini-2.5-flash"
 
-# Leading reasoning openers, for when the marker does not come back.
-_THOUGHT_OPENER = re.compile(
-    r"^\s*(?:\*\*)?(?:THOUGHT|THINKING|Thought|Thinking|מחשבה)(?:\*\*)?\s*:",
-)
+# gemini-2.5-flash reasons before it answers, and that reasoning used to reach
+# users: google-generativeai 0.8.6 could neither switch thinking off nor mark
+# which parts were thoughts, so it arrived as ordinary text at the front of the
+# response. google-genai can do both, so this is now handled at the source
+# rather than by trying to find the seam in the text afterwards.
+THINKING_OFF = types.ThinkingConfig(thinking_budget=0, include_thoughts=False)
 
 
-def extract_answer(text: str) -> str:
-    """Return only the part of a model response meant for the user.
+def answer_text(response) -> str:
+    """The user-facing text of a response, with any thought parts dropped.
 
-    Falls back to the whole text when the marker is missing. Showing stray
-    reasoning is embarrassing; dropping a real emergency answer because the
-    model forgot a marker is worse, so the fallback keeps the text and only
-    logs.
+    thinking_budget=0 should mean there are none, but the flag exists in the
+    response for a reason and honouring it costs nothing. Falls back to
+    response.text when the parts cannot be walked.
     """
-    if ANSWER_MARKER in text:
-        return text.rsplit(ANSWER_MARKER, 1)[1].strip()
+    try:
+        parts = response.candidates[0].content.parts
+    except (AttributeError, IndexError, TypeError):
+        return (getattr(response, "text", "") or "").strip()
 
-    if _THOUGHT_OPENER.match(text):
-        logger.warning("Emergency answer arrived without the marker and opens with reasoning")
-    return text.strip()
+    kept = [
+        part.text
+        for part in parts
+        if getattr(part, "text", None) and not getattr(part, "thought", False)
+    ]
+    if not kept:
+        return (getattr(response, "text", "") or "").strip()
+    return "".join(kept).strip()
 
 
 SYSTEM_PROMPT_TEMPLATE = """אתה עוזר שעונה על שאלות בנושא חירום בישראל, על סמך מדריך מאומת בלבד.
@@ -367,10 +370,6 @@ SYSTEM_PROMPT_TEMPLATE = """אתה עוזר שעונה על שאלות בנוש�
 
 סגנון: עברית פשוטה, משפטים קצרים, בלי ז'רגון. הבוט משמש גם אנשים מבוגרים.
 ענה בקצרה — עד כ-8 שורות — ותן את הפעולה המעשית קודם.
-
-פורמט הפלט:
-סיים תמיד בשורה שמכילה בדיוק {marker} ואחריה התשובה למשתמש בלבד.
-כל שיקול, ניתוח או תכנון — לפני השורה הזאת. המשתמש רואה רק את מה שאחריה.
 
 === המדריך ===
 
@@ -388,14 +387,7 @@ def _init_ai_session(context) -> None:
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not set")
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(
-        "gemini-2.5-flash",
-        system_instruction=SYSTEM_PROMPT_TEMPLATE.format(
-            guide=GUIDE_TEXT, marker=ANSWER_MARKER
-        ),
-    )
-    context.user_data["emerg_model"] = model
+    context.user_data["emerg_client"] = genai.Client(api_key=api_key)
     context.user_data["emerg_chat_history"] = []
 
 
@@ -409,8 +401,8 @@ async def ask_guide(context, user_message: str):
     if is_limit_reached():
         return _ERR_QUOTA + "\n\n" + format_emergency_numbers(), False
 
-    model = context.user_data.get("emerg_model")
-    if model is None:
+    client = context.user_data.get("emerg_client")
+    if client is None:
         try:
             _init_ai_session(context)
         except RuntimeError as exc:
@@ -418,7 +410,7 @@ async def ask_guide(context, user_message: str):
             # bad outcome, so hand back the numbers instead.
             logger.error(f"Emergency agent session init failed: {exc}")
             return _ERR_NO_AI, False
-        model = context.user_data["emerg_model"]
+        client = context.user_data["emerg_client"]
 
     current_count = increment_and_check_usage()
     if current_count == ALERT_THRESHOLD:
@@ -426,9 +418,16 @@ async def ask_guide(context, user_message: str):
 
     history = context.user_data.get("emerg_chat_history", [])
     try:
-        chat = model.start_chat(history=history)
-        response = await chat.send_message_async(user_message)
-        answer = extract_answer(response.text)
+        chat = client.aio.chats.create(
+            model=MODEL_NAME,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT_TEMPLATE.format(guide=GUIDE_TEXT),
+                thinking_config=THINKING_OFF,
+            ),
+            history=history,
+        )
+        response = await chat.send_message(user_message)
+        answer = answer_text(response)
     except Exception as exc:
         logger.exception(f"Emergency agent Gemini call failed: {exc}")
         return _ERR_AI_COMM, False
@@ -579,7 +578,7 @@ def remember(context, user_message: str, reply: str) -> None:
 
 def _cleanup_session(context):
     """Drop the model and history so a stale session is not reused."""
-    context.user_data.pop("emerg_model", None)
+    context.user_data.pop("emerg_client", None)
     context.user_data.pop("emerg_chat_history", None)
 
 

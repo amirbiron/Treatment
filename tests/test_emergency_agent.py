@@ -15,16 +15,34 @@ agent = importlib.import_module("handlers.emergency_agent")
 
 
 def _ctx(answer="תשובה"):
-    response = MagicMock()
-    response.text = answer
     chat = MagicMock()
-    chat.send_message_async = AsyncMock(return_value=response)
-    model = MagicMock()
-    model.start_chat = MagicMock(return_value=chat)
+    chat.send_message = AsyncMock(return_value=_response(answer))
+    client = MagicMock()
+    client.aio.chats.create = MagicMock(return_value=chat)
 
     ctx = MagicMock()
-    ctx.user_data = {"emerg_model": model, "emerg_chat_history": []}
+    ctx.user_data = {"emerg_client": client, "emerg_chat_history": []}
     return ctx
+
+
+def _response(*texts, thoughts=()):
+    """A response whose parts carry text, plus any parts flagged as thoughts."""
+    parts = []
+    for body in thoughts:
+        part = MagicMock()
+        part.text, part.thought = body, True
+        parts.append(part)
+    for body in texts:
+        part = MagicMock()
+        part.text, part.thought = body, False
+        parts.append(part)
+
+    candidate = MagicMock()
+    candidate.content.parts = parts
+    response = MagicMock()
+    response.candidates = [candidate]
+    response.text = "".join(texts)
+    return response
 
 
 def _message(text):
@@ -221,7 +239,7 @@ async def test_a_critical_message_does_not_call_the_model():
 
     await agent.handle_message(update, ctx)
 
-    ctx.user_data["emerg_model"].start_chat.assert_not_called()
+    ctx.user_data["emerg_client"].aio.chats.create.assert_not_called()
     sent = update.message.reply_text.await_args.args[0]
     assert "101" in sent
 
@@ -265,7 +283,7 @@ async def test_the_mental_health_reply_leads_with_eran_not_an_ambulance():
     sent = update.message.reply_text.await_args.args[0]
     assert "1201" in sent
     assert sent.index("1201") < sent.index("101"), "an ambulance is not the first answer here"
-    ctx.user_data["emerg_model"].start_chat.assert_not_called()
+    ctx.user_data["emerg_client"].aio.chats.create.assert_not_called()
 
 
 def test_the_mental_health_reply_only_uses_verified_numbers():
@@ -299,7 +317,7 @@ async def test_an_uncovered_scenario_routes_to_home_front_command():
 
     sent = update.message.reply_text.await_args.args[0]
     assert "104" in sent
-    assert not ctx.user_data["emerg_model"].start_chat.called, "the model was asked to improvise"
+    assert not ctx.user_data["emerg_client"].aio.chats.create.called, "the model was asked to improvise"
 
 
 def test_shelter_exit_is_covered_so_it_reaches_the_model():
@@ -317,7 +335,7 @@ async def test_an_ordinary_question_reaches_the_model_and_is_remembered():
 
     await agent.handle_message(update, ctx)
 
-    ctx.user_data["emerg_model"].start_chat.assert_called_once()
+    ctx.user_data["emerg_client"].aio.chats.create.assert_called_once()
     assert len(ctx.user_data["emerg_chat_history"]) == 2
 
 
@@ -410,7 +428,7 @@ async def test_a_rejected_answer_is_not_remembered():
 @pytest.mark.asyncio
 async def test_an_api_failure_is_reported_not_narrated():
     ctx = _ctx()
-    ctx.user_data["emerg_model"].start_chat.return_value.send_message_async = AsyncMock(
+    ctx.user_data["emerg_client"].aio.chats.create.return_value.send_message = AsyncMock(
         side_effect=RuntimeError("boom")
     )
 
@@ -455,7 +473,7 @@ async def test_the_daily_limit_still_leaves_the_numbers_reachable():
 
     sent = update.message.reply_text.await_args.args[0]
     assert "101" in sent
-    ctx.user_data["emerg_model"].start_chat.assert_not_called()
+    ctx.user_data["emerg_client"].aio.chats.create.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -472,7 +490,7 @@ async def test_the_shortcut_buttons_respect_the_daily_limit_too():
     with patch.object(agent, "is_limit_reached", return_value=True):
         await agent.handle_shortcut(update, ctx)
 
-    ctx.user_data["emerg_model"].start_chat.assert_not_called()
+    ctx.user_data["emerg_client"].aio.chats.create.assert_not_called()
     assert "101" in query.message.reply_text.await_args.args[0]
 
 
@@ -485,7 +503,7 @@ async def test_the_limit_is_enforced_inside_ask_guide():
         reply, is_real = await agent.ask_guide(ctx, "שאלה")
 
     assert is_real is False and "101" in reply
-    ctx.user_data["emerg_model"].start_chat.assert_not_called()
+    ctx.user_data["emerg_client"].aio.chats.create.assert_not_called()
 
 
 # --- a missing API key still leaves the numbers -------------------------------
@@ -581,59 +599,58 @@ def test_the_shortcut_prompts_are_all_dispatchable():
 
 # --- the model's reasoning is not the answer ---------------------------------
 #
-# gemini-2.5-flash reasons before answering, and google-generativeai 0.8.6 gives
-# no way to switch that off or to tell a thought part from an answer part. The
-# reasoning arrived in front of the answer, in English, and users saw it.
+# gemini-2.5-flash reasons before answering. google-generativeai could neither
+# switch that off nor mark which parts were thoughts, so the reasoning arrived
+# as ordinary text and users read it. google-genai can do both.
 
 
-def test_only_the_text_after_the_marker_reaches_the_user():
-    raw = (
-        "THOUGHT: The user is asking about patient rights. The guide does not\n"
-        "mention transfers, so I should not mention it.\n"
-        f"{agent.ANSWER_MARKER}\n"
-        "יש לך זכות לסרב לטיפול."
-    )
-    assert agent.extract_answer(raw) == "יש לך זכות לסרב לטיפול."
+def test_thinking_is_switched_off_at_the_api():
+    assert agent.THINKING_OFF.thinking_budget == 0
+    assert agent.THINKING_OFF.include_thoughts is False
 
 
-def test_reasoning_spanning_paragraphs_is_still_removed():
-    """The leak ran to several paragraphs and into the answer with no blank line."""
-    raw = f"THOUGHT: one\n\nstill thinking\nand more\n{agent.ANSWER_MARKER}\nהתשובה."
-    assert agent.extract_answer(raw) == "התשובה."
+@pytest.mark.asyncio
+async def test_the_request_carries_the_thinking_config():
+    """The whole point of the migration: it is asked for, not stripped after."""
+    ctx = _ctx("חייגו 101.")
+    await agent.ask_guide(ctx, "שאלה")
+
+    config = ctx.user_data["emerg_client"].aio.chats.create.call_args.kwargs["config"]
+    assert config.thinking_config is agent.THINKING_OFF
 
 
-def test_the_last_marker_wins():
-    """A model that echoes the marker while reasoning must not split the answer."""
-    raw = f"THOUGHT: I will end with {agent.ANSWER_MARKER}\n{agent.ANSWER_MARKER}\nהתשובה."
-    assert agent.extract_answer(raw) == "התשובה."
+def test_a_thought_part_is_dropped_from_the_answer():
+    """Belt and braces: honour the flag even with thinking asked off."""
+    response = _response("חייגו 101.", thoughts=["The user is asking about..."])
+    assert agent.answer_text(response) == "חייגו 101."
 
 
-def test_an_answer_without_a_marker_is_still_delivered():
-    """Losing a real emergency answer is worse than showing stray reasoning."""
-    assert agent.extract_answer("חייגו 101.") == "חייגו 101."
+def test_text_parts_are_joined_in_order():
+    assert agent.answer_text(_response("חייגו ", "101.")) == "חייגו 101."
 
 
-def test_a_missing_marker_over_reasoning_is_logged():
-    with patch.object(agent.logger, "warning") as warn:
-        agent.extract_answer("THOUGHT: hmm\nחייגו 101.")
-
-    assert warn.called, "a silent leak gives no signal that the marker stopped working"
-
-
-def test_the_marker_itself_is_never_shown():
-    assert agent.ANSWER_MARKER not in agent.extract_answer(
-        f"reasoning\n{agent.ANSWER_MARKER}\nהתשובה."
-    )
+def test_a_response_without_walkable_parts_falls_back_to_text():
+    """Losing a real emergency answer over an unexpected shape is the worse bug."""
+    response = MagicMock()
+    response.candidates = []
+    response.text = "חייגו 101."
+    assert agent.answer_text(response) == "חייגו 101."
 
 
-def test_the_prompt_asks_for_the_marker():
-    prompt = agent.SYSTEM_PROMPT_TEMPLATE.format(guide="x", marker=agent.ANSWER_MARKER)
-    assert agent.ANSWER_MARKER in prompt
+def test_a_thought_only_response_falls_back_rather_than_returning_nothing():
+    response = _response(thoughts=["only reasoning"])
+    response.text = "חייגו 101."
+    assert agent.answer_text(response) == "חייגו 101."
 
 
 @pytest.mark.asyncio
 async def test_reasoning_never_survives_a_real_turn():
-    ctx = _ctx(f"THOUGHT: planning\n{agent.ANSWER_MARKER}\nחייגו 101.")
+    chat = MagicMock()
+    chat.send_message = AsyncMock(
+        return_value=_response("חייגו 101.", thoughts=["THOUGHT: planning"])
+    )
+    ctx = _ctx()
+    ctx.user_data["emerg_client"].aio.chats.create = MagicMock(return_value=chat)
 
     reply, _ = await agent.ask_guide(ctx, "שאלה")
 
@@ -654,3 +671,28 @@ def test_the_intro_lists_what_the_guide_actually_covers(topic):
 
 def test_the_intro_still_says_not_to_use_it_in_a_real_emergency():
     assert "101" in agent.INTRO
+
+
+# --- the SDK migration itself ------------------------------------------------
+
+
+def test_the_deprecated_sdk_is_gone():
+    """google-generativeai could not switch thinking off; that was the whole
+    reason the reasoning reached users."""
+    for path in ("handlers/emergency_agent.py", "handlers/pharmacy_agent.py"):
+        source = open(path, encoding="utf-8").read()
+        assert "google.generativeai" not in source, f"{path} still imports the old SDK"
+
+
+def test_the_requirement_matches_the_import():
+    requirements = open("requirements.txt", encoding="utf-8").read()
+    assert "google-genai" in requirements
+    assert "google-generativeai" not in requirements
+
+
+def test_the_ci_matrix_dropped_the_python_google_genai_cannot_run_on():
+    """google-genai requires >=3.10, and runtime.txt deploys on 3.11 anyway."""
+    import glob
+
+    for workflow in glob.glob(".github/workflows/*.yml"):
+        assert "'3.9'" not in open(workflow, encoding="utf-8").read()

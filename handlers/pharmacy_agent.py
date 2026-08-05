@@ -18,7 +18,8 @@ import time
 from dataclasses import dataclass
 from datetime import timedelta
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     CallbackQueryHandler,
@@ -40,6 +41,31 @@ PHARMACY_STATE = 300
 # Path to the pharmacy search skill
 SKILL_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "skills", "clalit-pharm-search")
 SEARCH_SCRIPT = os.path.join(SKILL_DIR, "scripts", "pharmacy-search.js")
+
+MODEL_NAME = "gemini-2.5-flash"
+
+# Thinking is switched off at the API rather than stripped out of the text: with
+# google-generativeai it could be neither disabled nor identified, and it leaked
+# into user-facing answers.
+THINKING_OFF = types.ThinkingConfig(thinking_budget=0, include_thoughts=False)
+
+
+def answer_text(response) -> str:
+    """The user-facing text of a response, with any thought parts dropped."""
+    try:
+        parts = response.candidates[0].content.parts
+    except (AttributeError, IndexError, TypeError):
+        return (getattr(response, "text", "") or "").strip()
+
+    kept = [
+        part.text
+        for part in parts
+        if getattr(part, "text", None) and not getattr(part, "thought", False)
+    ]
+    if not kept:
+        return (getattr(response, "text", "") or "").strip()
+    return "".join(kept).strip()
+
 
 SYSTEM_PROMPT = """אתה סוכן AI מומחה בבדיקת זמינות תרופות בבתי מרקחת של כללית בישראל.
 
@@ -338,16 +364,11 @@ def _init_ai_session(context) -> tuple[str, bool]:
     gemini_api_key = os.getenv("GEMINI_API_KEY", "")
     if not gemini_api_key:
         logger.error("GEMINI_API_KEY not set - pharmacy agent cannot start")
-        context.user_data.pop("pharm_model", None)
+        context.user_data.pop("pharm_client", None)
         context.user_data["pharm_chat_history"] = []
         return _NO_API_KEY_MESSAGE, False
 
-    genai.configure(api_key=gemini_api_key)
-    context.user_data["pharm_model"] = genai.GenerativeModel(
-        "gemini-2.5-flash",
-        system_instruction=SYSTEM_PROMPT,
-        tools=[{"function_declarations": FUNCTION_DECLARATIONS}],
-    )
+    context.user_data["pharm_client"] = genai.Client(api_key=gemini_api_key)
     context.user_data["pharm_chat_history"] = []
     return OPENING_MESSAGE, True
 
@@ -430,8 +451,8 @@ async def _process_with_tools(context, user_message: str) -> tuple[str | None, s
     returned to the user as-is and marked not-real, so the model never gets the
     chance to dress a failure up as an answer.
     """
-    model = context.user_data.get("pharm_model")
-    if not model:
+    client = context.user_data.get("pharm_client")
+    if not client:
         return None, user_message, False
 
     if is_limit_reached():
@@ -443,8 +464,16 @@ async def _process_with_tools(context, user_message: str) -> tuple[str | None, s
 
     history = context.user_data.get("pharm_chat_history", [])
     try:
-        chat = model.start_chat(history=history)
-        response = await chat.send_message_async(user_message)
+        chat = client.aio.chats.create(
+            model=MODEL_NAME,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                tools=[types.Tool(function_declarations=FUNCTION_DECLARATIONS)],
+                thinking_config=THINKING_OFF,
+            ),
+            history=history,
+        )
+        response = await chat.send_message(user_message)
 
         for _ in range(MAX_TOOL_ROUNDS):
             calls = _function_calls(response)
@@ -457,10 +486,8 @@ async def _process_with_tools(context, user_message: str) -> tuple[str | None, s
                 if not handler:
                     logger.warning(f"Gemini asked for unknown tool {call.name!r}")
                     parts.append(
-                        genai.protos.Part(
-                            function_response=genai.protos.FunctionResponse(
-                                name=call.name, response={"error": "unknown tool"}
-                            )
+                        types.Part.from_function_response(
+                            name=call.name, response={"error": "unknown tool"}
                         )
                     )
                     continue
@@ -473,16 +500,12 @@ async def _process_with_tools(context, user_message: str) -> tuple[str | None, s
                     return result.text, user_message, False
 
                 parts.append(
-                    genai.protos.Part(
-                        function_response=genai.protos.FunctionResponse(
-                            name=call.name, response={"result": result.text}
-                        )
+                    types.Part.from_function_response(
+                        name=call.name, response={"result": result.text}
                     )
                 )
 
-            response = await chat.send_message_async(
-                genai.protos.Content(role="user", parts=parts)
-            )
+            response = await chat.send_message(parts)
 
         if _function_calls(response):
             # Out of rounds with the model still asking for tools. `.text` would
@@ -491,7 +514,7 @@ async def _process_with_tools(context, user_message: str) -> tuple[str | None, s
             logger.warning(f"Gemini still requesting tools after {MAX_TOOL_ROUNDS} rounds")
             return _ERR_TOOL_ROUNDS_EXHAUSTED, user_message, False
 
-        return response.text, user_message, True
+        return answer_text(response), user_message, True
 
     except Exception as e:
         logger.error(f"Gemini API error in pharmacy agent: {e}")
@@ -627,7 +650,7 @@ async def fallback_start(update: Update, context):
 
 def _cleanup_session(context):
     """Remove pharmacy session data from user_data."""
-    context.user_data.pop("pharm_model", None)
+    context.user_data.pop("pharm_client", None)
     context.user_data.pop("pharm_chat_history", None)
 
 
