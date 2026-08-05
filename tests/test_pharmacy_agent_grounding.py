@@ -119,7 +119,9 @@ async def test_the_model_is_not_asked_to_continue_after_a_tool_failure():
         await agent._process_with_tools(ctx, "שאלה")
 
     chat = model.start_chat.return_value
-    assert chat.send_message_async.await_count == 1, "the failure was fed back to the model"
+    assert chat.send_message_async.await_count == 1, (
+        "a second call means the tool failure was fed back for the model to narrate"
+    )
 
 
 @pytest.mark.asyncio
