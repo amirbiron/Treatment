@@ -204,3 +204,57 @@ async def test_another_user_cannot_rename_a_note(db):
 
     assert await DB.set_note_title_for_user(note.id, other.id, "נחטף") is False
     assert (await DB.get_note_by_id(note.id)).title == "שלי"
+
+
+# --- title normalization -------------------------------------------------
+
+
+def test_the_title_limit_has_one_source():
+    """The column width, the migration and the handler must not drift apart."""
+    import importlib
+
+    import database
+
+    handler_module = importlib.import_module("handlers.notes_handler")
+    assert handler_module.MAX_TITLE_LENGTH == database.MAX_NOTE_TITLE_LENGTH
+
+    column = database.Note.__table__.columns["title"]
+    assert column.type.length == database.MAX_NOTE_TITLE_LENGTH
+
+
+def test_blank_titles_normalize_to_none():
+    """'Unnamed' must have exactly one representation in the database."""
+    from database import MAX_NOTE_TITLE_LENGTH, normalize_note_title
+
+    assert normalize_note_title(None) is None
+    assert normalize_note_title("") is None
+    assert normalize_note_title("   ") is None
+    assert normalize_note_title("\n\t ") is None
+    assert normalize_note_title("  רופא משפחה  ") == "רופא משפחה"
+    assert len(normalize_note_title("א" * 500)) == MAX_NOTE_TITLE_LENGTH
+
+
+@pytest.mark.asyncio
+async def test_creating_with_a_blank_title_stores_none(db):
+    """create_note and the setter must agree on what unnamed looks like."""
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=990, username="t", first_name="T")
+
+    for blank in ("", "   ", None):
+        note = await DB.create_note(user.id, "גוף", title=blank)
+        assert (await DB.get_note_by_id(note.id)).title is None, f"{blank!r} was stored verbatim"
+
+
+@pytest.mark.asyncio
+async def test_titles_are_trimmed_and_capped_on_both_paths(db):
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=989, username="t", first_name="T")
+
+    created = await DB.create_note(user.id, "גוף", title="  עם רווחים  ")
+    assert (await DB.get_note_by_id(created.id)).title == "עם רווחים"
+
+    await DB.set_note_title_for_user(created.id, user.id, "  אחרי שינוי  ")
+    assert (await DB.get_note_by_id(created.id)).title == "אחרי שינוי"
+
+    await DB.set_note_title_for_user(created.id, user.id, "א" * 500)
+    assert len((await DB.get_note_by_id(created.id)).title) == db.MAX_NOTE_TITLE_LENGTH

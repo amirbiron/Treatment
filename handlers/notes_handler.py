@@ -18,13 +18,15 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
 from config import config
-from database import DatabaseManager
+from database import MAX_NOTE_TITLE_LENGTH, DatabaseManager
 
 logger = logging.getLogger(__name__)
 
 # How much of a note to show in the list before truncating
 PREVIEW_LENGTH = 40
-MAX_TITLE_LENGTH = 100
+# Same limit the column is declared with, so truncation here can never disagree
+# with what the database will accept.
+MAX_TITLE_LENGTH = MAX_NOTE_TITLE_LENGTH
 
 # user_data flags
 AWAITING_NEW_NOTE = "awaiting_note_text"

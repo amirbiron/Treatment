@@ -3,6 +3,7 @@ Database models and setup for Medicine Reminder Bot
 Using SQLAlchemy 2.0 with modern typing and async support
 """
 
+import logging
 import os
 from datetime import datetime, time, timedelta
 from datetime import date
@@ -11,6 +12,8 @@ from sqlalchemy import String, Integer, Boolean, DateTime, Time, Text, ForeignKe
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from config import config
+
+logger = logging.getLogger(__name__)
 
 
 class Base(AsyncAttrs, DeclarativeBase):
@@ -204,6 +207,21 @@ class Invite(Base):
     user: Mapped["User"] = relationship("User")
 
 
+# Single source for the note title length: the ORM column, the SQLite migration
+# and the handler's truncation all derive from this so they cannot drift apart.
+MAX_NOTE_TITLE_LENGTH = 100
+
+
+def normalize_note_title(title: Optional[str]) -> Optional[str]:
+    """Collapse blank titles to None so 'unnamed' has one representation.
+
+    Without this a note created with "" and a note whose title was cleared would
+    be stored differently while meaning the same thing.
+    """
+    normalized = (title or "").strip()
+    return normalized[:MAX_NOTE_TITLE_LENGTH] or None
+
+
 class Note(Base):
     """A free-form note, not tied to any particular medicine"""
 
@@ -213,7 +231,7 @@ class Note(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))
     # Optional. When unset the list falls back to the note's first line, so a
     # quick note never has to be named.
-    title: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    title: Mapped[Optional[str]] = mapped_column(String(MAX_NOTE_TITLE_LENGTH), nullable=True)
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -279,9 +297,17 @@ async def init_database():
             res3 = await conn.exec_driver_sql("PRAGMA table_info(notes)")
             cols3 = [row[1] for row in res3.fetchall()]
             if cols3 and "title" not in cols3:
-                await conn.exec_driver_sql("ALTER TABLE notes ADD COLUMN title VARCHAR(100) NULL")
+                await conn.exec_driver_sql(
+                    f"ALTER TABLE notes ADD COLUMN title VARCHAR({MAX_NOTE_TITLE_LENGTH}) NULL"
+                )
+                # Confirm it landed. The ORM now expects this column, so a silent
+                # failure here surfaces later as an opaque error on every note read.
+                verify = await conn.exec_driver_sql("PRAGMA table_info(notes)")
+                if "title" not in [row[1] for row in verify.fetchall()]:
+                    logger.error("notes.title column is still missing after migration; note flows will fail")
         except Exception:
-            pass
+            # Logged rather than swallowed, for the same reason.
+            logger.exception("Failed to add notes.title column; note flows may break")
         # Ensure user_activity table exists in legacy DBs (SQLite-safe)
         try:
             res3 = await conn.exec_driver_sql("PRAGMA table_info(user_activity)")
@@ -927,7 +953,7 @@ class DatabaseManager:
     @staticmethod
     async def create_note(user_id: int, content: str, title: Optional[str] = None) -> "Note":
         async with async_session() as session:
-            note = Note(user_id=user_id, content=content, title=title)
+            note = Note(user_id=user_id, content=content, title=normalize_note_title(title))
             session.add(note)
             await session.commit()
             await session.refresh(note)
@@ -992,7 +1018,7 @@ class DatabaseManager:
             note = result.scalar_one_or_none()
             if not note:
                 return False
-            note.title = title or None
+            note.title = normalize_note_title(title)
             note.updated_at = datetime.utcnow()
             await session.commit()
             return True
@@ -2290,7 +2316,7 @@ class DatabaseManagerMongo:
         doc = {
             "_id": await DatabaseManagerMongo._next_mongo_id(_mongo_db.notes),
             "user_id": int(user_id),
-            "title": title,
+            "title": normalize_note_title(title),
             "content": content,
             "created_at": now,
             "updated_at": now,
@@ -2343,7 +2369,7 @@ class DatabaseManagerMongo:
         await _init_mongo()
         res = await _mongo_db.notes.update_one(
             {"_id": int(note_id), "user_id": int(user_id)},
-            {"$set": {"title": title or None, "updated_at": datetime.utcnow()}},
+            {"$set": {"title": normalize_note_title(title), "updated_at": datetime.utcnow()}},
         )
         return res.matched_count > 0
 
