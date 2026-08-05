@@ -130,6 +130,10 @@ class UserSettings(Base):
     snooze_minutes: Mapped[int] = mapped_column(Integer, default=5)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3)
     silent_mode: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Not everyone counts pills. With this off the inventory numbers, low-stock
+    # warnings and the inventory menu button are hidden, so a user who never
+    # fills them in is not shown "מלאי: 0" on every screen.
+    track_inventory: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     # Relationship (no back_populates to avoid heavy graph)
@@ -299,6 +303,25 @@ async def init_database():
                 await conn.exec_driver_sql("ALTER TABLE medicines ADD COLUMN pack_size INTEGER NULL")
         except Exception:
             pass
+        # Add track_inventory to user_settings if missing. Existing users were
+        # tracking inventory, so the backfill default is on - anything else would
+        # silently switch the feature off for everyone on upgrade.
+        try:
+            res_ti = await conn.exec_driver_sql("PRAGMA table_info(user_settings)")
+            cols_ti = [row[1] for row in res_ti.fetchall()]
+            if cols_ti and "track_inventory" not in cols_ti:
+                await conn.exec_driver_sql(
+                    "ALTER TABLE user_settings ADD COLUMN track_inventory BOOLEAN DEFAULT 1"
+                )
+                verify_ti = await conn.exec_driver_sql("PRAGMA table_info(user_settings)")
+                if "track_inventory" not in [row[1] for row in verify_ti.fetchall()]:
+                    logger.error(
+                        "user_settings.track_inventory is still missing after migration; "
+                        "settings reads will fail"
+                    )
+        except Exception:
+            logger.exception("Failed to add user_settings.track_inventory")
+
         # Add title to notes if missing (create_all will not alter an existing table)
         try:
             res3 = await conn.exec_driver_sql("PRAGMA table_info(notes)")
@@ -861,6 +884,7 @@ class DatabaseManager:
         snooze_minutes: Optional[int] = None,
         max_attempts: Optional[int] = None,
         silent_mode: Optional[bool] = None,
+        track_inventory: Optional[bool] = None,
     ) -> UserSettings:
         """Update user settings fields."""
         async with async_session() as session:
@@ -875,6 +899,8 @@ class DatabaseManager:
                 settings.max_attempts = max(1, min(10, int(max_attempts)))
             if silent_mode is not None:
                 settings.silent_mode = bool(silent_mode)
+            if track_inventory is not None:
+                settings.track_inventory = bool(track_inventory)
             await session.commit()
             await session.refresh(settings)
             return settings
@@ -2150,7 +2176,13 @@ class DatabaseManagerMongo:
         await _init_mongo()
         doc = await _mongo_db.user_settings.find_one({"user_id": int(user_id)})
         if not doc:
-            default = {"user_id": int(user_id), "snooze_minutes": 10, "max_attempts": 3, "silent_mode": False}
+            default = {
+                "user_id": int(user_id),
+                "snooze_minutes": 10,
+                "max_attempts": 3,
+                "silent_mode": False,
+                "track_inventory": True,
+            }
             await _mongo_db.user_settings.insert_one(default)
             doc = default
         # Minimal return object compatible with SQLAlchemy model fields
@@ -2159,6 +2191,9 @@ class DatabaseManagerMongo:
         us.snooze_minutes = int(doc.get("snooze_minutes", 10))
         us.max_attempts = int(doc.get("max_attempts", 3))
         us.silent_mode = bool(doc.get("silent_mode", False))
+        # Documents written before the setting existed have no key, and those
+        # users were tracking inventory, so absent means on.
+        us.track_inventory = bool(doc.get("track_inventory", True))
         return us
 
     @staticmethod
@@ -2167,6 +2202,7 @@ class DatabaseManagerMongo:
         snooze_minutes: Optional[int] = None,
         max_attempts: Optional[int] = None,
         silent_mode: Optional[bool] = None,
+        track_inventory: Optional[bool] = None,
     ) -> UserSettings:
         """Update user settings fields (Mongo)."""
         await _init_mongo()
@@ -2177,6 +2213,8 @@ class DatabaseManagerMongo:
             updates["max_attempts"] = max(1, min(10, int(max_attempts)))
         if silent_mode is not None:
             updates["silent_mode"] = bool(silent_mode)
+        if track_inventory is not None:
+            updates["track_inventory"] = bool(track_inventory)
         if updates:
             await _mongo_db.user_settings.update_one({"user_id": int(user_id)}, {"$set": updates}, upsert=True)
         return await DatabaseManagerMongo.get_user_settings(user_id)
