@@ -176,3 +176,11 @@ async def test_counters_are_kept_per_collection():
         assert await DatabaseManagerMongo._next_mongo_id(notes) == 1
         assert await DatabaseManagerMongo._next_mongo_id(reminders) == 1
         assert await DatabaseManagerMongo._next_mongo_id(notes) == 2
+
+
+def test_note_doc_maps_the_optional_title():
+    named = DatabaseManagerMongo._doc_to_note({"_id": 1, "title": "רופא משפחה", "content": "גוף"})
+    assert named.title == "רופא משפחה"
+
+    unnamed = DatabaseManagerMongo._doc_to_note({"_id": 2, "content": "גוף"})
+    assert unnamed.title is None, "a note written before titles existed must not break"

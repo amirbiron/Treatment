@@ -15,6 +15,7 @@ NEW_METHODS = [
     "get_user_notes",
     "get_note_by_id",
     "update_note",
+    "set_note_title_for_user",
     "delete_note",
     "create_custom_reminder",
     "get_user_custom_reminders",
@@ -149,3 +150,111 @@ async def test_reminders_are_scoped_to_their_owner(db):
 
     assert [r.text for r in await DB.get_user_custom_reminders(mine.id)] == ["שלי"]
     assert [r.text for r in await DB.get_user_custom_reminders(theirs.id)] == ["שלהם"]
+
+
+@pytest.mark.asyncio
+async def test_a_note_can_be_named_renamed_and_unnamed(db):
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=995, username="t", first_name="T")
+
+    plain = await DB.create_note(user.id, "בלי שם")
+    assert plain.title is None, "naming stays optional"
+
+    named = await DB.create_note(user.id, "עם שם", title="רופא משפחה")
+    assert (await DB.get_note_by_id(named.id)).title == "רופא משפחה"
+
+    assert await DB.set_note_title_for_user(plain.id, user.id, "שם חדש")
+    assert (await DB.get_note_by_id(plain.id)).title == "שם חדש"
+
+    # an empty title clears rather than storing ""
+    assert await DB.set_note_title_for_user(plain.id, user.id, "")
+    assert (await DB.get_note_by_id(plain.id)).title is None
+
+
+@pytest.mark.asyncio
+async def test_renaming_leaves_the_body_alone(db):
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=994, username="t", first_name="T")
+    note = await DB.create_note(user.id, "הגוף המקורי")
+
+    await DB.set_note_title_for_user(note.id, user.id, "כותרת")
+    stored = await DB.get_note_by_id(note.id)
+    assert stored.content == "הגוף המקורי"
+    assert stored.title == "כותרת"
+
+
+@pytest.mark.asyncio
+async def test_editing_the_body_leaves_the_name_alone(db):
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=993, username="t", first_name="T")
+    note = await DB.create_note(user.id, "גוף", title="כותרת")
+
+    await DB.update_note_for_user(note.id, user.id, "גוף חדש")
+    stored = await DB.get_note_by_id(note.id)
+    assert stored.title == "כותרת", "editing the body dropped the name"
+    assert stored.content == "גוף חדש"
+
+
+@pytest.mark.asyncio
+async def test_another_user_cannot_rename_a_note(db):
+    DB = db.DatabaseManager
+    owner = await DB.create_user(telegram_id=992, username="a", first_name="A")
+    other = await DB.create_user(telegram_id=991, username="b", first_name="B")
+    note = await DB.create_note(owner.id, "שלי", title="שלי")
+
+    assert await DB.set_note_title_for_user(note.id, other.id, "נחטף") is False
+    assert (await DB.get_note_by_id(note.id)).title == "שלי"
+
+
+# --- title normalization -------------------------------------------------
+
+
+def test_the_title_limit_has_one_source():
+    """The column width, the migration and the handler must not drift apart."""
+    import importlib
+
+    import database
+
+    handler_module = importlib.import_module("handlers.notes_handler")
+    assert handler_module.MAX_TITLE_LENGTH == database.MAX_NOTE_TITLE_LENGTH
+
+    column = database.Note.__table__.columns["title"]
+    assert column.type.length == database.MAX_NOTE_TITLE_LENGTH
+
+
+def test_blank_titles_normalize_to_none():
+    """'Unnamed' must have exactly one representation in the database."""
+    from database import MAX_NOTE_TITLE_LENGTH, normalize_note_title
+
+    assert normalize_note_title(None) is None
+    assert normalize_note_title("") is None
+    assert normalize_note_title("   ") is None
+    assert normalize_note_title("\n\t ") is None
+    assert normalize_note_title("  רופא משפחה  ") == "רופא משפחה"
+    assert len(normalize_note_title("א" * 500)) == MAX_NOTE_TITLE_LENGTH
+
+
+@pytest.mark.asyncio
+async def test_creating_with_a_blank_title_stores_none(db):
+    """create_note and the setter must agree on what unnamed looks like."""
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=990, username="t", first_name="T")
+
+    for blank in ("", "   ", None):
+        note = await DB.create_note(user.id, "גוף", title=blank)
+        assert (await DB.get_note_by_id(note.id)).title is None, f"{blank!r} was stored verbatim"
+
+
+@pytest.mark.asyncio
+async def test_titles_are_trimmed_and_capped_on_both_paths(db):
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=989, username="t", first_name="T")
+
+    created = await DB.create_note(user.id, "גוף", title="  עם רווחים  ")
+    assert (await DB.get_note_by_id(created.id)).title == "עם רווחים"
+
+    await DB.set_note_title_for_user(created.id, user.id, "  אחרי שינוי  ")
+    assert (await DB.get_note_by_id(created.id)).title == "אחרי שינוי"
+
+    await DB.set_note_title_for_user(created.id, user.id, "א" * 500)
+    assert len((await DB.get_note_by_id(created.id)).title) == db.MAX_NOTE_TITLE_LENGTH

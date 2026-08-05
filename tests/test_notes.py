@@ -228,3 +228,135 @@ def test_every_button_the_handler_emits_is_registered(handler):
                "notedel_1_confirm", "notedel_1_cancel"]
     for data in emitted:
         assert any(p.match(data) for p in patterns), f"{data} has no handler"
+
+
+# --- naming a note -------------------------------------------------------
+
+
+def _titled(note_id, title, content="גוף הפתק"):
+    n = _note(note_id, content)
+    n.title = title
+    return n
+
+
+def test_list_label_prefers_the_name_over_the_first_line():
+    from handlers.notes_handler import _label
+
+    assert _label(_titled(1, "רופא משפחה", "לשאול על המינון")) == "רופא משפחה"
+
+
+def test_list_label_falls_back_to_the_first_line_when_unnamed():
+    from handlers.notes_handler import _label
+
+    assert _label(_titled(1, None, "לשאול על המינון")) == "לשאול על המינון"
+    assert _label(_titled(1, "   ", "לשאול על המינון")) == "לשאול על המינון"
+
+
+def test_detail_keyboard_offers_naming_and_only_offers_removal_once_named():
+    from handlers.notes_handler import _note_detail_keyboard
+
+    unnamed = _callbacks(_note_detail_keyboard(5, has_title=False))
+    assert "note_title_5" in unnamed
+    assert "note_untitle_5" not in unnamed, "nothing to remove yet"
+
+    named = _callbacks(_note_detail_keyboard(5, has_title=True))
+    assert "note_title_5" in named
+    assert "note_untitle_5" in named
+
+
+@pytest.mark.asyncio
+async def test_naming_a_note_arms_then_saves(handler, ctx):
+    await handler.start_title_note(_callback_update("note_title_5"), ctx)
+    assert ctx.user_data["titling_note_id"] == 5
+
+    update = _text_update("רופא משפחה")
+    with patch.object(notes_module, "DatabaseManager") as db:
+        db.get_user_by_telegram_id = AsyncMock(return_value=_user())
+        db.set_note_title_for_user = AsyncMock(return_value=True)
+        db.create_note = AsyncMock()
+        db.update_note_for_user = AsyncMock()
+        db.get_user_notes = AsyncMock(return_value=[])
+        claimed = await handler.handle_text(update, ctx)
+
+    assert claimed is True
+    db.set_note_title_for_user.assert_awaited_once_with(5, 11, "רופא משפחה")
+    db.create_note.assert_not_awaited(), "naming must not create a second note"
+    db.update_note_for_user.assert_not_awaited(), "naming must not overwrite the body"
+    assert "titling_note_id" not in ctx.user_data
+
+
+@pytest.mark.asyncio
+async def test_an_overlong_name_is_truncated(handler, ctx):
+    ctx.user_data["titling_note_id"] = 5
+    update = _text_update("א" * 500)
+    with patch.object(notes_module, "DatabaseManager") as db:
+        db.get_user_by_telegram_id = AsyncMock(return_value=_user())
+        db.set_note_title_for_user = AsyncMock(return_value=True)
+        db.get_user_notes = AsyncMock(return_value=[])
+        await handler.handle_text(update, ctx)
+
+    assert len(db.set_note_title_for_user.await_args.args[2]) == 100
+
+
+@pytest.mark.asyncio
+async def test_removing_a_name_clears_it(handler, ctx):
+    update = _callback_update("note_untitle_5")
+    with patch.object(notes_module, "DatabaseManager") as db:
+        db.get_user_by_telegram_id = AsyncMock(return_value=_user())
+        db.set_note_title_for_user = AsyncMock(return_value=True)
+        db.get_note_for_user = AsyncMock(return_value=_titled(5, None))
+        await handler.remove_note_title(update, ctx)
+
+    db.set_note_title_for_user.assert_awaited_once_with(5, 11, None)
+
+
+@pytest.mark.asyncio
+async def test_the_name_is_shown_as_the_heading(handler, ctx):
+    update = _callback_update("note_view_5")
+    with patch.object(notes_module, "DatabaseManager") as db:
+        db.get_user_by_telegram_id = AsyncMock(return_value=_user())
+        db.get_note_for_user = AsyncMock(return_value=_titled(5, "רופא משפחה", "לשאול על המינון"))
+        await handler.view_note(update, ctx)
+
+    body = update.callback_query.edit_message_text.call_args.args[0]
+    assert "<b>רופא משפחה</b>" in body
+
+
+@pytest.mark.asyncio
+async def test_a_name_with_markup_is_escaped(handler, ctx):
+    """The heading is rendered with parse_mode, so a raw '<' would break it."""
+    import html as html_module
+
+    update = _callback_update("note_view_5")
+    with patch.object(notes_module, "DatabaseManager") as db:
+        db.get_user_by_telegram_id = AsyncMock(return_value=_user())
+        db.get_note_for_user = AsyncMock(return_value=_titled(5, "<b>שם</b> & עוד"))
+        await handler.view_note(update, ctx)
+
+    body = update.callback_query.edit_message_text.call_args.args[0]
+    assert html_module.escape("<b>שם</b> & עוד") in body
+
+
+@pytest.mark.asyncio
+async def test_the_three_note_text_flags_never_coexist(handler, ctx):
+    """Naming after an abandoned edit must not rewrite the note's body."""
+    await handler.start_edit_note(_callback_update("note_edit_5"), ctx)
+    await handler.start_title_note(_callback_update("note_title_5"), ctx)
+    assert "editing_note_id" not in ctx.user_data
+    assert "awaiting_note_text" not in ctx.user_data
+    assert ctx.user_data["titling_note_id"] == 5
+
+
+def test_the_naming_buttons_are_registered(handler):
+    patterns = [h.pattern for h in handler.get_handlers()]
+    for data in ("note_title_1", "note_untitle_1"):
+        assert any(p.match(data) for p in patterns), f"{data} has no handler"
+
+
+def test_untitle_is_not_swallowed_by_the_title_pattern(handler):
+    """`note_untitle_5` also contains `title`; the patterns must stay distinct."""
+    import re
+
+    by_pattern = {h.pattern.pattern: h for h in handler.get_handlers()}
+    title_pattern = re.compile(r"^note_title_\d+$")
+    assert not title_pattern.match("note_untitle_5")
