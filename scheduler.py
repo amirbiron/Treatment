@@ -18,7 +18,10 @@ from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, JobExecution
 
 from config import config
 from utils.time import get_timezone, get_user_timezone_name, ensure_aware, now_in_timezone
+from types import SimpleNamespace
+
 from database import DatabaseManager, MedicineSchedule, Medicine, User, Appointment
+from utils.inventory import shows_inventory_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -217,12 +220,7 @@ class MedicineScheduler:
 
             # A user who does not count pills should not be told the count on
             # every single reminder - that is the noise the setting exists for.
-            show_inventory = True
-            try:
-                settings = await DatabaseManager.get_user_settings(user.id)
-                show_inventory = bool(getattr(settings, "track_inventory", True))
-            except Exception:
-                logger.exception("Could not read the inventory setting; showing inventory")
+            show_inventory = await shows_inventory_for_user(user)
 
             # Create reminder message
             message = f"""
@@ -493,12 +491,9 @@ class MedicineScheduler:
             for medicine in low_stock_medicines:
                 # An unsolicited "you are low on pills" is the loudest part of
                 # the feature, so it is the first thing the setting silences.
-                try:
-                    settings = await DatabaseManager.get_user_settings(medicine.user_id)
-                    if not getattr(settings, "track_inventory", True):
-                        continue
-                except Exception:
-                    logger.exception("Could not read the inventory setting; sending the alert")
+                owner = SimpleNamespace(id=medicine.user_id)
+                if not await shows_inventory_for_user(owner):
+                    continue
                 await self._send_low_stock_alert(medicine)
         except Exception as e:
             logger.error(f"Failed to check inventory: {e}")

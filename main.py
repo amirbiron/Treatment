@@ -25,6 +25,7 @@ from handlers.reports_handler import reports_handler
 from handlers.appointments_handler import appointments_handler
 from utils.keyboards import get_reminders_settings_keyboard, get_inventory_main_keyboard
 from utils.time import ensure_aware, get_user_timezone_name
+from utils.inventory import shows_inventory_for_telegram_id
 from utils import schedule
 from utils.schedule import expand_interval_times, format_times, parse_interval_callback
 
@@ -35,21 +36,24 @@ logger = logging.getLogger(__name__)
 
 # Main menu labels to actions. Module level because handle_text_message needs to
 # recognise a menu press before it hands the text to any draft handler.
-async def tracks_inventory(telegram_user_id) -> bool:
-    """Whether this user wants inventory numbers shown.
+# Re-exported so existing call sites keep reading naturally; the rule itself
+# lives in utils.inventory, because the scheduler needs the same answer.
+tracks_inventory = shows_inventory_for_telegram_id
 
-    Defaults to True on any failure: hiding a count someone relies on is worse
-    than showing one they do not care about.
-    """
-    try:
-        user = await DatabaseManager.get_user_by_telegram_id(telegram_user_id)
-        if not user:
-            return True
-        settings = await DatabaseManager.get_user_settings(user.id)
-        return bool(getattr(settings, "track_inventory", True))
-    except Exception:
-        logger.exception("Could not read the inventory setting; showing inventory")
-        return True
+
+INVENTORY_OFF_MESSAGE = (
+    "מעקב מלאי כבוי.\n\nאפשר להפעיל אותו שוב בהגדרות ← הגדרות מלאי."
+)
+
+
+async def reply_inventory_is_off(message):
+    """The menu button stays for everyone, so this is where it explains itself."""
+    await message.reply_text(
+        f"{config.EMOJIS['inventory']} {INVENTORY_OFF_MESSAGE}",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("הפעל מעקב מלאי", callback_data="settings_inventory_toggle")]]
+        ),
+    )
 
 
 MAIN_MENU_ACTIONS = {
@@ -1548,17 +1552,7 @@ class MedicineReminderBot:
                 if action == "my_medicines" or action == "inventory":
                     if action == "inventory":
                         if not await tracks_inventory(update.effective_user.id):
-                            # The button stays on the keyboard for everyone, so
-                            # this is the one place that has to explain itself.
-                            await update.message.reply_text(
-                                f"{config.EMOJIS['inventory']} מעקב מלאי כבוי.\n\n"
-                                "אפשר להפעיל אותו שוב בהגדרות ← הגדרות מלאי.",
-                                reply_markup=InlineKeyboardMarkup(
-                                    [[InlineKeyboardButton(
-                                        "הפעל מעקב מלאי", callback_data="settings_inventory_toggle"
-                                    )]]
-                                ),
-                            )
+                            await reply_inventory_is_off(update.message)
                             return
                         await self._open_inventory_center(update)
                     else:
@@ -1861,17 +1855,7 @@ class MedicineReminderBot:
                     # Inventory from main menu goes to a simple inventory center
                     if action == "inventory":
                         if not await tracks_inventory(update.effective_user.id):
-                            # The button stays on the keyboard for everyone, so
-                            # this is the one place that has to explain itself.
-                            await update.message.reply_text(
-                                f"{config.EMOJIS['inventory']} מעקב מלאי כבוי.\n\n"
-                                "אפשר להפעיל אותו שוב בהגדרות ← הגדרות מלאי.",
-                                reply_markup=InlineKeyboardMarkup(
-                                    [[InlineKeyboardButton(
-                                        "הפעל מעקב מלאי", callback_data="settings_inventory_toggle"
-                                    )]]
-                                ),
-                            )
+                            await reply_inventory_is_off(update.message)
                             return
                         await self._open_inventory_center(update)
                     else:
