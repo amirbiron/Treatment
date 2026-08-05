@@ -8,7 +8,7 @@ import os
 from datetime import datetime, time, timedelta
 from datetime import date
 from typing import List, Optional
-from sqlalchemy import String, Integer, Boolean, DateTime, Time, Text, ForeignKey, Float, select, func, or_  # local import to avoid polluting module top
+from sqlalchemy import String, Integer, Boolean, DateTime, Time, Text, ForeignKey, Float, select, update, case, func, or_  # local import to avoid polluting module top
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from config import config
@@ -210,6 +210,13 @@ class Invite(Base):
 # Single source for the note title length: the ORM column, the SQLite migration
 # and the handler's truncation all derive from this so they cannot drift apart.
 MAX_NOTE_TITLE_LENGTH = 100
+
+
+# Characters trimmed from the end of a note before a line is appended. Newlines
+# only: they are what produces blank lines. Trailing spaces and tabs are left
+# alone, since removing them would change the user's text for no visible gain.
+# Shared so the two backends cannot disagree about what this means.
+NOTE_TRAILING_CHARS = "\n\r"
 
 
 def normalize_note_title(title: Optional[str]) -> Optional[str]:
@@ -1010,19 +1017,23 @@ class DatabaseManager:
 
     @staticmethod
     async def append_to_note_for_user(note_id: int, user_id: int, text: str) -> bool:
-        """Add a line to a note without the user retyping what is already there."""
+        """Add a line to a note without the user retyping what is already there.
+
+        A single UPDATE that concatenates in the database, matching the Mongo
+        path: a read-then-write would let two quick appends lose one another.
+        """
+        trimmed = func.rtrim(func.coalesce(Note.content, ""), NOTE_TRAILING_CHARS)
         async with async_session() as session:
             result = await session.execute(
-                select(Note).where(Note.id == note_id, Note.user_id == user_id)
+                update(Note)
+                .where(Note.id == note_id, Note.user_id == user_id)
+                .values(
+                    content=case((trimmed == "", text), else_=trimmed + "\n" + text),
+                    updated_at=datetime.utcnow(),
+                )
             )
-            note = result.scalar_one_or_none()
-            if not note:
-                return False
-            existing = (note.content or "").rstrip()
-            note.content = f"{existing}\n{text}" if existing else text
-            note.updated_at = datetime.utcnow()
             await session.commit()
-            return True
+            return result.rowcount > 0
 
     @staticmethod
     async def set_note_title_for_user(note_id: int, user_id: int, title: Optional[str]) -> bool:
@@ -2388,7 +2399,8 @@ class DatabaseManagerMongo:
         would be read as a field path, and note text is user supplied.
         """
         await _init_mongo()
-        existing = {"$ifNull": ["$content", ""]}
+        # rtrim to match the SQL path, so the same input is stored the same way
+        existing = {"$rtrim": {"input": {"$ifNull": ["$content", ""]}, "chars": NOTE_TRAILING_CHARS}}
         res = await _mongo_db.notes.update_one(
             {"_id": int(note_id), "user_id": int(user_id)},
             [

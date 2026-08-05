@@ -319,3 +319,54 @@ async def test_appending_to_a_missing_note_reports_rather_than_raising(db):
     DB = db.DatabaseManager
     user = await DB.create_user(telegram_id=983, username="t", first_name="T")
     assert await DB.append_to_note_for_user(4242, user.id, "טקסט") is False
+
+
+@pytest.mark.asyncio
+async def test_two_concurrent_appends_both_survive(db):
+    """A read-then-write would let the later commit erase the earlier append."""
+    import asyncio
+
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=982, username="t", first_name="T")
+    note = await DB.create_note(user.id, "התחלה")
+
+    await asyncio.gather(
+        DB.append_to_note_for_user(note.id, user.id, "ראשונה"),
+        DB.append_to_note_for_user(note.id, user.id, "שנייה"),
+    )
+
+    lines = (await DB.get_note_by_id(note.id)).content.splitlines()
+    assert lines[0] == "התחלה"
+    assert set(lines[1:]) == {"ראשונה", "שנייה"}, f"an append was lost: {lines}"
+
+
+@pytest.mark.asyncio
+async def test_many_concurrent_appends_all_survive(db):
+    import asyncio
+
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=981, username="t", first_name="T")
+    note = await DB.create_note(user.id, "0")
+
+    await asyncio.gather(*[DB.append_to_note_for_user(note.id, user.id, str(i)) for i in range(1, 11)])
+
+    lines = (await DB.get_note_by_id(note.id)).content.splitlines()
+    assert sorted(lines, key=int) == [str(i) for i in range(11)], f"lost appends: {lines}"
+
+
+def test_both_backends_trim_the_same_characters():
+    """The two appends must agree on what gets trimmed before a new line."""
+    import database
+
+    assert database.NOTE_TRAILING_CHARS == "\n\r", "newlines only, not spaces or tabs"
+
+
+@pytest.mark.asyncio
+async def test_appending_leaves_trailing_spaces_alone(db):
+    """Only blank lines are the problem; invisible spaces are still the user's text."""
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=980, username="t", first_name="T")
+    note = await DB.create_note(user.id, "שורה עם רווחים   ")
+
+    await DB.append_to_note_for_user(note.id, user.id, "עוד")
+    assert (await DB.get_note_by_id(note.id)).content == "שורה עם רווחים   \nעוד"

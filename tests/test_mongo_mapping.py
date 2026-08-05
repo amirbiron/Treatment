@@ -241,3 +241,26 @@ async def test_append_handles_an_empty_note_without_a_leading_newline():
     empty_branch, non_empty_branch = stage["$cond"][1], stage["$cond"][2]
     assert empty_branch == {"$literal": "ראשונה"}
     assert "$concat" in non_empty_branch
+
+
+@pytest.mark.asyncio
+async def test_append_trims_trailing_newlines_like_the_sql_backend():
+    """Without this the same note ends up formatted differently per backend."""
+    import database
+
+    notes = await _append("עוד")
+    stage = notes.update[0]["$set"]["content"]
+    existing = stage["$cond"][2]["$concat"][0]
+
+    assert "$rtrim" in existing, "existing content is concatenated untrimmed"
+    assert existing["$rtrim"]["chars"] == database.NOTE_TRAILING_CHARS
+
+
+@pytest.mark.asyncio
+async def test_the_emptiness_check_uses_the_trimmed_value():
+    """A note holding only newlines must count as empty, or it gains a blank first line."""
+    notes = await _append("ראשונה")
+    stage = notes.update[0]["$set"]["content"]
+    compared = stage["$cond"][0]["$eq"][0]
+
+    assert "$rtrim" in compared
