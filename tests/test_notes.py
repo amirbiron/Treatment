@@ -619,3 +619,35 @@ async def test_a_live_menu_label_is_not_handed_to_the_draft_handlers():
         await bot.handle_text_message(update, context)
 
     assert not notes.await_count
+
+
+def test_navigation_clears_every_state_the_text_path_consumes():
+    """The list and the flows drift apart otherwise.
+
+    updating_inventory_for was cleared while its sibling adding_inventory_for
+    was not, even though one condition tests both - so navigating away left the
+    branch live and the next message was read as an inventory amount. Rather
+    than chase that by hand, this reads the keys handle_text_message actually
+    consumes and requires each one to be forgotten on navigation.
+    """
+    import ast
+    import re
+
+    source = open("main.py", encoding="utf-8").read()
+    lines = source.split("\n")
+    fn = next(
+        f for f in ast.walk(ast.parse(source))
+        if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and f.name == "handle_text_message"
+    )
+    body = "\n".join(lines[fn.lineno - 1:fn.end_lineno])
+
+    consumed = set(re.findall(r'user_data\.get\("([a-z_]+)"', body))
+    consumed |= set(re.findall(r'"([a-z_]+)" in user_data', body))
+    consumed |= set(re.findall(r'user_data\.pop\("([a-z_]+)"', body))
+
+    import importlib
+
+    main = importlib.import_module("main")
+    missing = sorted(consumed - set(main.TRANSIENT_STATE_KEYS))
+    assert not missing, f"navigating away leaves these set: {missing}"
