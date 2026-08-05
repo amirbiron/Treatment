@@ -39,6 +39,12 @@ try:
 except ImportError:
 	_pharmacy_conversation = None
 
+try:
+	from .emergency_agent import create_emergency_conversation
+	_emergency_conversation = create_emergency_conversation()
+except ImportError:
+	_emergency_conversation = None
+
 __version__ = "1.0.0"
 __author__ = "Medicine Reminder Bot Team"
 
@@ -82,6 +88,10 @@ def get_all_conversation_handlers():
 	# Pharmacy AI agent
 	if _pharmacy_conversation:
 		conv_handlers.append(_pharmacy_conversation)
+
+	# Israeli emergency guide agent
+	if _emergency_conversation:
+		conv_handlers.append(_emergency_conversation)
 
 	return conv_handlers
 
