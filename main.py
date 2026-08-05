@@ -47,6 +47,7 @@ MAIN_MENU_ACTIONS = {
     f"{config.EMOJIS['info']} עזרה": "help",
     "🏥 מלאי בית מרקחת": "pharmacy",
     "📝 פתקים": "notes",
+    "🚑 חירום": "emergency",
 }
 
 # Upper bound on updates waiting to be handled. Far above normal load, so a full
@@ -692,6 +693,8 @@ class MedicineReminderBot:
                 context.user_data.pop("suppress_menu_mapping", None)
                 context.user_data.pop("pharm_model", None)
                 context.user_data.pop("pharm_chat_history", None)
+                context.user_data.pop("emerg_model", None)
+                context.user_data.pop("emerg_chat_history", None)
                 await self.application.bot.send_message(
                     chat_id=query.message.chat_id, text="בחרו פעולה:", reply_markup=get_main_menu_keyboard()
                 )
@@ -1489,6 +1492,19 @@ class MedicineReminderBot:
                         parse_mode="Markdown",
                         reply_markup=InlineKeyboardMarkup(
                             [[InlineKeyboardButton("🏥 התחל חיפוש מלאי", callback_data="pharm_start")]]
+                        ),
+                    )
+                    return
+                if action == "emergency":
+                    # The numbers come first and without a tap. Someone opening
+                    # this menu may be in a hurry, and the list needs no AI call.
+                    from handlers.emergency_agent import format_emergency_numbers
+
+                    await update.message.reply_text(
+                        format_emergency_numbers(),
+                        parse_mode="Markdown",
+                        reply_markup=InlineKeyboardMarkup(
+                            [[InlineKeyboardButton("🚑 שאלו שאלה על חירום", callback_data="emerg_start")]]
                         ),
                     )
                     return

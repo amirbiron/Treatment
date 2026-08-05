@@ -19,6 +19,7 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
         # Ensure "הוספת תור" shares a row with another button (no single-button rows)
         [KeyboardButton(f"{config.EMOJIS['calendar']} הוספת תור"), KeyboardButton(f"{config.EMOJIS['reminder']} תזכורות")],
         [KeyboardButton("🏥 מלאי בית מרקחת"), KeyboardButton("📝 פתקים")],
+        [KeyboardButton("🚑 חירום")],
         [KeyboardButton(f"{config.EMOJIS['settings']} הגדרות"), KeyboardButton(f"{config.EMOJIS['info']} עזרה")],
     ]
 
