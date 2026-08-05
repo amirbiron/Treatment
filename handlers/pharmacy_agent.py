@@ -71,7 +71,7 @@ SYSTEM_PROMPT = """אתה סוכן AI מומחה בבדיקת זמינות תר�
 
 התפקיד שלך:
 - לעזור למשתמשים לבדוק האם תרופה מסוימת זמינה במלאי בבית מרקחת כללית
-- לחפש תרופות לפי שם (בעברית או באנגלית)
+- לחפש תרופות לפי שם. המשתמש יכתוב בעברית, אך הקטלוג לטיני - עליך לתעתק
 - למצוא בתי מרקחת לפי עיר או שם סניף
 - לבדוק מלאי בזמן אמת
 
@@ -81,6 +81,9 @@ SYSTEM_PROMPT = """אתה סוכן AI מומחה בבדיקת זמינות תר�
 - שמות סניפים, כתובות, קודים וסטטוסי מלאי מגיעים אך ורק מהכלים. לעולם אל תכתוב אותם מהידע שלך.
 - אם אין לך תוצאה מהכלי, אמור זאת במפורש. אל תדגים, אל תסמלץ ואל תציג דוגמה שנראית כמו תוצאה אמיתית.
 - אם חסר לך מידע כדי לקרוא לכלי (למשל עיר או שם תרופה), בקש אותו מהמשתמש.
+- קטלוג התרופות של כללית הוא באותיות לטיניות בלבד. תעתק שם תרופה מעברית לאנגלית לפני החיפוש.
+  אם חיפוש בעברית החזיר אפס תוצאות, זו אינה עדות שהתרופה לא קיימת - חפש שוב בתעתיק לטיני.
+  לעולם אל תאמר למשתמש שתרופה אינה קיימת על סמך חיפוש בעברית בלבד.
 
 סטטוסי מלאי:
 - "במלאי" = התרופה זמינה
@@ -284,9 +287,32 @@ async def _run_pharmacy_command(command: str, *args: str, _retries: int = 2) -> 
     return ToolResult(False, _ERR_SEARCH_RETRIES_EXHAUSTED)
 
 
+_HEBREW = re.compile(r"[֐-׿]")
+# What pharmacy-search.js prints when the catalogue returns an empty list.
+_NO_RESULTS = re.compile(r"^No medications found", re.MULTILINE)
+
+_LATIN_ONLY_NOTE = (
+    "החיפוש בעברית החזיר אפס תוצאות, אך קטלוג כללית מכיל שמות באותיות לטיניות בלבד, "
+    "ולכן זו אינה עדות שהתרופה אינה קיימת. חפש שוב עם תעתיק לטיני של השם "
+    "(למשל ריקסולטי ← REXULTI). אל תדווח למשתמש שהתרופה לא נמצאה לפני שניסית."
+)
+
+
 async def _search_medication(query: str) -> ToolResult:
-    """Search for a medication by name."""
-    return await _run_pharmacy_command("search", query)
+    """Search for a medication by name.
+
+    The catalogue is Latin-only, so a Hebrew query returns an empty list with a
+    200 and the script prints "No medications found" and exits zero. Left alone
+    that reaches the model as a successful tool result, and the model reports it
+    as fact - a medication bot telling someone their prescription does not
+    exist, because nobody transliterated the name. An empty result for a Hebrew
+    query is a failed lookup, not an answer, and is labelled as one here.
+    """
+    result = await _run_pharmacy_command("search", query)
+    if result.ok and _NO_RESULTS.search(result.text) and _HEBREW.search(query):
+        logger.info(f"Hebrew medication query {query!r} returned nothing, asking for a transliteration")
+        return ToolResult(True, _LATIN_ONLY_NOTE)
+    return result
 
 
 async def _list_cities(query: str = "") -> ToolResult:
@@ -381,10 +407,16 @@ def _init_ai_session(context) -> tuple[str, bool]:
 FUNCTION_DECLARATIONS = [
     {
         "name": "search_medication",
-        "description": "חיפוש תרופה לפי שם בעברית או באנגלית. מחזיר גם catCode הדרוש לבדיקת מלאי.",
+        "description": (
+            "חיפוש תרופה בקטלוג כללית. מחזיר גם catCode הדרוש לבדיקת מלאי. "
+            "הקטלוג מכיל שמות באותיות לטיניות בלבד: שאילתה בעברית תמיד מחזירה אפס תוצאות. "
+            "תעתק את שם התרופה לאנגלית לפני הקריאה (ריקסולטי ← REXULTI, אקמול ← ACAMOL)."
+        ),
         "parameters": {
             "type": "object",
-            "properties": {"query": {"type": "string", "description": "שם התרופה"}},
+            "properties": {
+                "query": {"type": "string", "description": "שם התרופה באותיות לטיניות"}
+            },
             "required": ["query"],
         },
     },

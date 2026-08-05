@@ -412,3 +412,77 @@ async def test_a_command_reports_the_install_failure_rather_than_running_node():
 
     assert result.ok is False and result.text == "שגיאה: אין node"
     spawn.assert_not_called()
+
+
+# --- the catalogue is Latin-only ---------------------------------------------
+#
+# Every Hebrew medication name returns an empty list with a 200, so the script
+# prints "No medications found" and exits zero. Without the guard below that is
+# a *successful* tool result, and the model states it as fact.
+
+
+@pytest.mark.asyncio
+async def test_a_hebrew_query_finding_nothing_is_not_reported_as_absence():
+    empty = agent.ToolResult(True, 'No medications found for "ריקסולטי"')
+
+    with patch.object(agent, "_run_pharmacy_command", AsyncMock(return_value=empty)):
+        result = await agent._search_medication("ריקסולטי")
+
+    assert result.ok is True
+    assert "No medications found" not in result.text
+    assert "REXULTI" in result.text, "the model is not told how to retry"
+
+
+@pytest.mark.asyncio
+async def test_a_latin_query_finding_nothing_is_a_real_answer():
+    """Once transliterated, an empty result does mean the catalogue lacks it."""
+    empty = agent.ToolResult(True, 'No medications found for "NOSUCHDRUG"')
+
+    with patch.object(agent, "_run_pharmacy_command", AsyncMock(return_value=empty)):
+        result = await agent._search_medication("NOSUCHDRUG")
+
+    assert result.text == empty.text
+
+
+@pytest.mark.asyncio
+async def test_real_hebrew_results_pass_through_untouched():
+    """The guard must only fire on an empty list, not on every Hebrew query."""
+    found = agent.ToolResult(True, "Found 5 medication(s):\n  1000186324 | REXULTI TAB 0.5MG")
+
+    with patch.object(agent, "_run_pharmacy_command", AsyncMock(return_value=found)):
+        result = await agent._search_medication("ריקסולטי")
+
+    assert result.text == found.text
+
+
+@pytest.mark.asyncio
+async def test_a_failed_search_is_not_relabelled_as_a_transliteration_problem():
+    """A 403 is a block, not a spelling issue, and must stay a failure."""
+    blocked = agent.ToolResult(False, agent._ERR_SEARCH_BLOCKED)
+
+    with patch.object(agent, "_run_pharmacy_command", AsyncMock(return_value=blocked)):
+        result = await agent._search_medication("ריקסולטי")
+
+    assert result.ok is False and result.text == agent._ERR_SEARCH_BLOCKED
+
+
+def test_the_tool_declaration_does_not_promise_hebrew_search():
+    """Telling the model Hebrew works guarantees it searches in Hebrew."""
+    search = next(d for d in agent.FUNCTION_DECLARATIONS if d["name"] == "search_medication")
+    assert "לטיניות" in search["description"]
+    assert "בעברית או באנגלית" not in search["description"]
+
+
+def test_the_declaration_shows_what_a_transliteration_looks_like():
+    """A worked example steers the model better than the instruction alone."""
+    search = next(d for d in agent.FUNCTION_DECLARATIONS if d["name"] == "search_medication")
+    assert any(pair in search["description"] for pair in ("ריקסולטי ← REXULTI", "אקמול ← ACAMOL"))
+
+
+def test_nothing_in_the_prompt_still_promises_hebrew_search():
+    """A leftover capability line would contradict the rule and win as often as not."""
+    assert "בעברית או באנגלית" not in agent.SYSTEM_PROMPT
+
+
+def test_the_prompt_forbids_declaring_a_medication_absent_from_a_hebrew_search():
+    assert "אינה עדות שהתרופה לא קיימת" in agent.SYSTEM_PROMPT
