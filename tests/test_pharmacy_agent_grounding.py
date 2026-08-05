@@ -168,10 +168,27 @@ async def test_tool_rounds_are_bounded():
     ctx = _ctx(model)
 
     with patch.object(agent, "_list_cities", AsyncMock(return_value=agent.ToolResult(True, "ok"))):
-        await agent._process_with_tools(ctx, "ערים")
+        response, _, is_real = await agent._process_with_tools(ctx, "ערים")
 
     # one opening call plus at most MAX_TOOL_ROUNDS tool round-trips
     assert model.start_chat.return_value.send_message_async.await_count <= agent.MAX_TOOL_ROUNDS + 1
+    assert response == agent._ERR_TOOL_ROUNDS_EXHAUSTED
+    assert is_real is False, "an unfinished search must not be committed to history"
+
+
+@pytest.mark.asyncio
+async def test_running_out_of_rounds_is_not_reported_as_an_api_failure():
+    """`.text` raises on a function-call-only response; that is not a comms error."""
+    endless = [_response(_call("list_cities", query="")) for _ in range(agent.MAX_TOOL_ROUNDS + 3)]
+    for r in endless:
+        type(r).text = property(lambda _self: (_ for _ in ()).throw(ValueError("no text part")))
+    ctx = _ctx(_model(*endless))
+
+    with patch.object(agent, "_list_cities", AsyncMock(return_value=agent.ToolResult(True, "ok"))):
+        response, _, _ = await agent._process_with_tools(ctx, "ערים")
+
+    assert response == agent._ERR_TOOL_ROUNDS_EXHAUSTED
+    assert response != agent._ERR_AI_COMM
 
 
 @pytest.mark.asyncio
@@ -218,8 +235,10 @@ async def test_shortcuts_go_through_the_tool_path():
 def _reset_install_state():
     """The failure reason is cached module-wide; each test starts clean."""
     agent._install_failed_reason = None
+    agent._install_failed_at = 0.0
     yield
     agent._install_failed_reason = None
+    agent._install_failed_at = 0.0
 
 
 @pytest.mark.asyncio
@@ -236,14 +255,15 @@ async def test_an_installed_skill_is_not_reinstalled():
 @pytest.mark.asyncio
 async def test_a_missing_skill_is_installed_on_demand():
     """Render wipes the disk on restart, so the agent installs it itself."""
-    installed = iter([False, False, True, True])
+    # missing on the way in, present once the script has run
+    installed = iter([False, False])
     proc = MagicMock()
     proc.returncode = 0
     proc.communicate = AsyncMock(return_value=(b"done", b""))
 
-    with patch.object(agent, "is_skill_installed", side_effect=lambda: next(installed)), patch.object(
+    with patch.object(agent, "is_skill_installed", side_effect=lambda: next(installed, True)), patch.object(
         agent.shutil, "which", return_value="/usr/bin/x"
-    ), patch.object(agent.os.path, "isfile", return_value=True), patch.object(
+    ), patch.object(agent.os.path, "isfile", side_effect=lambda p: p == agent.SETUP_SCRIPT), patch.object(
         agent.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
     ) as spawn:
         result = await agent.ensure_skill_installed()
@@ -280,6 +300,98 @@ async def test_a_failed_install_is_not_retried_on_every_message():
 
     assert first.ok is False and second.ok is False
     assert spawn.await_count == 1, "the failed install was attempted again"
+
+
+@pytest.mark.asyncio
+async def test_a_failed_install_is_retried_once_the_window_passes():
+    """A single network blip during git clone must not break the agent until restart."""
+    proc = MagicMock()
+    proc.returncode = 1
+    proc.communicate = AsyncMock(return_value=(b"boom", b""))
+
+    with patch.object(agent, "is_skill_installed", return_value=False), patch.object(
+        agent.shutil, "which", return_value="/usr/bin/x"
+    ), patch.object(agent.os.path, "isfile", side_effect=lambda p: p == agent.SETUP_SCRIPT), patch.object(
+        agent.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
+    ) as spawn:
+        await agent.ensure_skill_installed()
+        agent._install_failed_at -= agent.INSTALL_FAILURE_TTL + 1
+        await agent.ensure_skill_installed()
+
+    assert spawn.await_count == 2, "the agent stayed stuck on a stale failure"
+
+
+# --- tool errors are user-facing, so they must stay free of internals ----
+
+
+async def _run_with(stderr=b"", returncode=1, stdout=b"", spawn_raises=None):
+    """Drive _run_pharmacy_command against a fake node process."""
+    proc = MagicMock()
+    proc.returncode = returncode
+    proc.communicate = AsyncMock(return_value=(stdout, stderr))
+    spawn = AsyncMock(side_effect=spawn_raises) if spawn_raises else AsyncMock(return_value=proc)
+
+    with patch.object(
+        agent, "ensure_skill_installed", AsyncMock(return_value=agent.ToolResult(True, ""))
+    ), patch.object(agent.asyncio, "create_subprocess_exec", spawn), patch.object(
+        agent.asyncio, "sleep", AsyncMock()
+    ):
+        return await agent._run_pharmacy_command("search", "x")
+
+
+@pytest.mark.asyncio
+async def test_node_stderr_is_not_forwarded_to_the_user():
+    """A failure goes to the user verbatim, so stderr must never be part of it."""
+    leaky = "Error: ENOENT /opt/render/project/src/skills/clalit-pharm-search/index.js\n    at Module._load"
+    result = await _run_with(stderr=leaky.encode())
+
+    assert result.ok is False
+    assert "/opt/render" not in result.text
+    assert "Module._load" not in result.text
+    assert result.text == agent._ERR_SEARCH_FAILED
+
+
+@pytest.mark.asyncio
+async def test_an_exception_string_is_not_forwarded_to_the_user():
+    result = await _run_with(spawn_raises=OSError("cannot run /usr/local/bin/node: permission denied"))
+
+    assert result.ok is False
+    assert "/usr/local/bin/node" not in result.text
+    assert result.text == agent._ERR_SEARCH_FAILED
+
+
+@pytest.mark.asyncio
+async def test_a_blocked_request_is_reported_without_the_upstream_body():
+    result = await _run_with(stderr=b"403 Forbidden {'trace': 'abc', 'host': 'internal.clalit'}")
+
+    assert result.text == agent._ERR_SEARCH_BLOCKED
+    assert "internal.clalit" not in result.text
+
+
+@pytest.mark.asyncio
+async def test_partial_output_from_a_failed_run_is_not_passed_off_as_data():
+    """ok=True is the only gate on feeding output back to Gemini as real data."""
+    partial = '{"results": [{"name": "ריקסולטי", "stock'.encode()
+    result = await _run_with(returncode=1, stdout=partial, stderr=b"crash")
+
+    assert result.ok is False, "a truncated result would have been narrated as fact"
+    assert "ריקסולטי" not in result.text
+
+
+@pytest.mark.asyncio
+async def test_a_clean_run_is_still_a_success():
+    result = await _run_with(returncode=0, stdout=b"catCode: 12345")
+
+    assert result.ok is True and result.text == "catCode: 12345"
+
+
+@pytest.mark.asyncio
+async def test_the_details_still_reach_the_logs():
+    """Stripping the user message is only safe if the diagnosis survives somewhere."""
+    with patch.object(agent.logger, "warning") as warn:
+        await _run_with(stderr=b"ENOENT /opt/render/project/src/index.js")
+
+    assert "/opt/render/project/src/index.js" in warn.call_args.args[0]
 
 
 @pytest.mark.asyncio

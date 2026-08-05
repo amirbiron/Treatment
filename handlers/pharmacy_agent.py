@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import shutil
+import time
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -116,10 +117,21 @@ class ToolResult:
 SETUP_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "setup_pharmacy_skill.sh")
 SKILL_INSTALL_TIMEOUT = 300
 
-# One install at a time; the result is remembered so a failure is not retried
-# on every message.
+# One install at a time. A failure is remembered so it is not retried on every
+# message, but only for a while: a single network blip during git clone would
+# otherwise leave the agent broken until the process restarts, which is the very
+# thing the on-demand install exists to avoid.
+INSTALL_FAILURE_TTL = 600
 _install_lock = asyncio.Lock()
 _install_failed_reason: str | None = None
+_install_failed_at = 0.0
+
+
+def _remember_install_failure(reason: str) -> ToolResult:
+    global _install_failed_reason, _install_failed_at
+    _install_failed_reason = reason
+    _install_failed_at = time.monotonic()
+    return ToolResult(False, reason)
 
 
 def is_skill_installed() -> bool:
@@ -142,18 +154,20 @@ async def ensure_skill_installed() -> ToolResult:
         if is_skill_installed():
             return ToolResult(True, "")
         if _install_failed_reason:
-            return ToolResult(False, _install_failed_reason)
+            if time.monotonic() - _install_failed_at < INSTALL_FAILURE_TTL:
+                return ToolResult(False, _install_failed_reason)
+            _install_failed_reason = None
 
         for binary in ("git", "node", "npm"):
             if not shutil.which(binary):
-                _install_failed_reason = f"שגיאה: {binary} אינו מותקן בסביבה, ולכן לא ניתן להתקין את כלי החיפוש."
                 logger.error(f"Cannot install pharmacy skill: {binary} not found on PATH")
-                return ToolResult(False, _install_failed_reason)
+                return _remember_install_failure(
+                    f"שגיאה: {binary} אינו מותקן בסביבה, ולכן לא ניתן להתקין את כלי החיפוש."
+                )
 
         if not os.path.isfile(SETUP_SCRIPT):
-            _install_failed_reason = "שגיאה: סקריפט ההתקנה של כלי החיפוש חסר."
             logger.error(f"Pharmacy setup script missing at {SETUP_SCRIPT}")
-            return ToolResult(False, _install_failed_reason)
+            return _remember_install_failure("שגיאה: סקריפט ההתקנה של כלי החיפוש חסר.")
 
         logger.info("Pharmacy skill missing, installing it now")
         try:
@@ -168,22 +182,26 @@ async def ensure_skill_installed() -> ToolResult:
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()
-            _install_failed_reason = "שגיאה: התקנת כלי החיפוש ארכה זמן רב מדי."
             logger.error("Pharmacy skill install timed out")
-            return ToolResult(False, _install_failed_reason)
+            return _remember_install_failure("שגיאה: התקנת כלי החיפוש ארכה זמן רב מדי.")
         except Exception as exc:
-            _install_failed_reason = "שגיאה: התקנת כלי החיפוש נכשלה."
             logger.exception(f"Pharmacy skill install raised: {exc}")
-            return ToolResult(False, _install_failed_reason)
+            return _remember_install_failure("שגיאה: התקנת כלי החיפוש נכשלה.")
 
         if proc.returncode != 0 or not is_skill_installed():
             tail = output.decode("utf-8", errors="replace").strip()[-400:]
-            _install_failed_reason = "שגיאה: התקנת כלי החיפוש נכשלה."
             logger.error(f"Pharmacy skill install failed (rc={proc.returncode}): {tail}")
-            return ToolResult(False, _install_failed_reason)
+            return _remember_install_failure("שגיאה: התקנת כלי החיפוש נכשלה.")
 
         logger.info("Pharmacy skill installed successfully")
         return ToolResult(True, "")
+
+
+# A tool failure is handed straight to the user, so these strings must stay free of
+# exception text, stderr and paths - the details belong in the logs only.
+_ERR_SEARCH_FAILED = "שגיאה בחיפוש. נסה שוב בעוד כמה רגעים."
+_ERR_SEARCH_RETRIES_EXHAUSTED = "שירות החיפוש אינו זמין כרגע. נסה שוב מאוחר יותר."
+_ERR_SEARCH_BLOCKED = "שירות החיפוש של כללית חסם את הבקשה. נסה שוב מאוחר יותר."
 
 
 async def _run_pharmacy_command(command: str, *args: str, _retries: int = 2) -> ToolResult:
@@ -217,16 +235,15 @@ async def _run_pharmacy_command(command: str, *args: str, _retries: int = 2) -> 
                     logger.info(f"pharmacy-search.js {command} got transient error, retrying in {delay}s: {err[:100]}")
                     await asyncio.sleep(delay)
                     continue
-                logger.warning(f"pharmacy-search.js {command} failed: {err}")
-                if not output:
-                    if is_transient and attempt > 0:
-                        msg = f"שגיאה בחיפוש לאחר {attempt + 1} ניסיונות: {err[:200]}"
-                        if re.search(r'\b403\b', err):
-                            msg += "\nייתכן שיש צורך להריץ מחדש את setup_pharmacy_skill.sh."
-                        return ToolResult(False, msg)
-                    if re.search(r'\b403\b', err):
-                        return ToolResult(False, "שגיאה: שירות החיפוש של כללית חסם את הבקשה (403). ייתכן שיש צורך להריץ מחדש את setup_pharmacy_skill.sh.")
-                    return ToolResult(False, f"שגיאה בחיפוש: {err[:200]}")
+                logger.warning(f"pharmacy-search.js {command} failed (rc={proc.returncode}): {err}")
+                # A non-zero exit is a failure even when something was printed:
+                # partial output fed back as a real tool result is exactly what
+                # lets the model narrate around a broken search.
+                if re.search(r'\b403\b', err):
+                    return ToolResult(False, _ERR_SEARCH_BLOCKED)
+                if is_transient and attempt > 0:
+                    return ToolResult(False, _ERR_SEARCH_RETRIES_EXHAUSTED)
+                return ToolResult(False, _ERR_SEARCH_FAILED)
             return ToolResult(True, output or "לא נמצאו תוצאות.")
         except asyncio.TimeoutError:
             if proc:
@@ -235,10 +252,10 @@ async def _run_pharmacy_command(command: str, *args: str, _retries: int = 2) -> 
             return ToolResult(False, "החיפוש ארך יותר מדי זמן. נסה שוב.")
         except FileNotFoundError:
             return ToolResult(False, "שגיאה: Node.js לא מותקן במערכת.")
-        except Exception as e:
-            logger.error(f"Pharmacy search error: {e}")
-            return ToolResult(False, f"שגיאה בחיפוש: {e}")
-    return ToolResult(False, "שגיאה בחיפוש: כל הניסיונות נכשלו.")
+        except Exception:
+            logger.exception(f"pharmacy-search.js {command} raised")
+            return ToolResult(False, _ERR_SEARCH_FAILED)
+    return ToolResult(False, _ERR_SEARCH_RETRIES_EXHAUSTED)
 
 
 async def _search_medication(query: str) -> ToolResult:
@@ -294,6 +311,7 @@ def _split_message(text: str, limit: int = TELEGRAM_MSG_LIMIT) -> list[str]:
 
 _ERR_RATE_LIMIT = "מצטער, הגעתי למגבלת השימוש היומית. נסה שוב מחר."
 _ERR_AI_COMM = "מצטער, אירעה שגיאה בתקשורת עם ה-AI. נסה שוב."
+_ERR_TOOL_ROUNDS_EXHAUSTED = "לא הצלחתי להשלים את החיפוש. נסה לנסח את השאלה בצורה ממוקדת יותר."
 
 
 def _commit_to_history(context, user_message: str, bot_response: str):
@@ -465,6 +483,13 @@ async def _process_with_tools(context, user_message: str) -> tuple[str | None, s
             response = await chat.send_message_async(
                 genai.protos.Content(role="user", parts=parts)
             )
+
+        if _function_calls(response):
+            # Out of rounds with the model still asking for tools. `.text` would
+            # raise on a function-call-only response and get reported as an API
+            # failure, which is not what happened.
+            logger.warning(f"Gemini still requesting tools after {MAX_TOOL_ROUNDS} rounds")
+            return _ERR_TOOL_ROUNDS_EXHAUSTED, user_message, False
 
         return response.text, user_message, True
 
