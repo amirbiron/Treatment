@@ -91,6 +91,13 @@ TRANSIENT_STATE_KEYS = (
     "editing_symptom_log",
     "suppress_menu_mapping",
     "appt_state",
+    "adding_medicine",
+    "adding_inventory_for",
+    "awaiting_add_quantity",
+    "awaiting_timezone_text",
+    "awaiting_schedule_text",
+    "schedule_interval_hours",
+    "symptoms_for_medicine",
 )
 
 
