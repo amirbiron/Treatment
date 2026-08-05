@@ -464,5 +464,16 @@ def test_the_tool_declaration_does_not_promise_hebrew_search():
     assert "בעברית או באנגלית" not in search["description"]
 
 
+def test_the_declaration_shows_what_a_transliteration_looks_like():
+    """A worked example steers the model better than the instruction alone."""
+    search = next(d for d in agent.FUNCTION_DECLARATIONS if d["name"] == "search_medication")
+    assert any(pair in search["description"] for pair in ("ריקסולטי ← REXULTI", "אקמול ← ACAMOL"))
+
+
+def test_nothing_in_the_prompt_still_promises_hebrew_search():
+    """A leftover capability line would contradict the rule and win as often as not."""
+    assert "בעברית או באנגלית" not in agent.SYSTEM_PROMPT
+
+
 def test_the_prompt_forbids_declaring_a_medication_absent_from_a_hebrew_search():
     assert "אינה עדות שהתרופה לא קיימת" in agent.SYSTEM_PROMPT
