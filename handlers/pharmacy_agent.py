@@ -13,6 +13,9 @@ import asyncio
 import logging
 import os
 import re
+import shutil
+import time
+from dataclasses import dataclass
 from datetime import timedelta
 
 import google.generativeai as genai
@@ -46,7 +49,12 @@ SYSTEM_PROMPT = """אתה סוכן AI מומחה בבדיקת זמינות תר�
 - למצוא בתי מרקחת לפי עיר או שם סניף
 - לבדוק מלאי בזמן אמת
 
-יש לך גישה לכלי חיפוש שמחזיר תוצאות ממערכת כללית. כשתקבל תוצאות מהכלי, הסבר אותן למשתמש בצורה ברורה ופשוטה.
+יש לך כלים שמחזירים נתונים אמיתיים ממערכת כללית. כשתקבל תוצאות מהכלי, הסבר אותן למשתמש בצורה ברורה ופשוטה.
+
+חוק מוחלט - אסור להמציא נתונים:
+- שמות סניפים, כתובות, קודים וסטטוסי מלאי מגיעים אך ורק מהכלים. לעולם אל תכתוב אותם מהידע שלך.
+- אם אין לך תוצאה מהכלי, אמור זאת במפורש. אל תדגים, אל תסמלץ ואל תציג דוגמה שנראית כמו תוצאה אמיתית.
+- אם חסר לך מידע כדי לקרוא לכלי (למשל עיר או שם תרופה), בקש אותו מהמשתמש.
 
 סטטוסי מלאי:
 - "במלאי" = התרופה זמינה
@@ -93,13 +101,117 @@ OPENING_MESSAGE = (
 # ═══ Layer 4: Pharmacy Search Tool ═══
 
 
-async def _run_pharmacy_command(command: str, *args: str, _retries: int = 2) -> str:
+@dataclass(frozen=True)
+class ToolResult:
+    """Outcome of a pharmacy tool call.
+
+    ok=False means no data was retrieved. The distinction is load bearing: an
+    error must reach the user verbatim rather than being handed to the model,
+    which would otherwise narrate around it or invent a plausible answer.
+    """
+
+    ok: bool
+    text: str
+
+
+SETUP_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "setup_pharmacy_skill.sh")
+SKILL_INSTALL_TIMEOUT = 300
+
+# One install at a time. A failure is remembered so it is not retried on every
+# message, but only for a while: a single network blip during git clone would
+# otherwise leave the agent broken until the process restarts, which is the very
+# thing the on-demand install exists to avoid.
+INSTALL_FAILURE_TTL = 600
+_install_lock = asyncio.Lock()
+_install_failed_reason: str | None = None
+_install_failed_at = 0.0
+
+
+def _remember_install_failure(reason: str) -> ToolResult:
+    global _install_failed_reason, _install_failed_at
+    _install_failed_reason = reason
+    _install_failed_at = time.monotonic()
+    return ToolResult(False, reason)
+
+
+def is_skill_installed() -> bool:
+    return os.path.isfile(SEARCH_SCRIPT)
+
+
+async def ensure_skill_installed() -> ToolResult:
+    """Install the search skill on demand.
+
+    Render's disk is ephemeral and setup_pharmacy_skill.sh is not part of the
+    boot sequence, so after any restart the skill is simply gone. Installing it
+    here means the agent recovers by itself instead of reporting a broken tool.
+    """
+    global _install_failed_reason
+
+    if is_skill_installed():
+        return ToolResult(True, "")
+
+    async with _install_lock:
+        if is_skill_installed():
+            return ToolResult(True, "")
+        if _install_failed_reason:
+            if time.monotonic() - _install_failed_at < INSTALL_FAILURE_TTL:
+                return ToolResult(False, _install_failed_reason)
+            _install_failed_reason = None
+
+        for binary in ("git", "node", "npm"):
+            if not shutil.which(binary):
+                logger.error(f"Cannot install pharmacy skill: {binary} not found on PATH")
+                return _remember_install_failure(
+                    f"שגיאה: {binary} אינו מותקן בסביבה, ולכן לא ניתן להתקין את כלי החיפוש."
+                )
+
+        if not os.path.isfile(SETUP_SCRIPT):
+            logger.error(f"Pharmacy setup script missing at {SETUP_SCRIPT}")
+            return _remember_install_failure("שגיאה: סקריפט ההתקנה של כלי החיפוש חסר.")
+
+        logger.info("Pharmacy skill missing, installing it now")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "bash",
+                SETUP_SCRIPT,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=os.path.dirname(SETUP_SCRIPT),
+            )
+            output, _ = await asyncio.wait_for(proc.communicate(), timeout=SKILL_INSTALL_TIMEOUT)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            logger.error("Pharmacy skill install timed out")
+            return _remember_install_failure("שגיאה: התקנת כלי החיפוש ארכה זמן רב מדי.")
+        except Exception as exc:
+            logger.exception(f"Pharmacy skill install raised: {exc}")
+            return _remember_install_failure("שגיאה: התקנת כלי החיפוש נכשלה.")
+
+        if proc.returncode != 0 or not is_skill_installed():
+            tail = output.decode("utf-8", errors="replace").strip()[-400:]
+            logger.error(f"Pharmacy skill install failed (rc={proc.returncode}): {tail}")
+            return _remember_install_failure("שגיאה: התקנת כלי החיפוש נכשלה.")
+
+        logger.info("Pharmacy skill installed successfully")
+        return ToolResult(True, "")
+
+
+# A tool failure is handed straight to the user, so these strings must stay free of
+# exception text, stderr and paths - the details belong in the logs only.
+_ERR_SEARCH_FAILED = "שגיאה בחיפוש. נסה שוב בעוד כמה רגעים."
+_ERR_SEARCH_RETRIES_EXHAUSTED = "שירות החיפוש אינו זמין כרגע. נסה שוב מאוחר יותר."
+_ERR_SEARCH_BLOCKED = "שירות החיפוש של כללית חסם את הבקשה. נסה שוב מאוחר יותר."
+
+
+async def _run_pharmacy_command(command: str, *args: str, _retries: int = 2) -> ToolResult:
     """Run pharmacy-search.js with given command and arguments.
 
     Retries on transient 403/5xx errors with exponential backoff.
     """
-    if not os.path.isfile(SEARCH_SCRIPT):
-        return "שגיאה: כלי חיפוש בית מרקחת לא מותקן. יש להתקין את agent-skill-clalit-pharm-search."
+    ready = await ensure_skill_installed()
+    if not ready.ok:
+        return ready
 
     cmd = ["node", SEARCH_SCRIPT, command, *args]
     for attempt in range(_retries + 1):
@@ -123,48 +235,47 @@ async def _run_pharmacy_command(command: str, *args: str, _retries: int = 2) -> 
                     logger.info(f"pharmacy-search.js {command} got transient error, retrying in {delay}s: {err[:100]}")
                     await asyncio.sleep(delay)
                     continue
-                logger.warning(f"pharmacy-search.js {command} failed: {err}")
-                if not output:
-                    if is_transient and attempt > 0:
-                        msg = f"שגיאה בחיפוש לאחר {attempt + 1} ניסיונות: {err[:200]}"
-                        if re.search(r'\b403\b', err):
-                            msg += "\nייתכן שיש צורך להריץ מחדש את setup_pharmacy_skill.sh."
-                        return msg
-                    if re.search(r'\b403\b', err):
-                        return "שגיאה: שירות החיפוש של כללית חסם את הבקשה (403). ייתכן שיש צורך להריץ מחדש את setup_pharmacy_skill.sh."
-                    return f"שגיאה בחיפוש: {err[:200]}"
-            return output or "לא נמצאו תוצאות."
+                logger.warning(f"pharmacy-search.js {command} failed (rc={proc.returncode}): {err}")
+                # A non-zero exit is a failure even when something was printed:
+                # partial output fed back as a real tool result is exactly what
+                # lets the model narrate around a broken search.
+                if re.search(r'\b403\b', err):
+                    return ToolResult(False, _ERR_SEARCH_BLOCKED)
+                if is_transient and attempt > 0:
+                    return ToolResult(False, _ERR_SEARCH_RETRIES_EXHAUSTED)
+                return ToolResult(False, _ERR_SEARCH_FAILED)
+            return ToolResult(True, output or "לא נמצאו תוצאות.")
         except asyncio.TimeoutError:
             if proc:
                 proc.kill()
                 await proc.wait()
-            return "החיפוש ארך יותר מדי זמן. נסה שוב."
+            return ToolResult(False, "החיפוש ארך יותר מדי זמן. נסה שוב.")
         except FileNotFoundError:
-            return "שגיאה: Node.js לא מותקן במערכת."
-        except Exception as e:
-            logger.error(f"Pharmacy search error: {e}")
-            return f"שגיאה בחיפוש: {e}"
-    return "שגיאה בחיפוש: כל הניסיונות נכשלו."
+            return ToolResult(False, "שגיאה: Node.js לא מותקן במערכת.")
+        except Exception:
+            logger.exception(f"pharmacy-search.js {command} raised")
+            return ToolResult(False, _ERR_SEARCH_FAILED)
+    return ToolResult(False, _ERR_SEARCH_RETRIES_EXHAUSTED)
 
 
-async def _search_medication(query: str) -> str:
+async def _search_medication(query: str) -> ToolResult:
     """Search for a medication by name."""
     return await _run_pharmacy_command("search", query)
 
 
-async def _list_cities(query: str = "") -> str:
+async def _list_cities(query: str = "") -> ToolResult:
     """List cities or filter by name."""
     if query:
         return await _run_pharmacy_command("cities", query)
     return await _run_pharmacy_command("cities")
 
 
-async def _find_pharmacies(query: str) -> str:
+async def _find_pharmacies(query: str) -> ToolResult:
     """Find pharmacy branches by name/city."""
     return await _run_pharmacy_command("pharmacies", query)
 
 
-async def _check_stock(cat_code: str, city_code: str = "", dept_code: str = "") -> str:
+async def _check_stock(cat_code: str, city_code: str = "", dept_code: str = "") -> ToolResult:
     """Check stock for a medication at a location."""
     args = [cat_code]
     if city_code:
@@ -200,33 +311,7 @@ def _split_message(text: str, limit: int = TELEGRAM_MSG_LIMIT) -> list[str]:
 
 _ERR_RATE_LIMIT = "מצטער, הגעתי למגבלת השימוש היומית. נסה שוב מחר."
 _ERR_AI_COMM = "מצטער, אירעה שגיאה בתקשורת עם ה-AI. נסה שוב."
-
-
-async def _send_to_ai(context, user_message: str) -> tuple[str | None, bool]:
-    """Send message to Gemini and get response. Does not update history.
-
-    Returns (response_text, is_real_response). When is_real_response is False
-    the text is an error message that should NOT be committed to chat history.
-    """
-    model = context.user_data.get("pharm_model")
-    if not model:
-        return None, False
-
-    if is_limit_reached():
-        return _ERR_RATE_LIMIT, False
-
-    current_count = increment_and_check_usage()
-    if current_count == ALERT_THRESHOLD:
-        await send_telegram_alert(f"Pharmacy agent usage alert: {current_count} calls today")
-
-    history = context.user_data.get("pharm_chat_history", [])
-    try:
-        chat = model.start_chat(history=history)
-        response = await chat.send_message_async(user_message)
-        return response.text, True
-    except Exception as e:
-        logger.error(f"Gemini API error in pharmacy agent: {e}")
-        return _ERR_AI_COMM, False
+_ERR_TOOL_ROUNDS_EXHAUSTED = "לא הצלחתי להשלים את החיפוש. נסה לנסח את השאלה בצורה ממוקדת יותר."
 
 
 def _commit_to_history(context, user_message: str, bot_response: str):
@@ -261,6 +346,7 @@ def _init_ai_session(context) -> tuple[str, bool]:
     context.user_data["pharm_model"] = genai.GenerativeModel(
         "gemini-2.5-flash",
         system_instruction=SYSTEM_PROMPT,
+        tools=[{"function_declarations": FUNCTION_DECLARATIONS}],
     )
     context.user_data["pharm_chat_history"] = []
     return OPENING_MESSAGE, True
@@ -268,82 +354,148 @@ def _init_ai_session(context) -> tuple[str, bool]:
 
 # ═══ Layer 6: Tool-calling logic ═══
 
-# Patterns to detect user intent for automatic tool use
-_SEARCH_PATTERN = re.compile(
-    r"(?:חפש|חיפוש|מצא|search|find)\s+(?:תרופה\s+)?(.+)", re.IGNORECASE
-)
-_STOCK_PATTERN = re.compile(
-    r"(?:מלאי של|(?:ל)?בדוק מלאי(?:\s+של)?|(?:ל)?בדוק זמינות(?:\s+של)?|זמינות של|stock of|availability of|האם יש במלאי|יש במלאי)\s+(.+)",
-    re.IGNORECASE,
-)
-_CITY_PATTERN = re.compile(
-    r"(?:עיר|ערים|city|cities|סניפים?\s+ב)(.+)?", re.IGNORECASE
-)
-_PHARMACY_PATTERN = re.compile(
-    r"(?:בית מרקחת|בתי מרקחת|סניפים?|pharmacy|pharmacies)\s*(?:ב|in)?\s*(.+)?", re.IGNORECASE
-)
+# Declared to Gemini so the model itself decides when data is needed. The
+# previous design guessed intent with Hebrew regexes; anything they missed went
+# straight to the model with no data attached, and it answered from imagination.
+FUNCTION_DECLARATIONS = [
+    {
+        "name": "search_medication",
+        "description": "חיפוש תרופה לפי שם בעברית או באנגלית. מחזיר גם catCode הדרוש לבדיקת מלאי.",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "שם התרופה"}},
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "find_pharmacies",
+        "description": "מציאת סניפי בית מרקחת של כללית לפי עיר או שם סניף. מחזיר deptCode.",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "עיר או שם סניף"}},
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "list_cities",
+        "description": "רשימת ערים שבהן יש בתי מרקחת כללית. מחזיר cityCode.",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "סינון לפי שם עיר, אופציונלי"}},
+        },
+    },
+    {
+        "name": "check_stock",
+        "description": "בדיקת מלאי בפועל. דורש catCode מ-search_medication, ועיר או סניף.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "cat_code": {"type": "string", "description": "קוד התרופה מ-search_medication"},
+                "city_code": {"type": "string", "description": "cityCode מ-list_cities"},
+                "dept_code": {"type": "string", "description": "deptCode מ-find_pharmacies"},
+            },
+            "required": ["cat_code"],
+        },
+    },
+]
+
+_TOOL_DISPATCH = {
+    "search_medication": lambda a: _search_medication(a.get("query", "")),
+    "find_pharmacies": lambda a: _find_pharmacies(a.get("query", "")),
+    "list_cities": lambda a: _list_cities(a.get("query", "")),
+    "check_stock": lambda a: _check_stock(
+        a.get("cat_code", ""), a.get("city_code", ""), a.get("dept_code", "")
+    ),
+}
+
+# Bounds the search/stock back-and-forth so a confused model cannot loop forever.
+MAX_TOOL_ROUNDS = 5
+
+
+def _function_calls(response):
+    """Function calls Gemini asked for in this turn."""
+    calls = []
+    for candidate in getattr(response, "candidates", []) or []:
+        for part in getattr(candidate.content, "parts", []) or []:
+            call = getattr(part, "function_call", None)
+            if call and call.name:
+                calls.append(call)
+    return calls
 
 
 async def _process_with_tools(context, user_message: str) -> tuple[str | None, str, bool]:
-    """Process user message, potentially calling pharmacy tools and then AI.
+    """Run one user turn, letting Gemini call the pharmacy tools it needs.
 
-    Returns (ai_response, message_sent_to_ai, is_real_response) so callers
-    can store the actual message in chat history only for real AI responses.
+    Returns (response, message_for_history, is_real_response). A tool failure is
+    returned to the user as-is and marked not-real, so the model never gets the
+    chance to dress a failure up as an answer.
     """
-    tool_results = []
+    model = context.user_data.get("pharm_model")
+    if not model:
+        return None, user_message, False
 
-    # Try to auto-detect intent and run tools.
-    # Stock/search patterns checked first (more specific, mention medication);
-    # pharmacy/city patterns are fallback for pure location queries.
-    msg_lower = user_message.strip()
+    if is_limit_reached():
+        return _ERR_RATE_LIMIT, user_message, False
 
-    stock_match = _STOCK_PATTERN.search(msg_lower)
-    search_match = _SEARCH_PATTERN.search(msg_lower)
+    current_count = increment_and_check_usage()
+    if current_count == ALERT_THRESHOLD:
+        await send_telegram_alert(f"Pharmacy agent usage alert: {current_count} calls today")
 
-    if stock_match:
-        query = stock_match.group(1).strip()
-        search_result = await _search_medication(query)
-        tool_results.append(f"תוצאות חיפוש תרופה '{query}':\n{search_result}")
-        # Try to extract catCode from search results and check stock
-        cat_code_match = re.search(r"catCode[:\s]+(\d+)", search_result)
-        if cat_code_match:
-            cat_code = cat_code_match.group(1)
-            stock_result = await _check_stock(cat_code)
-            tool_results.append(f"בדיקת מלאי (catCode {cat_code}):\n{stock_result}")
-    elif search_match:
-        query = search_match.group(1).strip()
-        result = await _search_medication(query)
-        tool_results.append(f"תוצאות חיפוש תרופה '{query}':\n{result}")
-    else:
-        # Location-only queries (no medication mentioned)
-        pharm_match = _PHARMACY_PATTERN.search(msg_lower)
-        city_match = _CITY_PATTERN.search(msg_lower)
+    history = context.user_data.get("pharm_chat_history", [])
+    try:
+        chat = model.start_chat(history=history)
+        response = await chat.send_message_async(user_message)
 
-        if pharm_match and pharm_match.group(1):
-            query = pharm_match.group(1).strip()
-            result = await _find_pharmacies(query)
-            tool_results.append(f"בתי מרקחת - '{query}':\n{result}")
-        elif city_match:
-            query = (city_match.group(1) or "").strip()
-            result = await _list_cities(query)
-            tool_results.append(f"ערים:\n{result}")
+        for _ in range(MAX_TOOL_ROUNDS):
+            calls = _function_calls(response)
+            if not calls:
+                break
 
-    # Build the prompt for AI
-    if tool_results:
-        tool_context = "\n\n---\n".join(tool_results)
-        ai_message = (
-            f"השאלה של המשתמש: {user_message}\n\n"
-            f"תוצאות מכלי החיפוש:\n{tool_context}\n\n"
-            f"אנא ענה למשתמש בהתבסס על התוצאות. "
-            f"אם התוצאות כוללות קודים (catCode, cityCode, deptCode), "
-            f"הסבר למשתמש מה הצעד הבא."
-        )
-        response, is_real = await _send_to_ai(context, ai_message)
-        return response, ai_message, is_real
-    else:
-        # No tool match - just send to AI directly
-        response, is_real = await _send_to_ai(context, user_message)
-        return response, user_message, is_real
+            parts = []
+            for call in calls:
+                handler = _TOOL_DISPATCH.get(call.name)
+                if not handler:
+                    logger.warning(f"Gemini asked for unknown tool {call.name!r}")
+                    parts.append(
+                        genai.protos.Part(
+                            function_response=genai.protos.FunctionResponse(
+                                name=call.name, response={"error": "unknown tool"}
+                            )
+                        )
+                    )
+                    continue
+
+                result = await handler(dict(call.args))
+                if not result.ok:
+                    # Hand the failure straight to the user. Passing it to the
+                    # model invites a confident answer built on nothing.
+                    logger.warning(f"Pharmacy tool {call.name} failed: {result.text[:120]}")
+                    return result.text, user_message, False
+
+                parts.append(
+                    genai.protos.Part(
+                        function_response=genai.protos.FunctionResponse(
+                            name=call.name, response={"result": result.text}
+                        )
+                    )
+                )
+
+            response = await chat.send_message_async(
+                genai.protos.Content(role="user", parts=parts)
+            )
+
+        if _function_calls(response):
+            # Out of rounds with the model still asking for tools. `.text` would
+            # raise on a function-call-only response and get reported as an API
+            # failure, which is not what happened.
+            logger.warning(f"Gemini still requesting tools after {MAX_TOOL_ROUNDS} rounds")
+            return _ERR_TOOL_ROUNDS_EXHAUSTED, user_message, False
+
+        return response.text, user_message, True
+
+    except Exception as e:
+        logger.error(f"Gemini API error in pharmacy agent: {e}")
+        return _ERR_AI_COMM, user_message, False
 
 
 # ═══ Layer 7: Telegram Handlers ═══
@@ -391,9 +543,9 @@ async def handle_shortcut(update: Update, context):
     if not shortcut_text:
         return PHARMACY_STATE
 
-    # Shortcuts are generic prompts (no specific medication/location),
-    # so send directly to AI without tool matching.
-    bot_response, is_real = await _send_to_ai(context, shortcut_text)
+    # Routed like any other turn so the model can call tools if it decides to.
+    # Sending straight to the model left an unguarded path to an invented answer.
+    bot_response, _, is_real = await _process_with_tools(context, shortcut_text)
     if bot_response:
         chunks = _split_message(bot_response)
         for chunk in chunks[:-1]:
