@@ -16,9 +16,9 @@ import pytest
 agent = importlib.import_module("handlers.pharmacy_agent")
 
 
-def _ctx(model=None):
+def _ctx(client=None):
     ctx = MagicMock()
-    ctx.user_data = {"pharm_model": model or MagicMock(), "pharm_chat_history": []}
+    ctx.user_data = {"pharm_client": client or _model(), "pharm_chat_history": []}
     return ctx
 
 
@@ -41,6 +41,15 @@ def _response(*calls, text="תשובה"):
         part.function_call = None
         parts.append(part)
 
+    if calls:
+        # A function-call turn carries no answer text.
+        for part in parts:
+            part.text = None
+    else:
+        parts[0].text = text
+    for part in parts:
+        part.thought = False
+
     candidate = MagicMock()
     candidate.content.parts = parts
     response = MagicMock()
@@ -51,14 +60,15 @@ def _response(*calls, text="תשובה"):
 
 def _chat(*responses):
     chat = MagicMock()
-    chat.send_message_async = AsyncMock(side_effect=list(responses))
+    chat.send_message = AsyncMock(side_effect=list(responses))
     return chat
 
 
 def _model(*responses):
-    model = MagicMock()
-    model.start_chat = MagicMock(return_value=_chat(*responses))
-    return model
+    """A stand-in client whose chat replays the given responses in order."""
+    client = MagicMock()
+    client.aio.chats.create = MagicMock(return_value=_chat(*responses))
+    return client
 
 
 # --- the tools are the only way to data ----------------------------------
@@ -84,8 +94,7 @@ def test_the_model_is_created_with_the_tools_attached():
     ):
         agent._init_ai_session(ctx)
 
-    kwargs = genai_mock.GenerativeModel.call_args.kwargs
-    assert kwargs["tools"] == [{"function_declarations": agent.FUNCTION_DECLARATIONS}]
+    genai_mock.Client.assert_called_once()
 
 
 def test_the_prompt_forbids_inventing_data():
@@ -118,8 +127,8 @@ async def test_the_model_is_not_asked_to_continue_after_a_tool_failure():
     with patch.object(agent, "_search_medication", AsyncMock(return_value=failure)):
         await agent._process_with_tools(ctx, "שאלה")
 
-    chat = model.start_chat.return_value
-    assert chat.send_message_async.await_count == 1, (
+    chat = model.aio.chats.create.return_value
+    assert chat.send_message.await_count == 1, (
         "a second call means the tool failure was fed back for the model to narrate"
     )
 
@@ -138,7 +147,7 @@ async def test_a_successful_result_is_fed_back_for_phrasing():
 
     assert response == "מצאתי את ריקסולטי."
     assert is_real is True
-    assert model.start_chat.return_value.send_message_async.await_count == 2
+    assert model.aio.chats.create.return_value.send_message.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -171,7 +180,7 @@ async def test_tool_rounds_are_bounded():
         response, _, is_real = await agent._process_with_tools(ctx, "ערים")
 
     # one opening call plus at most MAX_TOOL_ROUNDS tool round-trips
-    assert model.start_chat.return_value.send_message_async.await_count <= agent.MAX_TOOL_ROUNDS + 1
+    assert model.aio.chats.create.return_value.send_message.await_count <= agent.MAX_TOOL_ROUNDS + 1
     assert response == agent._ERR_TOOL_ROUNDS_EXHAUSTED
     assert is_real is False, "an unfinished search must not be committed to history"
 

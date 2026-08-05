@@ -45,7 +45,6 @@ MAIN_MENU_ACTIONS = {
     f"{config.EMOJIS['calendar']} הוספת תור": "appointments",
     f"{config.EMOJIS['settings']} הגדרות": "settings",
     f"{config.EMOJIS['info']} עזרה": "help",
-    "🏥 מלאי בית מרקחת": "pharmacy",
     "📝 פתקים": "notes",
     "🚑 חירום": "emergency",
 }

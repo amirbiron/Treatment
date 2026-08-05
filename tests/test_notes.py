@@ -468,3 +468,35 @@ def test_the_note_card_offers_adding(handler):
 def test_the_append_button_is_registered(handler):
     patterns = [h.pattern for h in handler.get_handlers()]
     assert any(p.match("note_append_1") for p in patterns)
+
+
+# --- menu wiring -------------------------------------------------------------
+
+
+def test_the_pharmacy_button_is_gone_from_the_menu():
+    """Clalit's WAF blocks the search API from the host, so the button could
+    only ever report its own failure."""
+    import importlib
+
+    keyboards = importlib.import_module("utils.keyboards")
+    labels = [
+        button.text
+        for row in keyboards.get_main_menu_keyboard().keyboard
+        for button in row
+    ]
+    assert not any("מלאי בית מרקחת" in label for label in labels)
+    assert any("חירום" in label for label in labels), "the emergency button went with it"
+
+
+def test_the_removed_button_no_longer_routes():
+    import importlib
+
+    main = importlib.import_module("main")
+    assert "🏥 מלאי בית מרקחת" not in main.MAIN_MENU_ACTIONS
+
+
+def test_help_describes_the_emergency_guide():
+    from config import config
+
+    assert "חירום" in config.HELP_MESSAGE
+    assert "מרחב המוגן" in config.HELP_MESSAGE

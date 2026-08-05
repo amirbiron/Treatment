@@ -18,8 +18,10 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton(f"{config.EMOJIS['report']} דוחות"), KeyboardButton(f"{config.EMOJIS['caregiver']} מטפלים")],
         # Ensure "הוספת תור" shares a row with another button (no single-button rows)
         [KeyboardButton(f"{config.EMOJIS['calendar']} הוספת תור"), KeyboardButton(f"{config.EMOJIS['reminder']} תזכורות")],
-        [KeyboardButton("🏥 מלאי בית מרקחת"), KeyboardButton("📝 פתקים")],
-        [KeyboardButton("🚑 חירום")],
+        # "מלאי בית מרקחת" is off the menu: Clalit's WAF blocks the search API
+        # from the host, so the feature could only ever report its own failure.
+        # The handler is left registered so restoring the button is a one-liner.
+        [KeyboardButton("📝 פתקים"), KeyboardButton("🚑 חירום")],
         [KeyboardButton(f"{config.EMOJIS['settings']} הגדרות"), KeyboardButton(f"{config.EMOJIS['info']} עזרה")],
     ]
 

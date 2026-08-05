@@ -26,7 +26,8 @@ import re
 from dataclasses import dataclass
 from datetime import timedelta
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest
 from telegram.ext import (
@@ -326,6 +327,38 @@ def critical_reply() -> str:
 
 # ═══ The model, with the guide as its only material ═══
 
+MODEL_NAME = "gemini-2.5-flash"
+
+# gemini-2.5-flash reasons before it answers, and that reasoning used to reach
+# users: google-generativeai 0.8.6 could neither switch thinking off nor mark
+# which parts were thoughts, so it arrived as ordinary text at the front of the
+# response. google-genai can do both, so this is now handled at the source
+# rather than by trying to find the seam in the text afterwards.
+THINKING_OFF = types.ThinkingConfig(thinking_budget=0, include_thoughts=False)
+
+
+def answer_text(response) -> str:
+    """The user-facing text of a response, with any thought parts dropped.
+
+    thinking_budget=0 should mean there are none, but the flag exists in the
+    response for a reason and honouring it costs nothing. Falls back to
+    response.text when the parts cannot be walked.
+    """
+    try:
+        parts = response.candidates[0].content.parts
+    except (AttributeError, IndexError, TypeError):
+        return (getattr(response, "text", "") or "").strip()
+
+    kept = [
+        part.text
+        for part in parts
+        if getattr(part, "text", None) and not getattr(part, "thought", False)
+    ]
+    if not kept:
+        return (getattr(response, "text", "") or "").strip()
+    return "".join(kept).strip()
+
+
 SYSTEM_PROMPT_TEMPLATE = """אתה עוזר שעונה על שאלות בנושא חירום בישראל, על סמך מדריך מאומת בלבד.
 
 חוקים מוחלטים:
@@ -354,12 +387,7 @@ def _init_ai_session(context) -> None:
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not set")
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(
-        "gemini-2.5-flash",
-        system_instruction=SYSTEM_PROMPT_TEMPLATE.format(guide=GUIDE_TEXT),
-    )
-    context.user_data["emerg_model"] = model
+    context.user_data["emerg_client"] = genai.Client(api_key=api_key)
     context.user_data["emerg_chat_history"] = []
 
 
@@ -373,8 +401,8 @@ async def ask_guide(context, user_message: str):
     if is_limit_reached():
         return _ERR_QUOTA + "\n\n" + format_emergency_numbers(), False
 
-    model = context.user_data.get("emerg_model")
-    if model is None:
+    client = context.user_data.get("emerg_client")
+    if client is None:
         try:
             _init_ai_session(context)
         except RuntimeError as exc:
@@ -382,7 +410,7 @@ async def ask_guide(context, user_message: str):
             # bad outcome, so hand back the numbers instead.
             logger.error(f"Emergency agent session init failed: {exc}")
             return _ERR_NO_AI, False
-        model = context.user_data["emerg_model"]
+        client = context.user_data["emerg_client"]
 
     current_count = increment_and_check_usage()
     if current_count == ALERT_THRESHOLD:
@@ -390,9 +418,16 @@ async def ask_guide(context, user_message: str):
 
     history = context.user_data.get("emerg_chat_history", [])
     try:
-        chat = model.start_chat(history=history)
-        response = await chat.send_message_async(user_message)
-        answer = response.text
+        chat = client.aio.chats.create(
+            model=MODEL_NAME,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT_TEMPLATE.format(guide=GUIDE_TEXT),
+                thinking_config=THINKING_OFF,
+            ),
+            history=history,
+        )
+        response = await chat.send_message(user_message)
+        answer = answer_text(response)
     except Exception as exc:
         logger.exception(f"Emergency agent Gemini call failed: {exc}")
         return _ERR_AI_COMM, False
@@ -429,9 +464,15 @@ TOPIC_SHORTCUTS = {
 }
 
 INTRO = (
-    "🚑 *מדריך חירום ישראלי*\n\n"
-    "שאלו אותי כל שאלה על שירותי חירום בארץ — מספרי חירום, לאן לפנות, "
-    "חדר מיון וזכויות, אזעקות ומרחב מוגן, קווי סיוע נפשי.\n\n"
+    "🚑 *מדריך לשירותי חירום בארץ:*\n"
+    "• מספרי החירום ואיך פונים אליהם גם בלי שיחת קול\n"
+    "• מה עושים באזעקה וכמה זמן נשארים במרחב המוגן\n"
+    "• קווי חירום לבריאות הנפש\n"
+    "• חיוג למד\"א (מגן דוד אדום)\n"
+    "• מתי הולכים לטרם\n"
+    "• איך מתנהלים בחדר מיון וזכויות המטופל\n\n"
+    "מכסה את מרכזי הטראומה דרג 1, כללי ההשתתפות העצמית בחדר מיון "
+    "ותרומת דם דרך מד\"א.\n\n"
     "⚠️ *במצב חירום ממשי אל תתכתבו איתי — חייגו 101.*"
 )
 
@@ -537,7 +578,7 @@ def remember(context, user_message: str, reply: str) -> None:
 
 def _cleanup_session(context):
     """Drop the model and history so a stale session is not reused."""
-    context.user_data.pop("emerg_model", None)
+    context.user_data.pop("emerg_client", None)
     context.user_data.pop("emerg_chat_history", None)
 
 
