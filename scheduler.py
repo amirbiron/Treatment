@@ -4,6 +4,7 @@ Using APScheduler 3.11.0 with async support
 """
 
 import asyncio
+import html
 import logging
 from datetime import datetime, time, timedelta
 from typing import Dict, List, Optional, Callable, Any
@@ -62,6 +63,9 @@ class MedicineScheduler:
 
             # NEW: Re-schedule all medicine reminders for all active users at startup
             await self._reschedule_all_medicine_reminders()
+
+            # Re-arm standalone (free-form) reminders too
+            await self._reschedule_all_custom_reminders()
 
         except Exception as e:
             logger.error(f"Failed to start scheduler: {e}")
@@ -239,6 +243,134 @@ class MedicineScheduler:
 
         except Exception as e:
             logger.error(f"Failed to send medicine reminder: {e}")
+
+    # ==============================
+    # Custom (free-form) reminders
+    # ==============================
+
+    @staticmethod
+    def custom_reminder_job_id(user_id: int, reminder_id: int) -> str:
+        return f"custom_reminder_{user_id}_{reminder_id}"
+
+    async def schedule_custom_reminder(self, reminder, timezone: str = None) -> Optional[str]:
+        """Arm a standalone reminder. Returns the job id, or None if it is in the past.
+
+        A one-off whose time has already passed is not an error: it simply has
+        nothing left to fire, and the caller deactivates it.
+        """
+        job_id = self.custom_reminder_job_id(reminder.user_id, reminder.id)
+
+        try:
+            db_user = await DatabaseManager.get_user_by_id(reminder.user_id)
+        except Exception:
+            db_user = None
+        tz_name = get_user_timezone_name(db_user) if db_user else (timezone or config.DEFAULT_TIMEZONE)
+        tz = get_timezone(tz_name)
+
+        if reminder.repeat == "once":
+            if not reminder.remind_at:
+                logger.warning(f"Custom reminder {reminder.id} is one-off but has no date")
+                return None
+            run_date = ensure_aware(reminder.remind_at, tz)
+            if run_date <= now_in_timezone(tz):
+                logger.info(f"Custom reminder {reminder.id} is in the past, not scheduling")
+                return None
+            trigger = DateTrigger(run_date=run_date, timezone=tz)
+        elif reminder.repeat == "daily":
+            if not reminder.remind_time:
+                logger.warning(f"Custom reminder {reminder.id} is daily but has no time")
+                return None
+            trigger = CronTrigger(hour=reminder.remind_time.hour, minute=reminder.remind_time.minute, timezone=tz)
+        elif reminder.repeat == "weekly":
+            if not reminder.remind_time or reminder.weekday is None:
+                logger.warning(f"Custom reminder {reminder.id} is weekly but has no time or weekday")
+                return None
+            trigger = CronTrigger(
+                day_of_week=int(reminder.weekday),
+                hour=reminder.remind_time.hour,
+                minute=reminder.remind_time.minute,
+                timezone=tz,
+            )
+        else:
+            logger.warning(f"Custom reminder {reminder.id} has unknown repeat {reminder.repeat!r}")
+            return None
+
+        self.scheduler.add_job(
+            func=self._send_custom_reminder,
+            trigger=trigger,
+            id=job_id,
+            args=[reminder.user_id, reminder.id],
+            name=f"Custom reminder for user {reminder.user_id}",
+            replace_existing=True,
+        )
+        logger.info(f"Scheduled custom reminder: {job_id} ({reminder.repeat})")
+        return job_id
+
+    async def cancel_custom_reminder(self, user_id: int, reminder_id: int):
+        job_id = self.custom_reminder_job_id(user_id, reminder_id)
+        if self.scheduler.get_job(job_id):
+            self.scheduler.remove_job(job_id)
+            logger.info(f"Cancelled custom reminder job: {job_id}")
+
+    async def _send_custom_reminder(self, user_id: int, reminder_id: int):
+        """Deliver a standalone reminder, and retire it if it was one-off."""
+        try:
+            if not self.bot:
+                logger.error("Bot instance not available")
+                return
+
+            reminder = await DatabaseManager.get_custom_reminder_by_id(reminder_id)
+            if not reminder or not reminder.is_active:
+                logger.info(f"Custom reminder {reminder_id} not found or inactive")
+                return
+
+            user = await DatabaseManager.get_user_by_id(user_id)
+            if not user or not user.is_active:
+                logger.info(f"User {user_id} not found or inactive")
+                return
+
+            # HTML with the body escaped, not Markdown: an unescaped "*" or "_" in a
+            # user's reminder makes Telegram reject the whole message, and a reminder
+            # that fails to send is a reminder the user never gets.
+            message = f"{config.EMOJIS['reminder']} <b>תזכורת</b>\n\n{html.escape(reminder.text or '')}"
+            await self.bot.send_message(chat_id=user.telegram_id, text=message, parse_mode="HTML")
+
+            if reminder.repeat == "once":
+                # Nothing left to fire; keep the list clean without deleting history
+                await DatabaseManager.set_custom_reminder_active(reminder_id, False)
+
+            logger.info(f"Sent custom reminder {reminder_id} to user {user_id}")
+
+        except Exception as e:
+            logger.error(f"Failed to send custom reminder {reminder_id}: {e}")
+            # A one-off's DateTrigger has already fired, so nothing will retry it.
+            # Leaving it active would strand it in the user's list forever, looking
+            # pending when it can never fire again.
+            try:
+                reminder = await DatabaseManager.get_custom_reminder_by_id(reminder_id)
+                if reminder and reminder.repeat == "once" and reminder.is_active:
+                    await DatabaseManager.set_custom_reminder_active(reminder_id, False)
+            except Exception as cleanup_exc:
+                logger.error(f"Could not retire failed one-off reminder {reminder_id}: {cleanup_exc}")
+
+    async def _reschedule_all_custom_reminders(self):
+        """Re-arm standalone reminders after a restart, retiring stale one-offs."""
+        try:
+            reminders = await DatabaseManager.get_all_active_custom_reminders()
+            armed = 0
+            for reminder in reminders:
+                try:
+                    job_id = await self.schedule_custom_reminder(reminder)
+                    if job_id:
+                        armed += 1
+                    elif reminder.repeat == "once":
+                        # Its moment passed while the bot was down
+                        await DatabaseManager.set_custom_reminder_active(reminder.id, False)
+                except Exception as inner_exc:
+                    logger.warning(f"Failed rescheduling custom reminder {reminder.id}: {inner_exc}")
+            logger.info(f"Rescheduled {armed} custom reminders after startup")
+        except Exception as exc:
+            logger.error(f"Error in _reschedule_all_custom_reminders: {exc}")
 
     async def _send_snoozed_reminder(self, user_id: int, medicine_id: int):
         """Send snoozed reminder to user"""

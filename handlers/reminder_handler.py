@@ -329,8 +329,11 @@ class ReminderHandler:
         try:
             user_id = update.effective_user.id
 
-            # Get scheduled jobs for this user
-            jobs = medicine_scheduler.get_scheduled_jobs(user_id)
+            # Jobs are keyed by the database user id, not the Telegram id. Passing
+            # the Telegram id here matched nothing, so the list always came back
+            # empty and the menu claimed there were no reminders.
+            db_user = await DatabaseManager.get_user_by_telegram_id(user_id)
+            jobs = medicine_scheduler.get_scheduled_jobs(db_user.id) if db_user else []
 
             if not jobs:
                 message = f"""
@@ -346,6 +349,8 @@ class ReminderHandler:
                 rows = []
                 if meds:
                     rows.append([InlineKeyboardButton("הוסף שעה לתרופה", callback_data="rem_pick_medicine_for_time")])
+                rows.append([InlineKeyboardButton("➕ תזכורת אישית", callback_data="crem_add")])
+                rows.append([InlineKeyboardButton("📋 התזכורות האישיות שלי", callback_data="crem_menu")])
                 rows.append(
                     [InlineKeyboardButton(f"{config.EMOJIS['reminder']} הגדרות תזכורות", callback_data="settings_reminders")]
                 )
@@ -390,6 +395,8 @@ class ReminderHandler:
                     shown += 1
                 if len(jobs) > shown:
                     message += f"\n{config.EMOJIS['info']} ועוד {len(jobs) - shown} תזכורות..."
+                kb_rows.append([InlineKeyboardButton("➕ תזכורת אישית", callback_data="crem_add")])
+                kb_rows.append([InlineKeyboardButton("📋 התזכורות האישיות שלי", callback_data="crem_menu")])
                 kb_rows.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזור לתפריט", callback_data="main_menu")])
                 kb = InlineKeyboardMarkup(kb_rows)
             await update.message.reply_text(message, parse_mode="Markdown", reply_markup=kb)
