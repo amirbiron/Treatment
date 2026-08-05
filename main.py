@@ -66,6 +66,39 @@ MAIN_MENU_ACTIONS = {
     "🚑 חירום": "emergency",
 }
 
+# Labels that used to be on the menu. Telegram keeps a reply keyboard on the
+# client until it is replaced, so someone who has not opened the bot since the
+# button was retired still has it. It must still count as navigation: otherwise
+# a tap in the middle of writing a note would be saved as the note's text.
+RETIRED_MENU_LABELS = {"🏥 מלאי בית מרקחת"}
+RETIRED_MENU_REPLY = "האפשרות הזאת הוסרה. הנה התפריט המעודכן:"
+
+# Everything a tap on the menu abandons. Kept in one place because the live and
+# retired paths both need it, and two copies would drift.
+TRANSIENT_STATE_KEYS = (
+    "awaiting_note_text",
+    "editing_note_id",
+    "appending_note_id",
+    "titling_note_id",
+    "awaiting_custom_reminder_text",
+    "custom_reminder_draft",
+    "editing_medicine_for",
+    "editing_field_for",
+    "editing_caregiver_field",
+    "editing_schedule_for",
+    "updating_inventory_for",
+    "awaiting_symptom_text",
+    "editing_symptom_log",
+    "suppress_menu_mapping",
+    "appt_state",
+)
+
+
+def clear_transient_state(user_data) -> None:
+    """Forget any half-finished edit. Navigating away abandons the draft."""
+    for key in TRANSIENT_STATE_KEYS:
+        user_data.pop(key, None)
+
 # Upper bound on updates waiting to be handled. Far above normal load, so a full
 # queue means the bot is genuinely overloaded rather than merely busy.
 UPDATE_QUEUE_MAXSIZE = 1000
@@ -1436,6 +1469,19 @@ class MedicineReminderBot:
     async def handle_text_message(self, update: Update, context):
         """Handle plain text messages"""
         try:
+            # Before any routing: a tap on a button that no longer exists is
+            # navigation, not content. It has to be caught ahead of the
+            # appointment and draft handlers, because each of those would
+            # otherwise consume the label as the text it was waiting for.
+            if (update.message.text or "").strip() in RETIRED_MENU_LABELS:
+                from utils.keyboards import get_main_menu_keyboard
+
+                clear_transient_state(context.user_data)
+                await update.message.reply_text(
+                    RETIRED_MENU_REPLY, reply_markup=get_main_menu_keyboard()
+                )
+                return
+
             # Route appointment flow text first if active
             if context.user_data.get("appt_state"):
                 try:
