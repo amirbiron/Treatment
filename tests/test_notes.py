@@ -500,3 +500,40 @@ def test_help_describes_the_emergency_guide():
 
     assert "חירום" in config.HELP_MESSAGE
     assert "מרחב המוגן" in config.HELP_MESSAGE
+
+
+# --- a retired button is still navigation ------------------------------------
+#
+# Telegram keeps a reply keyboard on the client until it is replaced, so the
+# pharmacy button lives on for anyone who has not reopened the bot since it was
+# removed. If that tap stopped counting as navigation, it would be saved as
+# whatever the user happened to be drafting.
+
+
+def test_the_retired_label_is_still_recognised_as_navigation():
+    import importlib
+
+    main = importlib.import_module("main")
+    assert "🏥 מלאי בית מרקחת" in main.RETIRED_MENU_LABELS
+    assert "🏥 מלאי בית מרקחת" not in main.MAIN_MENU_ACTIONS, "it must not route anywhere"
+
+
+def test_no_retired_label_is_also_a_live_one():
+    """A label in both sets would answer 'this was removed' for a working feature."""
+    import importlib
+
+    main = importlib.import_module("main")
+    assert not (main.RETIRED_MENU_LABELS & set(main.MAIN_MENU_ACTIONS))
+
+
+def test_every_retired_label_is_off_the_keyboard():
+    import importlib
+
+    main = importlib.import_module("main")
+    keyboards = importlib.import_module("utils.keyboards")
+    live = {
+        button.text
+        for row in keyboards.get_main_menu_keyboard().keyboard
+        for button in row
+    }
+    assert not (main.RETIRED_MENU_LABELS & live), "a retired label is still on the menu"
