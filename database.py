@@ -1009,6 +1009,22 @@ class DatabaseManager:
             return True
 
     @staticmethod
+    async def append_to_note_for_user(note_id: int, user_id: int, text: str) -> bool:
+        """Add a line to a note without the user retyping what is already there."""
+        async with async_session() as session:
+            result = await session.execute(
+                select(Note).where(Note.id == note_id, Note.user_id == user_id)
+            )
+            note = result.scalar_one_or_none()
+            if not note:
+                return False
+            existing = (note.content or "").rstrip()
+            note.content = f"{existing}\n{text}" if existing else text
+            note.updated_at = datetime.utcnow()
+            await session.commit()
+            return True
+
+    @staticmethod
     async def set_note_title_for_user(note_id: int, user_id: int, title: Optional[str]) -> bool:
         """Name or rename a note. A None or empty title clears it."""
         async with async_session() as session:
@@ -2361,6 +2377,34 @@ class DatabaseManagerMongo:
         res = await _mongo_db.notes.update_one(
             {"_id": int(note_id), "user_id": int(user_id)},
             {"$set": {"content": content, "updated_at": datetime.utcnow()}},
+        )
+        return res.matched_count > 0
+
+    @staticmethod
+    async def append_to_note_for_user(note_id: int, user_id: int, text: str) -> bool:
+        """Append server-side so two quick additions cannot overwrite each other.
+
+        $literal is required: in a pipeline update a bare string starting with $
+        would be read as a field path, and note text is user supplied.
+        """
+        await _init_mongo()
+        existing = {"$ifNull": ["$content", ""]}
+        res = await _mongo_db.notes.update_one(
+            {"_id": int(note_id), "user_id": int(user_id)},
+            [
+                {
+                    "$set": {
+                        "content": {
+                            "$cond": [
+                                {"$eq": [existing, ""]},
+                                {"$literal": text},
+                                {"$concat": [existing, {"$literal": "\n"}, {"$literal": text}]},
+                            ]
+                        },
+                        "updated_at": datetime.utcnow(),
+                    }
+                }
+            ],
         )
         return res.matched_count > 0
 

@@ -69,6 +69,14 @@ def _user():
     return u
 
 
+async def _arm_edit(handler, ctx, note_id=5, content="קיים"):
+    """start_edit_note reads the note to offer it for copying, so it needs the DB."""
+    with patch.object(notes_module, "DatabaseManager") as db:
+        db.get_user_by_telegram_id = AsyncMock(return_value=_user())
+        db.get_note_for_user = AsyncMock(return_value=_note(note_id, content))
+        await handler.start_edit_note(_callback_update(f"note_edit_{note_id}"), ctx)
+
+
 # --- preview -------------------------------------------------------------
 
 
@@ -161,7 +169,7 @@ async def test_an_empty_note_is_rejected(handler, ctx):
 
 @pytest.mark.asyncio
 async def test_editing_updates_instead_of_creating(handler, ctx):
-    await handler.start_edit_note(_callback_update("note_edit_5"), ctx)
+    await _arm_edit(handler, ctx)
     assert ctx.user_data["editing_note_id"] == 5
 
     update = _text_update("תוכן מעודכן")
@@ -181,7 +189,7 @@ async def test_editing_updates_instead_of_creating(handler, ctx):
 async def test_add_and_edit_flags_never_coexist(handler, ctx):
     """Starting an edit after an abandoned add must not create a second note."""
     await handler.start_add_note(_callback_update("note_add"), ctx)
-    await handler.start_edit_note(_callback_update("note_edit_5"), ctx)
+    await _arm_edit(handler, ctx)
     assert "awaiting_note_text" not in ctx.user_data
     assert ctx.user_data["editing_note_id"] == 5
 
@@ -340,7 +348,7 @@ async def test_a_name_with_markup_is_escaped(handler, ctx):
 @pytest.mark.asyncio
 async def test_the_three_note_text_flags_never_coexist(handler, ctx):
     """Naming after an abandoned edit must not rewrite the note's body."""
-    await handler.start_edit_note(_callback_update("note_edit_5"), ctx)
+    await _arm_edit(handler, ctx)
     await handler.start_title_note(_callback_update("note_title_5"), ctx)
     assert "editing_note_id" not in ctx.user_data
     assert "awaiting_note_text" not in ctx.user_data
@@ -360,3 +368,103 @@ def test_untitle_is_not_swallowed_by_the_title_pattern(handler):
     by_pattern = {h.pattern.pattern: h for h in handler.get_handlers()}
     title_pattern = re.compile(r"^note_title_\d+$")
     assert not title_pattern.match("note_untitle_5")
+
+
+# --- adding to a note without retyping it --------------------------------
+
+
+@pytest.mark.asyncio
+async def test_appending_adds_a_line_without_touching_the_body(handler, ctx):
+    await handler.start_append_note(_callback_update("note_append_5"), ctx)
+    assert ctx.user_data["appending_note_id"] == 5
+
+    update = _text_update("גם לשאול על תופעות לוואי")
+    with patch.object(notes_module, "DatabaseManager") as db:
+        db.get_user_by_telegram_id = AsyncMock(return_value=_user())
+        db.append_to_note_for_user = AsyncMock(return_value=True)
+        db.update_note_for_user = AsyncMock()
+        db.create_note = AsyncMock()
+        db.get_user_notes = AsyncMock(return_value=[])
+        claimed = await handler.handle_text(update, ctx)
+
+    assert claimed is True
+    db.append_to_note_for_user.assert_awaited_once_with(5, 11, "גם לשאול על תופעות לוואי")
+    db.update_note_for_user.assert_not_awaited(), "appending must not overwrite the note"
+    db.create_note.assert_not_awaited(), "appending must not create a second note"
+    assert "appending_note_id" not in ctx.user_data
+
+
+@pytest.mark.asyncio
+async def test_editing_shows_the_current_text_to_copy(handler, ctx):
+    """The whole point: the user should not have to retype what is already there."""
+    update = _callback_update("note_edit_5")
+    with patch.object(notes_module, "DatabaseManager") as db:
+        db.get_user_by_telegram_id = AsyncMock(return_value=_user())
+        db.get_note_for_user = AsyncMock(return_value=_note(5, "השורה הקיימת"))
+        await handler.start_edit_note(update, ctx)
+
+    body = update.callback_query.edit_message_text.call_args.args[0]
+    # a <code> span is tap-to-copy in Telegram
+    assert "<code>השורה הקיימת</code>" in body
+    assert update.callback_query.edit_message_text.call_args.kwargs["parse_mode"] == "HTML"
+    assert ctx.user_data["editing_note_id"] == 5
+
+
+@pytest.mark.asyncio
+async def test_the_prefilled_body_is_escaped(handler, ctx):
+    """Unescaped markup inside <code> would break the message Telegram renders."""
+    import html as html_module
+
+    hostile = 'תרופה <b>מודגשת</b> & "ציטוט"'
+    update = _callback_update("note_edit_5")
+    with patch.object(notes_module, "DatabaseManager") as db:
+        db.get_user_by_telegram_id = AsyncMock(return_value=_user())
+        db.get_note_for_user = AsyncMock(return_value=_note(5, hostile))
+        await handler.start_edit_note(update, ctx)
+
+    body = update.callback_query.edit_message_text.call_args.args[0]
+    assert html_module.escape(hostile) in body
+
+
+@pytest.mark.asyncio
+async def test_editing_a_foreign_note_shows_nothing_to_copy(handler, ctx):
+    """The prefill is a read, so it needs the same ownership scoping as the rest."""
+    update = _callback_update("note_edit_5")
+    with patch.object(notes_module, "DatabaseManager") as db:
+        db.get_user_by_telegram_id = AsyncMock(return_value=_user())
+        db.get_note_for_user = AsyncMock(return_value=None)
+        await handler.start_edit_note(update, ctx)
+
+    assert "לא נמצא" in update.callback_query.edit_message_text.call_args.args[0]
+    assert "editing_note_id" not in ctx.user_data, "a failed prefill must not arm the edit"
+
+
+@pytest.mark.asyncio
+async def test_the_edit_screen_offers_appending_instead(handler, ctx):
+    update = _callback_update("note_edit_5")
+    with patch.object(notes_module, "DatabaseManager") as db:
+        db.get_user_by_telegram_id = AsyncMock(return_value=_user())
+        db.get_note_for_user = AsyncMock(return_value=_note(5, "קיים"))
+        await handler.start_edit_note(update, ctx)
+
+    markup = update.callback_query.edit_message_text.call_args.kwargs["reply_markup"]
+    assert "note_append_5" in _callbacks(markup)
+
+
+@pytest.mark.asyncio
+async def test_all_four_note_text_flags_stay_exclusive(handler, ctx):
+    await handler.start_append_note(_callback_update("note_append_5"), ctx)
+    await handler.start_title_note(_callback_update("note_title_5"), ctx)
+    assert "appending_note_id" not in ctx.user_data
+    assert ctx.user_data["titling_note_id"] == 5
+
+
+def test_the_note_card_offers_adding(handler):
+    from handlers.notes_handler import _note_detail_keyboard
+
+    assert "note_append_5" in _callbacks(_note_detail_keyboard(5))
+
+
+def test_the_append_button_is_registered(handler):
+    patterns = [h.pattern for h in handler.get_handlers()]
+    assert any(p.match("note_append_1") for p in patterns)

@@ -184,3 +184,60 @@ def test_note_doc_maps_the_optional_title():
 
     unnamed = DatabaseManagerMongo._doc_to_note({"_id": 2, "content": "גוף"})
     assert unnamed.title is None, "a note written before titles existed must not break"
+
+
+# --- appending (pipeline update) -----------------------------------------
+
+
+class _CapturingNotes:
+    """Records the update document instead of talking to Mongo."""
+
+    def __init__(self):
+        self.filter = None
+        self.update = None
+
+    async def update_one(self, filter_, update, **kwargs):
+        self.filter = filter_
+        self.update = update
+
+        class _Res:
+            matched_count = 1
+
+        return _Res()
+
+
+async def _append(text, note_id=5, user_id=11):
+    notes = _CapturingNotes()
+    with patch("database._mongo_db") as mongo, patch("database._init_mongo", AsyncMock()):
+        mongo.notes = notes
+        await DatabaseManagerMongo.append_to_note_for_user(note_id, user_id, text)
+    return notes
+
+
+@pytest.mark.asyncio
+async def test_append_is_a_single_server_side_update():
+    """Read-modify-write would let two quick additions overwrite each other."""
+    notes = await _append("עוד שורה")
+
+    assert isinstance(notes.update, list), "expected an aggregation pipeline, not a plain $set"
+    assert notes.filter == {"_id": 5, "user_id": 11}, "the filter carries ownership"
+
+
+@pytest.mark.asyncio
+async def test_appended_text_is_wrapped_in_literal():
+    """Text starting with $ would otherwise be read as a field path by Mongo."""
+    notes = await _append("$content")
+
+    rendered = repr(notes.update)
+    assert "'$literal': '$content'" in rendered, "user text reached the pipeline unquoted"
+
+
+@pytest.mark.asyncio
+async def test_append_handles_an_empty_note_without_a_leading_newline():
+    notes = await _append("ראשונה")
+    stage = notes.update[0]["$set"]["content"]
+
+    assert "$cond" in stage, "no branch for a note that has no content yet"
+    empty_branch, non_empty_branch = stage["$cond"][1], stage["$cond"][2]
+    assert empty_branch == {"$literal": "ראשונה"}
+    assert "$concat" in non_empty_branch

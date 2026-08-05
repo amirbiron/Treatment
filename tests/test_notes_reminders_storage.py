@@ -16,6 +16,7 @@ NEW_METHODS = [
     "get_note_by_id",
     "update_note",
     "set_note_title_for_user",
+    "append_to_note_for_user",
     "delete_note",
     "create_custom_reminder",
     "get_user_custom_reminders",
@@ -258,3 +259,63 @@ async def test_titles_are_trimmed_and_capped_on_both_paths(db):
 
     await DB.set_note_title_for_user(created.id, user.id, "א" * 500)
     assert len((await DB.get_note_by_id(created.id)).title) == db.MAX_NOTE_TITLE_LENGTH
+
+
+# --- appending -----------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_appending_keeps_what_was_already_written(db):
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=988, username="t", first_name="T")
+    note = await DB.create_note(user.id, "לשאול על המינון")
+
+    assert await DB.append_to_note_for_user(note.id, user.id, "וגם על תופעות לוואי")
+    assert (await DB.get_note_by_id(note.id)).content == "לשאול על המינון\nוגם על תופעות לוואי"
+
+    await DB.append_to_note_for_user(note.id, user.id, "ועל שעות הנטילה")
+    assert (await DB.get_note_by_id(note.id)).content.splitlines() == [
+        "לשאול על המינון",
+        "וגם על תופעות לוואי",
+        "ועל שעות הנטילה",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_appending_does_not_pile_up_blank_lines(db):
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=987, username="t", first_name="T")
+    note = await DB.create_note(user.id, "שורה\n\n")
+
+    await DB.append_to_note_for_user(note.id, user.id, "עוד שורה")
+    assert (await DB.get_note_by_id(note.id)).content == "שורה\nעוד שורה"
+
+
+@pytest.mark.asyncio
+async def test_appending_leaves_the_name_alone(db):
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=986, username="t", first_name="T")
+    note = await DB.create_note(user.id, "גוף", title="רופא משפחה")
+
+    await DB.append_to_note_for_user(note.id, user.id, "עוד")
+    stored = await DB.get_note_by_id(note.id)
+    assert stored.title == "רופא משפחה"
+    assert stored.content == "גוף\nעוד"
+
+
+@pytest.mark.asyncio
+async def test_another_user_cannot_append_to_a_note(db):
+    DB = db.DatabaseManager
+    owner = await DB.create_user(telegram_id=985, username="a", first_name="A")
+    other = await DB.create_user(telegram_id=984, username="b", first_name="B")
+    note = await DB.create_note(owner.id, "שלי")
+
+    assert await DB.append_to_note_for_user(note.id, other.id, "נדחף") is False
+    assert (await DB.get_note_by_id(note.id)).content == "שלי"
+
+
+@pytest.mark.asyncio
+async def test_appending_to_a_missing_note_reports_rather_than_raising(db):
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=983, username="t", first_name="T")
+    assert await DB.append_to_note_for_user(4242, user.id, "טקסט") is False
