@@ -49,6 +49,13 @@ MAIN_MENU_ACTIONS = {
     "🚑 חירום": "emergency",
 }
 
+# Labels that used to be on the menu. Telegram keeps a reply keyboard on the
+# client until it is replaced, so someone who has not opened the bot since the
+# button was retired still has it. It must still count as navigation: otherwise
+# a tap in the middle of writing a note would be saved as the note's text.
+RETIRED_MENU_LABELS = {"🏥 מלאי בית מרקחת"}
+RETIRED_MENU_REPLY = "האפשרות הזאת הוסרה. הנה התפריט המעודכן:"
+
 # Upper bound on updates waiting to be handled. Far above normal load, so a full
 # queue means the bot is genuinely overloaded rather than merely busy.
 UPDATE_QUEUE_MAXSIZE = 1000
@@ -1399,11 +1406,21 @@ class MedicineReminderBot:
             # pending draft state on the way through.
             from handlers import custom_reminder_handler, notes_handler
 
-            pressed_menu_button = (update.message.text or "").strip() in MAIN_MENU_ACTIONS
+            label = (update.message.text or "").strip()
+            pressed_menu_button = label in MAIN_MENU_ACTIONS or label in RETIRED_MENU_LABELS
             if pressed_menu_button:
                 for key in ("awaiting_note_text", "editing_note_id", "appending_note_id", "titling_note_id",
                             "awaiting_custom_reminder_text", "custom_reminder_draft"):
                     context.user_data.pop(key, None)
+
+            if label in RETIRED_MENU_LABELS:
+                # Say so and send the current keyboard, so the stale button goes away.
+                from utils.keyboards import get_main_menu_keyboard
+
+                await update.message.reply_text(
+                    RETIRED_MENU_REPLY, reply_markup=get_main_menu_keyboard()
+                )
+                return
             else:
                 if notes_handler and await notes_handler.handle_text(update, context):
                     return
