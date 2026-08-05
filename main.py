@@ -1498,7 +1498,9 @@ class MedicineReminderBot:
                 if action == "emergency":
                     # The numbers come first and without a tap. Someone opening
                     # this menu may be in a hurry, and the list needs no AI call.
-                    from handlers.emergency_agent import format_emergency_numbers
+                    # Imported from the standalone module rather than the agent,
+                    # so the card survives an import failure in the AI stack.
+                    from handlers.emergency_numbers import format_emergency_numbers
 
                     await update.message.reply_text(
                         format_emergency_numbers(),

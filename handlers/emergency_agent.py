@@ -28,6 +28,7 @@ from datetime import timedelta
 
 import google.generativeai as genai
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import BadRequest
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -36,8 +37,11 @@ from telegram.ext import (
     filters,
 )
 
+from handlers.emergency_numbers import EMERGENCY_NUMBERS, format_emergency_numbers
 from usage_tracker import ALERT_THRESHOLD, increment_and_check_usage, is_limit_reached
 from telegram_alerter import send_telegram_alert
+
+__all__ = ["EMERGENCY_NUMBERS", "format_emergency_numbers", "create_emergency_conversation"]
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +107,13 @@ GUIDE_FILES = (
 
 
 def _load_guide() -> str:
-    """Read the guide once. An empty string means the agent must not answer."""
+    """Read the guide once. An empty string means the agent must not answer.
+
+    All or nothing on purpose. A partial load would still look like a working
+    guide, but GUIDE_NUMBERS would be missing whatever was in the absent file,
+    so correct answers carrying those numbers would be rejected as unverified.
+    The user would see refusals and the cause would be a missing file.
+    """
     parts = []
     for name in GUIDE_FILES:
         path = os.path.join(GUIDE_DIR, name)
@@ -111,7 +121,8 @@ def _load_guide() -> str:
             with open(path, encoding="utf-8") as handle:
                 parts.append(f"### {name}\n\n{handle.read()}")
         except OSError as exc:
-            logger.error(f"Emergency guide file missing: {path} ({exc})")
+            logger.error(f"Emergency guide incomplete, disabling agent: {path} ({exc})")
+            return ""
     return "\n\n".join(parts)
 
 
@@ -123,20 +134,6 @@ def is_guide_available() -> bool:
 
 
 # ═══ Answers that must never depend on a model ═══
-
-# Straight from the guide's Step 1. The test suite asserts every one of these
-# still appears in the guide, so the two cannot drift apart silently.
-EMERGENCY_NUMBERS = (
-    ("101", 'מד"א', "חירום רפואי, אמבולנס"),
-    ("100", "משטרה", "פשע, איום ביטחוני, תאונה"),
-    ("102", "כיבוי אש והצלה", "שריפה, חומרים מסוכנים, חילוץ"),
-    ("104", "פיקוד העורף", "אזעקות, מקלוט, מידע בזמן מלחמה"),
-    ("105", "הגנה על ילדים ברשת", "פגיעה מקוונת בקטין, סחיטה"),
-    ("118", "מוקד הרווחה", "אלימות במשפחה, ילד או קשיש בסיכון"),
-    ("1201", 'ער"ן', "מצוקה נפשית, מחשבות אובדניות"),
-    ("1202 / 1203", "סיוע לנפגעות ונפגעי תקיפה מינית", "1202 לנשים, 1203 לגברים"),
-    ("04-7771900", "מכון מידע בהרעלות", "הרעלה, מנת יתר, נשיכת נחש או עקרב"),
-)
 
 _CALL_101 = "☎️ חייגו *101* (מד\"א) עכשיו."
 
@@ -221,28 +218,35 @@ _ERR_UNVERIFIED = (
     "נסו לנסח את השאלה אחרת, או פנו ישירות:\n"
     "☎️ חירום רפואי *101* • משטרה *100* • כיבוי אש *102* • פיקוד העורף *104*"
 )
+_ERR_NO_AI = (
+    "שירות השאלות אינו זמין כרגע, אבל מספרי החירום תמיד כאן:\n\n"
+    "☎️ חירום רפואי *101* • משטרה *100* • כיבוי אש *102* • פיקוד העורף *104*"
+)
+_ERR_QUOTA = "הגעתי למכסת השאלות היומית. מספרי החירום עדיין כאן:"
 
 DISCLAIMER = "\n\n_מידע כללי מתוך מדריך חירום, לא ייעוץ רפואי. בספק — חייגו 101._"
-
-
-def format_emergency_numbers() -> str:
-    """The quick-reference card. No model involved, so it cannot be wrong."""
-    lines = ["🚨 *מספרי חירום בישראל*\n"]
-    for number, service, when in EMERGENCY_NUMBERS:
-        lines.append(f"*{number}* — {service}\n_{when}_")
-    lines.append(
-        "\n⚠️ 112 אינו מוקד חירום מאוחד בישראל. הוא מגיע למשטרה בלבד "
-        "ולא מנתב למד\"א. בחירום רפואי תמיד 101."
-    )
-    return "\n".join(lines)
 
 
 # ═══ Verifying a generated answer against the guide ═══
 
 # Only phone-shaped tokens are checked, so shekel amounts, minutes and years do
-# not trip the validator: star codes, hyphenated runs, and bare numbers in the
-# 1xx/1xxx service range where an invented digit is most dangerous.
-_PHONE_TOKEN = re.compile(r"\*\d{3,5}|\d{3,5}\*|\+?\d{1,4}(?:-\d{3,7}){1,3}|\b1\d{2,3}\b")
+# not trip the validator. The shapes below have to cover every way a number can
+# be written, not just the way the guide happens to write it: a model asked for
+# a phone number will sometimes answer "0528451201" where the guide says
+# "052-8451201", and a shape this validator does not recognise is a shape it
+# cannot reject.
+_PHONE_TOKEN = re.compile(
+    r"""
+    \*\d{3,5}                     # star code, *3362
+  | \d{3,5}\*                     # star code written right-to-left, 3362*
+  | \+?\d{1,4}(?:-\d{3,7}){1,3}   # hyphenated, 04-7771900 / +972-76-884-4400
+  | \b05\d{8}\b                   # contiguous mobile, 0528451201
+  | \b0[2-489]\d{7}\b             # contiguous landline, 086400111
+  | \b972\d{8,9}\b                # contiguous international
+  | \b1\d{2,3}\b                  # service numbers, 101 / 1201
+    """,
+    re.VERBOSE,
+)
 
 
 def _normalize_number(token: str) -> str:
@@ -349,10 +353,24 @@ def _init_ai_session(context) -> None:
 
 
 async def ask_guide(context, user_message: str):
-    """Return (reply, is_real). is_real=False keeps it out of chat history."""
+    """Return (reply, is_real). is_real=False keeps it out of chat history.
+
+    The daily cap is enforced here rather than at each call site, because a
+    guard that has to be remembered in every new handler is a guard that will
+    eventually be forgotten in one.
+    """
+    if is_limit_reached():
+        return _ERR_QUOTA + "\n\n" + format_emergency_numbers(), False
+
     model = context.user_data.get("emerg_model")
     if model is None:
-        _init_ai_session(context)
+        try:
+            _init_ai_session(context)
+        except RuntimeError as exc:
+            # No API key. On an emergency screen a generic error message is a
+            # bad outcome, so hand back the numbers instead.
+            logger.error(f"Emergency agent session init failed: {exc}")
+            return _ERR_NO_AI, False
         model = context.user_data["emerg_model"]
 
     current_count = increment_and_check_usage()
@@ -406,18 +424,36 @@ INTRO = (
 )
 
 
+async def send_reply(message, text: str, **kwargs):
+    """Send model-authored text, falling back to plain when Markdown breaks.
+
+    Nothing guarantees the model closes its asterisks. Telegram rejects the
+    whole message when it does not, and the user would get nothing at all -
+    which is a far worse outcome than losing the bold.
+    """
+    try:
+        return await message.reply_text(text, parse_mode="Markdown", **kwargs)
+    except BadRequest:
+        logger.warning("Emergency reply failed Markdown parsing, resending as plain text")
+        return await message.reply_text(text, **kwargs)
+
+
 async def entry_from_callback(update: Update, context):
     query = update.callback_query
     await query.answer()
 
     if not is_guide_available():
-        await query.message.reply_text(_ERR_NO_GUIDE, parse_mode="Markdown")
+        await send_reply(query.message, _ERR_NO_GUIDE)
         return ConversationHandler.END
 
-    _init_ai_session(context)
-    await query.message.reply_text(
-        INTRO, parse_mode="Markdown", reply_markup=get_emergency_keyboard()
-    )
+    try:
+        _init_ai_session(context)
+    except RuntimeError as exc:
+        logger.error(f"Emergency agent cannot start: {exc}")
+        await send_reply(query.message, _ERR_NO_AI)
+        return ConversationHandler.END
+
+    await send_reply(query.message, INTRO, reply_markup=get_emergency_keyboard())
     return EMERGENCY_STATE
 
 
@@ -427,31 +463,14 @@ async def handle_message(update: Update, context):
         return EMERGENCY_STATE
 
     kind = classify(text)
-    if kind == "critical":
+    canned = {
         # No API call: a person who is not breathing cannot wait for Gemini.
-        await update.message.reply_text(
-            critical_reply(), parse_mode="Markdown", reply_markup=get_emergency_keyboard()
-        )
-        return EMERGENCY_STATE
-    if kind == "mental_health":
-        await update.message.reply_text(
-            _MENTAL_HEALTH_REPLY, parse_mode="Markdown", reply_markup=get_emergency_keyboard()
-        )
-        return EMERGENCY_STATE
-    if kind == "uncovered":
-        await update.message.reply_text(
-            _UNCOVERED_REPLY.format(topic=uncovered_topic(text)),
-            parse_mode="Markdown",
-            reply_markup=get_emergency_keyboard(),
-        )
-        return EMERGENCY_STATE
-
-    if is_limit_reached():
-        await update.message.reply_text(
-            "הגעתי למכסת השאלות היומית. מספרי החירום עדיין כאן:\n\n"
-            + format_emergency_numbers(),
-            parse_mode="Markdown",
-        )
+        "critical": critical_reply,
+        "mental_health": lambda: _MENTAL_HEALTH_REPLY,
+        "uncovered": lambda: _UNCOVERED_REPLY.format(topic=uncovered_topic(text)),
+    }.get(kind)
+    if canned:
+        await send_reply(update.message, canned(), reply_markup=get_emergency_keyboard())
         return EMERGENCY_STATE
 
     await update.message.chat.send_action("typing")
@@ -460,17 +479,15 @@ async def handle_message(update: Update, context):
     if is_real:
         remember(context, text, reply)
 
-    await update.message.reply_text(
-        reply, parse_mode="Markdown", reply_markup=get_emergency_keyboard()
-    )
+    await send_reply(update.message, reply, reply_markup=get_emergency_keyboard())
     return EMERGENCY_STATE
 
 
 async def handle_numbers(update: Update, context):
     query = update.callback_query
     await query.answer()
-    await query.message.reply_text(
-        format_emergency_numbers(), parse_mode="Markdown", reply_markup=get_emergency_keyboard()
+    await send_reply(
+        query.message, format_emergency_numbers(), reply_markup=get_emergency_keyboard()
     )
     return EMERGENCY_STATE
 
@@ -485,9 +502,7 @@ async def handle_shortcut(update: Update, context):
     if is_real:
         remember(context, prompt, reply)
 
-    await query.message.reply_text(
-        reply, parse_mode="Markdown", reply_markup=get_emergency_keyboard()
-    )
+    await send_reply(query.message, reply, reply_markup=get_emergency_keyboard())
     return EMERGENCY_STATE
 
 

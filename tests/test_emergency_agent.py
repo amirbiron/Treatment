@@ -48,6 +48,40 @@ def test_the_hospital_directory_is_included():
     assert "סורוקה" in agent.GUIDE_TEXT or "Soroka" in agent.GUIDE_TEXT
 
 
+def test_a_partial_guide_counts_as_no_guide():
+    """A missing reference file would otherwise show up as rejected answers,
+    not as a missing file."""
+    real_open = open
+
+    def fail_on_hospitals(path, *args, **kwargs):
+        if "hospital-directory" in str(path):
+            raise OSError("gone")
+        return real_open(path, *args, **kwargs)
+
+    with patch("builtins.open", side_effect=fail_on_hospitals):
+        assert agent._load_guide() == ""
+
+
+def test_the_numbers_card_does_not_depend_on_the_ai_module():
+    """The one screen someone may open in a hurry must not need google.generativeai."""
+    import ast
+
+    source = open("handlers/emergency_numbers.py", encoding="utf-8").read()
+    imports = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+    ]
+    assert imports == [], "the standalone numbers card grew a dependency"
+
+
+def test_the_agent_re_exports_the_card():
+    """main.py and older call sites should keep working either way."""
+    from handlers.emergency_numbers import format_emergency_numbers as standalone
+
+    assert agent.format_emergency_numbers is standalone
+
+
 def test_the_coverage_contract_is_not_fed_to_the_model():
     """domain-checklist.md is a reviewer document, not answer material."""
     assert "domain-checklist" not in "".join(agent.GUIDE_FILES)
@@ -119,6 +153,26 @@ def test_the_star_code_for_natal_verifies():
 
 def test_an_invented_star_code_is_caught():
     assert agent.verify_answer("חייגו *9999").ok is False
+
+
+# A model asked for a phone number does not always format it the way the guide
+# does, and a shape the validator cannot see is a shape it cannot reject.
+
+
+def test_a_guide_number_written_without_hyphens_still_verifies():
+    assert agent.verify_answer("וואטסאפ ער\"ן 0528451201").ok
+
+
+def test_an_invented_contiguous_mobile_is_caught():
+    assert agent.verify_answer("חייגו 0591234567").ok is False
+
+
+def test_an_invented_contiguous_landline_is_caught():
+    assert agent.verify_answer("חדר מיון: 081234567").ok is False
+
+
+def test_a_guide_landline_without_hyphens_verifies():
+    assert agent.verify_answer("סורוקה 086400111").ok
 
 
 def test_the_verdict_names_the_offending_number():
@@ -245,7 +299,7 @@ async def test_an_uncovered_scenario_routes_to_home_front_command():
 
     sent = update.message.reply_text.await_args.args[0]
     assert "104" in sent
-    ctx.user_data["emerg_model"].start_chat.assert_not_called(), "the model was asked to improvise"
+    assert not ctx.user_data["emerg_model"].start_chat.called, "the model was asked to improvise"
 
 
 def test_shelter_exit_is_covered_so_it_reaches_the_model():
@@ -402,6 +456,98 @@ async def test_the_daily_limit_still_leaves_the_numbers_reachable():
     sent = update.message.reply_text.await_args.args[0]
     assert "101" in sent
     ctx.user_data["emerg_model"].start_chat.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_the_shortcut_buttons_respect_the_daily_limit_too():
+    """A guard that lives at each call site gets forgotten at the next one."""
+    ctx = _ctx()
+    query = MagicMock()
+    query.data = "emerg_triage"
+    query.answer = AsyncMock()
+    query.message.reply_text = AsyncMock()
+    update = MagicMock()
+    update.callback_query = query
+
+    with patch.object(agent, "is_limit_reached", return_value=True):
+        await agent.handle_shortcut(update, ctx)
+
+    ctx.user_data["emerg_model"].start_chat.assert_not_called()
+    assert "101" in query.message.reply_text.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_the_limit_is_enforced_inside_ask_guide():
+    """So any future call site inherits it rather than having to repeat it."""
+    ctx = _ctx()
+
+    with patch.object(agent, "is_limit_reached", return_value=True):
+        reply, is_real = await agent.ask_guide(ctx, "שאלה")
+
+    assert is_real is False and "101" in reply
+    ctx.user_data["emerg_model"].start_chat.assert_not_called()
+
+
+# --- a missing API key still leaves the numbers -------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_missing_api_key_returns_the_numbers_not_a_generic_error():
+    """An unhandled RuntimeError here would surface as the bot's generic error."""
+    ctx = MagicMock()
+    ctx.user_data = {}
+
+    with patch.object(agent, "_init_ai_session", side_effect=RuntimeError("no key")):
+        reply, is_real = await agent.ask_guide(ctx, "שאלה")
+
+    assert reply == agent._ERR_NO_AI
+    assert "101" in reply and is_real is False
+
+
+@pytest.mark.asyncio
+async def test_entry_survives_a_missing_api_key():
+    update = MagicMock()
+    update.callback_query.answer = AsyncMock()
+    update.callback_query.message.reply_text = AsyncMock()
+    ctx = MagicMock()
+    ctx.user_data = {}
+
+    with patch.object(agent, "_init_ai_session", side_effect=RuntimeError("no key")):
+        result = await agent.entry_from_callback(update, ctx)
+
+    from telegram.ext import ConversationHandler
+
+    assert result == ConversationHandler.END
+    assert "101" in update.callback_query.message.reply_text.await_args.args[0]
+
+
+# --- broken Markdown must not swallow the answer ------------------------------
+
+
+@pytest.mark.asyncio
+async def test_an_unparseable_answer_is_resent_as_plain_text():
+    """Telegram rejects the whole message on a stray asterisk; losing the bold
+    beats losing the answer."""
+    from telegram.error import BadRequest
+
+    message = MagicMock()
+    message.reply_text = AsyncMock(side_effect=[BadRequest("can't parse entities"), None])
+
+    await agent.send_reply(message, "תשובה עם *כוכבית פתוחה")
+
+    assert message.reply_text.await_count == 2
+    assert "parse_mode" not in message.reply_text.await_args.kwargs
+
+
+@pytest.mark.asyncio
+async def test_a_parseable_answer_is_sent_once():
+    message = MagicMock()
+    message.reply_text = AsyncMock()
+
+    await agent.send_reply(message, "תשובה תקינה")
+
+    assert message.reply_text.await_count == 1
+    assert message.reply_text.await_args.kwargs["parse_mode"] == "Markdown"
 
 
 # --- entry point -------------------------------------------------------------
