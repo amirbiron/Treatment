@@ -31,6 +31,7 @@ MAX_TITLE_LENGTH = MAX_NOTE_TITLE_LENGTH
 # user_data flags
 AWAITING_NEW_NOTE = "awaiting_note_text"
 EDITING_NOTE = "editing_note_id"
+APPENDING_NOTE = "appending_note_id"
 TITLING_NOTE = "titling_note_id"
 
 
@@ -65,8 +66,9 @@ def _note_detail_keyboard(note_id: int, has_title: bool = False) -> InlineKeyboa
 
     return InlineKeyboardMarkup(
         [
+            [InlineKeyboardButton("➕ הוסף לפתק", callback_data=f"note_append_{note_id}")],
             [
-                InlineKeyboardButton(f"{config.EMOJIS['settings']} ערוך", callback_data=f"note_edit_{note_id}"),
+                InlineKeyboardButton(f"{config.EMOJIS['settings']} ערוך הכל", callback_data=f"note_edit_{note_id}"),
                 InlineKeyboardButton(f"{config.EMOJIS['error']} מחק", callback_data=f"note_del_{note_id}"),
             ],
             naming_row,
@@ -84,6 +86,7 @@ class NotesHandler:
             CallbackQueryHandler(self.start_add_note, pattern="^note_add$"),
             CallbackQueryHandler(self.view_note, pattern=r"^note_view_\d+$"),
             CallbackQueryHandler(self.start_edit_note, pattern=r"^note_edit_\d+$"),
+            CallbackQueryHandler(self.start_append_note, pattern=r"^note_append_\d+$"),
             CallbackQueryHandler(self.start_title_note, pattern=r"^note_title_\d+$"),
             CallbackQueryHandler(self.remove_note_title, pattern=r"^note_untitle_\d+$"),
             CallbackQueryHandler(self.ask_delete_note, pattern=r"^note_del_\d+$"),
@@ -154,13 +157,46 @@ class NotesHandler:
         )
 
     async def start_edit_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Rewrite the whole note, but hand the current text back to start from.
+
+        The body is sent inside a <code> block: tapping it copies it to the
+        clipboard, so editing means paste-and-change rather than retype.
+        """
         query = update.callback_query
         await query.answer()
         note_id = int(query.data.rsplit("_", 1)[1])
         self._clear_flags(context)
+
+        user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
+        note = await DatabaseManager.get_note_for_user(note_id, user.id) if user else None
+        if not note:
+            await query.edit_message_text("הפתק לא נמצא.")
+            return
+
         context.user_data[EDITING_NOTE] = note_id
         await query.edit_message_text(
-            "📝 כתבו את התוכן החדש של הפתק:",
+            "📝 <b>עריכת הפתק</b>\n\n"
+            "הקישו על הטקסט כדי להעתיק אותו, הדביקו, וערכו:\n"
+            f"<code>{html.escape(note.content or '')}</code>\n\n"
+            "או פשוט כתבו תוכן חדש. מה שתשלחו יחליף את הפתק.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("➕ להוסיף במקום להחליף", callback_data=f"note_append_{note_id}")],
+                    [InlineKeyboardButton(f"{config.EMOJIS['back']} ביטול", callback_data=f"note_view_{note_id}")],
+                ]
+            ),
+        )
+
+    async def start_append_note(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Add to a note. The usual case for a notepad, and it types nothing twice."""
+        query = update.callback_query
+        await query.answer()
+        note_id = int(query.data.rsplit("_", 1)[1])
+        self._clear_flags(context)
+        context.user_data[APPENDING_NOTE] = note_id
+        await query.edit_message_text(
+            "➕ מה להוסיף לפתק?\nהטקסט יתווסף בשורה חדשה בסוף, בלי לגעת במה שכבר כתוב.",
             reply_markup=InlineKeyboardMarkup(
                 [[InlineKeyboardButton(f"{config.EMOJIS['back']} ביטול", callback_data=f"note_view_{note_id}")]]
             ),
@@ -226,15 +262,21 @@ class NotesHandler:
         user_data = context.user_data
         adding = user_data.get(AWAITING_NEW_NOTE)
         editing = user_data.get(EDITING_NOTE)
+        appending = user_data.get(APPENDING_NOTE)
         titling = user_data.get(TITLING_NOTE)
-        if not adding and not editing and not titling:
+        if not adding and not editing and not appending and not titling:
             return False
 
         content = (update.message.text or "").strip()
         self._clear_flags(context)
 
         if not content:
-            message = "השם ריק, לא נשמר." if titling else "הפתק ריק, לא נשמר."
+            if titling:
+                message = "השם ריק, לא נשמר."
+            elif appending:
+                message = "לא נוספה שורה ריקה."
+            else:
+                message = "הפתק ריק, לא נשמר."
             await update.message.reply_text(f"{config.EMOJIS['error']} {message}")
             return True
 
@@ -249,6 +291,11 @@ class NotesHandler:
                 await update.message.reply_text("הפתק לא נמצא.")
                 return True
             await update.message.reply_text(f"{config.EMOJIS['success']} הפתק נקרא עכשיו \"{title}\"")
+        elif appending:
+            if not await DatabaseManager.append_to_note_for_user(int(appending), user.id, content):
+                await update.message.reply_text("הפתק לא נמצא.")
+                return True
+            await update.message.reply_text(f"{config.EMOJIS['success']} נוסף לפתק")
         elif editing:
             if not await DatabaseManager.update_note_for_user(int(editing), user.id, content):
                 await update.message.reply_text("הפתק לא נמצא.")
@@ -265,6 +312,7 @@ class NotesHandler:
     def _clear_flags(context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop(AWAITING_NEW_NOTE, None)
         context.user_data.pop(EDITING_NOTE, None)
+        context.user_data.pop(APPENDING_NOTE, None)
         context.user_data.pop(TITLING_NOTE, None)
 
     @staticmethod

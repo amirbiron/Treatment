@@ -16,6 +16,7 @@ NEW_METHODS = [
     "get_note_by_id",
     "update_note",
     "set_note_title_for_user",
+    "append_to_note_for_user",
     "delete_note",
     "create_custom_reminder",
     "get_user_custom_reminders",
@@ -258,3 +259,114 @@ async def test_titles_are_trimmed_and_capped_on_both_paths(db):
 
     await DB.set_note_title_for_user(created.id, user.id, "א" * 500)
     assert len((await DB.get_note_by_id(created.id)).title) == db.MAX_NOTE_TITLE_LENGTH
+
+
+# --- appending -----------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_appending_keeps_what_was_already_written(db):
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=988, username="t", first_name="T")
+    note = await DB.create_note(user.id, "לשאול על המינון")
+
+    assert await DB.append_to_note_for_user(note.id, user.id, "וגם על תופעות לוואי")
+    assert (await DB.get_note_by_id(note.id)).content == "לשאול על המינון\nוגם על תופעות לוואי"
+
+    await DB.append_to_note_for_user(note.id, user.id, "ועל שעות הנטילה")
+    assert (await DB.get_note_by_id(note.id)).content.splitlines() == [
+        "לשאול על המינון",
+        "וגם על תופעות לוואי",
+        "ועל שעות הנטילה",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_appending_does_not_pile_up_blank_lines(db):
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=987, username="t", first_name="T")
+    note = await DB.create_note(user.id, "שורה\n\n")
+
+    await DB.append_to_note_for_user(note.id, user.id, "עוד שורה")
+    assert (await DB.get_note_by_id(note.id)).content == "שורה\nעוד שורה"
+
+
+@pytest.mark.asyncio
+async def test_appending_leaves_the_name_alone(db):
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=986, username="t", first_name="T")
+    note = await DB.create_note(user.id, "גוף", title="רופא משפחה")
+
+    await DB.append_to_note_for_user(note.id, user.id, "עוד")
+    stored = await DB.get_note_by_id(note.id)
+    assert stored.title == "רופא משפחה"
+    assert stored.content == "גוף\nעוד"
+
+
+@pytest.mark.asyncio
+async def test_another_user_cannot_append_to_a_note(db):
+    DB = db.DatabaseManager
+    owner = await DB.create_user(telegram_id=985, username="a", first_name="A")
+    other = await DB.create_user(telegram_id=984, username="b", first_name="B")
+    note = await DB.create_note(owner.id, "שלי")
+
+    assert await DB.append_to_note_for_user(note.id, other.id, "נדחף") is False
+    assert (await DB.get_note_by_id(note.id)).content == "שלי"
+
+
+@pytest.mark.asyncio
+async def test_appending_to_a_missing_note_reports_rather_than_raising(db):
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=983, username="t", first_name="T")
+    assert await DB.append_to_note_for_user(4242, user.id, "טקסט") is False
+
+
+@pytest.mark.asyncio
+async def test_two_concurrent_appends_both_survive(db):
+    """A read-then-write would let the later commit erase the earlier append."""
+    import asyncio
+
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=982, username="t", first_name="T")
+    note = await DB.create_note(user.id, "התחלה")
+
+    await asyncio.gather(
+        DB.append_to_note_for_user(note.id, user.id, "ראשונה"),
+        DB.append_to_note_for_user(note.id, user.id, "שנייה"),
+    )
+
+    lines = (await DB.get_note_by_id(note.id)).content.splitlines()
+    assert lines[0] == "התחלה"
+    assert set(lines[1:]) == {"ראשונה", "שנייה"}, f"an append was lost: {lines}"
+
+
+@pytest.mark.asyncio
+async def test_many_concurrent_appends_all_survive(db):
+    import asyncio
+
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=981, username="t", first_name="T")
+    note = await DB.create_note(user.id, "0")
+
+    await asyncio.gather(*[DB.append_to_note_for_user(note.id, user.id, str(i)) for i in range(1, 11)])
+
+    lines = (await DB.get_note_by_id(note.id)).content.splitlines()
+    assert sorted(lines, key=int) == [str(i) for i in range(11)], f"lost appends: {lines}"
+
+
+def test_both_backends_trim_the_same_characters():
+    """The two appends must agree on what gets trimmed before a new line."""
+    import database
+
+    assert database.NOTE_TRAILING_CHARS == "\n\r", "newlines only, not spaces or tabs"
+
+
+@pytest.mark.asyncio
+async def test_appending_leaves_trailing_spaces_alone(db):
+    """Only blank lines are the problem; invisible spaces are still the user's text."""
+    DB = db.DatabaseManager
+    user = await DB.create_user(telegram_id=980, username="t", first_name="T")
+    note = await DB.create_note(user.id, "שורה עם רווחים   ")
+
+    await DB.append_to_note_for_user(note.id, user.id, "עוד")
+    assert (await DB.get_note_by_id(note.id)).content == "שורה עם רווחים   \nעוד"
