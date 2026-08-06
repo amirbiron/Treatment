@@ -14,6 +14,7 @@ from config import config
 from database import DatabaseManager, Medicine, MedicineSchedule
 from scheduler import medicine_scheduler
 from utils.time import get_user_timezone_name
+from utils.inventory import shows_inventory_for_telegram_id
 from utils import schedule
 from utils.schedule import expand_interval_times, format_times, parse_interval_callback
 from utils.keyboards import (
@@ -318,13 +319,17 @@ class MedicineHandler:
             else:
                 schedule_line = f"⏰ שעות נטילה: {format_times(medicine_data['schedules'])}"
 
+            initial_stock = (
+                '\n📦 מלאי התחלתי: 0 כדורים (ניתן לעדכן דרך "עדכן מלאי")'
+                if await shows_inventory_for_telegram_id(user_id)
+                else ""
+            )
             message = f"""
 {config.EMOJIS['success']} <b>התרופה נוספה בהצלחה!</b>
 
 {config.EMOJIS['medicine']} <b>{medicine_data['name']}</b>
 {config.EMOJIS['dosage']} מינון: {medicine_data['dosage']}
-{schedule_line}
-📦 מלאי התחלתי: 0 כדורים (ניתן לעדכן דרך "עדכן מלאי")
+{schedule_line}{initial_stock}
 
 התזכורות הופעלו אוטומטית!
             """
@@ -418,14 +423,20 @@ class MedicineHandler:
 
             if success:
                 medicine_data = self.user_medicine_data[user_id]["medicine_data"]
+                # The user typed this number a moment ago, but if they do not
+                # track inventory it is noise from here on.
+                added_stock = (
+                    f"\n📦 מלאי: {inventory_count} יחידות"
+                    if await shows_inventory_for_telegram_id(user_id)
+                    else ""
+                )
 
                 message = f"""
 {config.EMOJIS['success']} <b>התרופה נוספה בהצלחה!</b>
 
 {config.EMOJIS['medicine']} <b>{medicine_data['name']}</b>
 {config.EMOJIS['dosage']} מינון: {medicine_data['dosage']}
-⏰ שעות נטילה: {', '.join([t.strftime('%H:%M') for t in medicine_data['schedules']])}
-📦 מלאי: {inventory_count} יחידות
+⏰ שעות נטילה: {', '.join([t.strftime('%H:%M') for t in medicine_data['schedules']])}{added_stock}
 
 התזכורות הופעלו אוטומטית!
                 """
@@ -505,15 +516,18 @@ class MedicineHandler:
 
             # Inventory warning
             inventory_status = ""
-            if medicine.inventory_count <= medicine.low_stock_threshold:
+            show_inventory = await shows_inventory_for_telegram_id(update.effective_user.id)
+            if show_inventory and medicine.inventory_count <= medicine.low_stock_threshold:
                 inventory_status = f"\n{config.EMOJIS['warning']} <b>מלאי נמוך! כדאי להזמין עוד</b>"
+            stock = (
+                f"\n📦 <b>מלאי:</b> {medicine.inventory_count} כדורים" if show_inventory else ""
+            )
 
             message = f"""
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
 
 {config.EMOJIS['dosage']} <b>מינון:</b> {medicine.dosage}
-⏰ <b>שעות נטילה:</b> {', '.join(schedule_times) if schedule_times else 'לא מוגדר'}
-📦 <b>מלאי:</b> {medicine.inventory_count} כדורים
+⏰ <b>שעות נטילה:</b> {', '.join(schedule_times) if schedule_times else 'לא מוגדר'}{stock}
 📊 <b>השבוע:</b> נלקח {taken_count}/{total_count} פעמים
 
 {medicine.notes or ''}{inventory_status}

@@ -1081,6 +1081,10 @@ class MedicineReminderBot:
 
         # Update inventory
         medicine = await DatabaseManager.get_medicine_by_id(medicine_id)
+        # Bound before the branch: a medicine already at zero skips the update,
+        # and the confirmation below still reads the count. The dose is logged
+        # by then, so failing here reports an error for a dose that was recorded.
+        new_count = medicine.inventory_count if medicine else 0
         if medicine and medicine.inventory_count > 0:
             new_count = medicine.inventory_count - 1
             await DatabaseManager.update_inventory(medicine_id, new_count)
@@ -1089,9 +1093,10 @@ class MedicineReminderBot:
         reminder_key = f"{user.id}_{medicine_id}"
         medicine_scheduler.reminder_attempts[reminder_key] = 0
 
-        await query.edit_message_text(
-            f"{config.EMOJIS['success']} נטילת התרופה אושרה!\n" f"מלאי נותר: {new_count if medicine else 'לא ידוע'} כדורים"
-        )
+        confirmation = f"{config.EMOJIS['success']} נטילת התרופה אושרה!"
+        if medicine and await tracks_inventory(query.from_user.id):
+            confirmation += f"\nמלאי נותר: {new_count} כדורים"
+        await query.edit_message_text(confirmation)
 
     async def _handle_dose_snooze(self, query, context):
         """Handle dose snooze request"""

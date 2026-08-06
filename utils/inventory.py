@@ -30,6 +30,23 @@ async def shows_inventory_for_user(db_user) -> bool:
         return True
 
 
+def stock_line(count, low_threshold=None, prefix="📦 מלאי נותר: ") -> str:
+    """The stock line plus its warning, or nothing at all.
+
+    Callers pass an already-resolved decision so they do not each repeat the
+    lookup. Returning "" rather than a blank line keeps the message tidy when
+    the line is dropped.
+    """
+    line = f"{prefix}{count} כדורים"
+    if low_threshold is not None and count <= low_threshold:
+        line += (
+            "\n\n❌ <b>המלאי אפס!</b> אנא עדכנו את המלאי."
+            if count == 0
+            else f"\n\n⚠️ <b>מלאי נמוך!</b>\nנותרו {count} כדורים. כדאי להזמין עוד."
+        )
+    return line
+
+
 async def shows_inventory_for_telegram_id(telegram_user_id) -> bool:
     """Look the setting up from a Telegram id."""
     from database import DatabaseManager
