@@ -2,24 +2,55 @@
 # Setup script for Clalit Pharmacy Search skill
 # This installs the agent-skill-clalit-pharm-search into the skills directory
 
-set -e
+# Deliberately not `set -e`. This installs an optional component, and the bot
+# runs without it - the agent reports a missing skill rather than crashing. When
+# this runs from a hosting Build Command, a non-zero exit fails the whole deploy,
+# which is far worse than not having pharmacy search. Failures are reported and
+# the script still exits 0; see the summary at the end.
 
 SKILL_DIR="skills/clalit-pharm-search"
+REPO="https://github.com/tomron/agent-skill-clalit-pharm-search"
+BRANCH="feat/clalit-pharm-search"
 
-if [ -d "$SKILL_DIR" ]; then
-    echo "Skill already installed at $SKILL_DIR"
-    echo "Updating..."
-    cd "$SKILL_DIR"
-    # Revert any local patches before pulling to avoid merge conflicts
-    git checkout -- .
-    git pull origin feat/clalit-pharm-search
-    PUPPETEER_SKIP_DOWNLOAD=true npm install
-else
-    echo "Cloning agent-skill-clalit-pharm-search..."
-    git clone -b feat/clalit-pharm-search https://github.com/tomron/agent-skill-clalit-pharm-search "$SKILL_DIR"
-    cd "$SKILL_DIR"
+warn() { echo "WARNING: $*" >&2; }
+
+install_skill() {
+    # `[ -d ]` was not enough: a directory left behind by an interrupted clone
+    # has no .git, so `cd` succeeded and `git checkout -- .` resolved against the
+    # *parent* repository, where nothing under skills/ is tracked. That failed
+    # with "pathspec '.' did not match any file(s) known to git" and, with
+    # `set -e`, took the build down with it.
+    # --show-toplevel, not --git-dir: skills/ sits inside this repository, so
+    # --git-dir succeeds by walking up and finding *Treatment's* .git. That is
+    # the same confusion that produced the original failure. The directory only
+    # counts as the skill's clone if it is the root of its own work tree.
+    if [ -d "$SKILL_DIR" ] && [ "$(cd "$SKILL_DIR" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" \
+         != "$(cd "$SKILL_DIR" 2>/dev/null && pwd -P)" ]; then
+        warn "$SKILL_DIR exists but is not a git clone; removing it and starting over"
+        rm -rf "$SKILL_DIR" || return 1
+    fi
+
+    if [ -d "$SKILL_DIR" ]; then
+        echo "Skill already installed at $SKILL_DIR"
+        echo "Updating..."
+        # Revert any local patches before pulling to avoid merge conflicts.
+        git -C "$SKILL_DIR" checkout -- . || warn "could not revert local changes"
+        git -C "$SKILL_DIR" pull origin "$BRANCH" || {
+            warn "could not update the skill; keeping the copy already on disk"
+        }
+    else
+        echo "Cloning agent-skill-clalit-pharm-search..."
+        git clone -b "$BRANCH" "$REPO" "$SKILL_DIR" || return 1
+    fi
+
     echo "Installing dependencies..."
-    PUPPETEER_SKIP_DOWNLOAD=true npm install
+    ( cd "$SKILL_DIR" && PUPPETEER_SKIP_DOWNLOAD=true npm install ) || return 1
+}
+
+if ! install_skill; then
+    warn "pharmacy search skill was not installed. The bot starts without it;"
+    warn "the pharmacy agent reports the tool as unavailable rather than failing."
+    exit 0
 fi
 
 # Try to download Chrome for Puppeteer (needed for stock checks only).
@@ -31,8 +62,6 @@ else
     echo "WARNING: Could not download Chrome. Stock checks will not work,"
     echo "but medication search, city lookup, and pharmacy search will still function."
 fi
-
-cd - > /dev/null
 
 # Patch searchPost to include browser-like headers (fixes 403 from Clalit WAF)
 SEARCH_JS="$SKILL_DIR/scripts/pharmacy-search.js"
