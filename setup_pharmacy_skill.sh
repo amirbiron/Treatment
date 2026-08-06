@@ -14,19 +14,31 @@ BRANCH="feat/clalit-pharm-search"
 
 warn() { echo "WARNING: $*" >&2; }
 
+# Set PHARMACY_SETUP_STRICT=1 to get a real exit code. Off by default so a
+# hosting Build Command cannot be taken down by an optional component; on when
+# you run this yourself and want to know whether it worked.
+STRICT="${PHARMACY_SETUP_STRICT:-0}"
+
+looks_like_the_clone() {
+    # Two questions, because either alone is misleading. Is this the root of its
+    # own work tree - `--git-dir` would say yes for any directory inside this
+    # repository, by finding Treatment's .git on the way up. And does it hold
+    # what a clone holds - a killed clone can leave .git behind with an
+    # incomplete checkout, which would otherwise pass as healthy.
+    [ -d "$SKILL_DIR" ] && [ -f "$SKILL_DIR/package.json" ] || return 1
+    (
+        cd "$SKILL_DIR" || exit 1
+        [ "$(git rev-parse --show-toplevel 2>/dev/null)" = "$(pwd -P)" ]
+    )
+}
+
 install_skill() {
-    # `[ -d ]` was not enough: a directory left behind by an interrupted clone
-    # has no .git, so `cd` succeeded and `git checkout -- .` resolved against the
-    # *parent* repository, where nothing under skills/ is tracked. That failed
-    # with "pathspec '.' did not match any file(s) known to git" and, with
-    # `set -e`, took the build down with it.
-    # --show-toplevel, not --git-dir: skills/ sits inside this repository, so
-    # --git-dir succeeds by walking up and finding *Treatment's* .git. That is
-    # the same confusion that produced the original failure. The directory only
-    # counts as the skill's clone if it is the root of its own work tree.
-    if [ -d "$SKILL_DIR" ] && [ "$(cd "$SKILL_DIR" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" \
-         != "$(cd "$SKILL_DIR" 2>/dev/null && pwd -P)" ]; then
-        warn "$SKILL_DIR exists but is not a git clone; removing it and starting over"
+    # `[ -d ]` alone was what broke the build: a directory left by an
+    # interrupted install has no .git of its own, so `git checkout -- .` inside
+    # it resolved against *Treatment's* repository, where nothing under skills/
+    # is tracked, and `set -e` turned that into a failed deploy.
+    if [ -d "$SKILL_DIR" ] && ! looks_like_the_clone; then
+        warn "$SKILL_DIR is not a usable clone; removing it and starting over"
         rm -rf "$SKILL_DIR" || return 1
     fi
 
@@ -50,6 +62,7 @@ install_skill() {
 if ! install_skill; then
     warn "pharmacy search skill was not installed. The bot starts without it;"
     warn "the pharmacy agent reports the tool as unavailable rather than failing."
+    [ "$STRICT" = "1" ] && exit 1
     exit 0
 fi
 
