@@ -315,3 +315,117 @@ def test_the_low_stock_alert_sender_does_not_exist():
     import scheduler as scheduler_module
 
     assert not hasattr(scheduler_module.MedicineScheduler, "_send_low_stock_alert")
+
+
+# --- every screen honours the setting ----------------------------------------
+#
+# The first pass covered the medicine list, the detail view, the reminder and
+# the low-stock job, and missed the dose-taken confirmation - which is the one
+# screen a user sees several times a day. This scan is what should have caught
+# that, so it runs instead of me remembering.
+
+
+def test_no_user_facing_stock_line_is_written_unconditionally():
+    """Every place that prints a stock count must be behind the setting.
+
+    The exception list is for screens the user asked for on purpose: the
+    inventory centre, the update flow and the stock report. Turning tracking off
+    hides inventory from screens that are about something else, not from the
+    ones that are about inventory.
+    """
+    import re
+    from pathlib import Path
+
+    asked_for_inventory = {
+        "handlers/reports_handler.py",  # the stock report is requested explicitly
+    }
+    # Lines inside the inventory update flow, which is only reachable on purpose.
+    allowed_lines = {
+        ("main.py", "status_msg"),
+        ("handlers/medicine_handler.py", "status_msg"),
+        ("handlers/medicine_handler.py", "עדכון מלאי"),
+        ("handlers/medicine_handler.py", "הוספת כמות למלאי"),
+        ("main.py", "עדכון מלאי"),
+        ("main.py", "מעקב מלאי"),
+        ("utils/inventory.py", "כדורים"),  # the helper itself
+    }
+
+    offenders = []
+    for path in ["main.py", "scheduler.py", "utils/inventory.py"] + [
+        str(p) for p in Path("handlers").glob("*.py")
+    ]:
+        if path in asked_for_inventory:
+            continue
+        for number, line in enumerate(open(path, encoding="utf-8"), 1):
+            if not re.search(r"מלאי נותר|📦 ?<?b?>?מלאי", line):
+                continue
+            if any(path == f and marker in line for f, marker in allowed_lines):
+                continue
+            offenders.append(f"{path}:{number}: {line.strip()[:70]}")
+
+    # Anything left has to sit inside a conditional or be built by the helper.
+    unguarded = []
+    for offender in offenders:
+        path, number, _ = offender.split(":", 2)
+        lines = open(path, encoding="utf-8").read().split("\n")
+        window = "\n".join(lines[max(0, int(number) - 12):int(number)])
+        if not re.search(r"show_inventory|shows_inventory|stock_line|tracks_inventory|stock", window):
+            unguarded.append(offender)
+
+    assert not unguarded, "these print inventory regardless of the setting:\n" + "\n".join(unguarded)
+
+
+@pytest.mark.asyncio
+async def test_the_dose_confirmation_drops_the_stock_line():
+    """The exact screen that was still showing מלאי: 0 after switching off."""
+    from handlers.reminder_handler import reminder_handler
+
+    text = await _confirm_dose_with(reminder_handler, track_inventory=False)
+
+    assert "מלאי נותר" not in text
+    assert "המלאי אפס" not in text
+    assert "נטילת התרופה אושרה" in text
+
+
+@pytest.mark.asyncio
+async def test_the_dose_confirmation_keeps_it_when_tracking_is_on():
+    from handlers.reminder_handler import reminder_handler
+
+    text = await _confirm_dose_with(reminder_handler, track_inventory=True)
+
+    assert "מלאי נותר" in text
+
+
+async def _confirm_dose_with(handler, track_inventory: bool) -> str:
+    """Run one dose confirmation and return the message text."""
+    medicine = MagicMock(id=1, user_id=3, name="ריטלין", dosage='40 מ"ג')
+    medicine.inventory_count = 0
+    medicine.low_stock_threshold = 5
+    user = MagicMock(id=3, telegram_id=99)
+
+    query = MagicMock()
+    query.data = "dose_taken_1"
+    query.from_user = MagicMock(id=99)
+    query.answer = AsyncMock()
+    query.edit_message_text = AsyncMock()
+    update = MagicMock(callback_query=query)
+
+    import database
+
+    with patch.object(
+        database.DatabaseManager, "get_medicine_by_id", AsyncMock(return_value=medicine)
+    ), patch.object(
+        database.DatabaseManager, "get_user_by_telegram_id", AsyncMock(return_value=user)
+    ), patch.object(
+        database.DatabaseManager, "get_user_settings",
+        AsyncMock(return_value=MagicMock(track_inventory=track_inventory)),
+    ), patch.object(
+        database.DatabaseManager, "log_dose_taken", AsyncMock()
+    ), patch.object(
+        database.DatabaseManager, "update_inventory", AsyncMock()
+    ), patch.object(
+        handler, "_notify_caregivers_dose_taken", AsyncMock()
+    ):
+        await handler.handle_dose_taken(update, MagicMock())
+
+    return query.edit_message_text.await_args.args[0]

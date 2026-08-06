@@ -14,6 +14,7 @@ from database import DatabaseManager, DoseLog
 from scheduler import medicine_scheduler
 from utils.time import get_user_timezone_name, now_in_timezone, ensure_aware
 from utils.keyboards import get_reminder_keyboard, get_main_menu_keyboard, get_confirmation_keyboard, get_cancel_keyboard
+from utils.inventory import shows_inventory_for_user, stock_line
 
 logger = logging.getLogger(__name__)
 
@@ -73,21 +74,17 @@ class ReminderHandler:
                 medicine_id=medicine_id, scheduled_time=now_utc, taken_at=now_utc
             )
 
-            # Update inventory (reduce by 1)
+            # The count is still kept up to date whether or not it is shown, so
+            # turning tracking back on does not present a stale number.
             if medicine.inventory_count > 0:
                 new_count = medicine.inventory_count - 1
                 await DatabaseManager.update_inventory(medicine_id, new_count)
-
-                # Check for low stock
-                low_stock_warning = ""
-                if new_count <= medicine.low_stock_threshold:
-                    low_stock_warning = (
-                        f"\n\n{config.EMOJIS['warning']} <b>מלאי נמוך!</b>\nנותרו {new_count} כדורים. כדאי להזמין עוד."
-                    )
-
             else:
                 new_count = 0
-                low_stock_warning = f"\n\n{config.EMOJIS['error']} <b>המלאי אפס!</b> אנא עדכנו את המלאי."
+
+            stock = ""
+            if await shows_inventory_for_user(user):
+                stock = "\n" + stock_line(new_count, medicine.low_stock_threshold)
 
             # Reset reminder attempts for this medicine
             reminder_key = f"{user.id}_{medicine_id}"
@@ -100,8 +97,7 @@ class ReminderHandler:
 
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
 {config.EMOJIS['dosage']} מינון: {medicine.dosage}
-⏰ זמן נטילה: {now_local.strftime('%H:%M')}
-📦 מלאי נותר: {new_count} כדורים{low_stock_warning}
+⏰ זמן נטילה: {now_local.strftime('%H:%M')}{stock}
 
 {config.EMOJIS['info']} התרופה תירשם ביומן הטיפולים שלכם.
             """
@@ -288,12 +284,13 @@ class ReminderHandler:
 
 {config.EMOJIS['medicine']} <b>{medicine.name}</b>
 {config.EMOJIS['dosage']} מינון: {medicine.dosage}
-
-{config.EMOJIS['inventory']} מלאי נותר: {medicine.inventory_count} כדורים
             """
 
-            if medicine.inventory_count <= medicine.low_stock_threshold:
-                message += f"\n{config.EMOJIS['warning']} <b>מלאי נמוך! כדאי להזמין עוד</b>"
+            db_user = await DatabaseManager.get_user_by_telegram_id(update.callback_query.from_user.id)
+            if await shows_inventory_for_user(db_user):
+                message += "\n" + stock_line(
+                    medicine.inventory_count, medicine.low_stock_threshold
+                )
 
             await query.edit_message_text(message, parse_mode="HTML", reply_markup=get_reminder_keyboard(medicine_id))
 
