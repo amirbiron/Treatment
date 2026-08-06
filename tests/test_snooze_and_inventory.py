@@ -6,7 +6,9 @@ the old callback format has to keep working. And turning inventory tracking off
 has to silence the proactive alerts, which are the loudest part of the feature.
 """
 
+import ast
 import importlib
+import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -325,54 +327,87 @@ def test_the_low_stock_alert_sender_does_not_exist():
 # that, so it runs instead of me remembering.
 
 
-def test_no_user_facing_stock_line_is_written_unconditionally():
-    """Every place that prints a stock count must be behind the setting.
+GUARD_NAMES = (
+    "show_inventory",
+    "shows_inventory",
+    "tracks_inventory",
+    "stock_line",
+    # Being inside the inventory flow is itself the guard: the user got here by
+    # typing a stock amount, so confirming it back is what they asked for.
+    "updating_inventory_for",
+    "adding_inventory_for",
+)
 
-    The exception list is for screens the user asked for on purpose: the
-    inventory centre, the update flow and the stock report. Turning tracking off
-    hides inventory from screens that are about something else, not from the
-    ones that are about inventory.
+# Functions that exist only to update stock. Their confirmations are the answer
+# to something the user just did, not incidental noise on another screen.
+INVENTORY_FLOW_FUNCTIONS = {"handle_inventory_update", "handle_custom_inventory"}
+
+# Screens the user opened *to see* inventory. Turning the setting off should hide
+# inventory from screens about something else, not from these.
+INVENTORY_IS_THE_POINT = {
+    "handlers/reports_handler.py",
+}
+STOCK_TEXT = re.compile(r"מלאי נותר|מלאי התחלתי|📦 ?<?b?>?מלאי[: ]")
+
+
+def _guarded_by(node, parents) -> bool:
+    """Whether any enclosing if/ternary tests one of the guard names."""
+    while node is not None:
+        test = getattr(node, "test", None)
+        if test is not None and any(
+            name in ast.dump(test) for name in GUARD_NAMES
+        ):
+            return True
+        node = parents.get(node)
+    return False
+
+
+def test_no_user_facing_stock_line_is_written_unconditionally():
+    """Every place that prints a stock count must sit behind the setting.
+
+    This reads the syntax tree rather than a window of nearby lines: a text
+    window called a line guarded whenever an unrelated guard happened to sit
+    close by, which is how an unguarded line could slip through the very test
+    written to stop that.
     """
-    import re
     from pathlib import Path
 
-    asked_for_inventory = {
-        "handlers/reports_handler.py",  # the stock report is requested explicitly
-    }
-    # Lines inside the inventory update flow, which is only reachable on purpose.
-    allowed_lines = {
-        ("main.py", "status_msg"),
-        ("handlers/medicine_handler.py", "status_msg"),
-        ("handlers/medicine_handler.py", "עדכון מלאי"),
-        ("handlers/medicine_handler.py", "הוספת כמות למלאי"),
-        ("main.py", "עדכון מלאי"),
-        ("main.py", "מעקב מלאי"),
-        ("utils/inventory.py", "כדורים"),  # the helper itself
-    }
-
     offenders = []
-    for path in ["main.py", "scheduler.py", "utils/inventory.py"] + [
+    for path in ["main.py", "scheduler.py"] + sorted(
         str(p) for p in Path("handlers").glob("*.py")
-    ]:
-        if path in asked_for_inventory:
+    ):
+        if path in INVENTORY_IS_THE_POINT:
             continue
-        for number, line in enumerate(open(path, encoding="utf-8"), 1):
-            if not re.search(r"מלאי נותר|📦 ?<?b?>?מלאי", line):
-                continue
-            if any(path == f and marker in line for f, marker in allowed_lines):
-                continue
-            offenders.append(f"{path}:{number}: {line.strip()[:70]}")
+        tree = ast.parse(open(path, encoding="utf-8").read())
+        parents = {}
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                parents[child] = parent
 
-    # Anything left has to sit inside a conditional or be built by the helper.
-    unguarded = []
-    for offender in offenders:
-        path, number, _ = offender.split(":", 2)
-        lines = open(path, encoding="utf-8").read().split("\n")
-        window = "\n".join(lines[max(0, int(number) - 12):int(number)])
-        if not re.search(r"show_inventory|shows_inventory|stock_line|tracks_inventory|stock", window):
-            unguarded.append(offender)
+        in_flow = {
+            line
+            for f in ast.walk(tree)
+            if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and f.name in INVENTORY_FLOW_FUNCTIONS
+            for line in range(f.lineno, (f.end_lineno or f.lineno) + 1)
+        }
 
-    assert not unguarded, "these print inventory regardless of the setting:\n" + "\n".join(unguarded)
+        for node in ast.walk(tree):
+            text = ""
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                text = node.value
+            elif isinstance(node, ast.JoinedStr):
+                text = "".join(
+                    part.value for part in node.values
+                    if isinstance(part, ast.Constant) and isinstance(part.value, str)
+                )
+            if not text or not STOCK_TEXT.search(text):
+                continue
+            if node.lineno in in_flow or _guarded_by(node, parents):
+                continue
+            offenders.append(f"{path}:{node.lineno}: {text.strip()[:60]}")
+
+    assert not offenders, "these print inventory regardless of the setting:\n" + "\n".join(offenders)
 
 
 @pytest.mark.asyncio
@@ -394,6 +429,8 @@ async def test_the_dose_confirmation_keeps_it_when_tracking_is_on():
     text = await _confirm_dose_with(reminder_handler, track_inventory=True)
 
     assert "מלאי נותר" in text
+    # The fixture starts at zero, so the zero-stock warning belongs here too.
+    assert "המלאי אפס" in text
 
 
 async def _confirm_dose_with(handler, track_inventory: bool) -> str:
@@ -429,3 +466,31 @@ async def _confirm_dose_with(handler, track_inventory: bool) -> str:
         await handler.handle_dose_taken(update, MagicMock())
 
     return query.edit_message_text.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_a_dose_on_an_empty_medicine_still_confirms():
+    """The dose is logged before the count is read, so a crash here reports an
+    error for a dose that was actually recorded."""
+    import main as main_module
+
+    medicine = MagicMock(id=1)
+    medicine.inventory_count = 0
+    query = MagicMock()
+    query.data = "dose_taken_1"
+    query.from_user = MagicMock(id=99)
+    query.edit_message_text = AsyncMock()
+    bot = main_module.MedicineReminderBot.__new__(main_module.MedicineReminderBot)
+
+    with patch.object(
+        main_module.DatabaseManager, "get_user_by_telegram_id", AsyncMock(return_value=MagicMock(id=3))
+    ), patch.object(
+        main_module.DatabaseManager, "log_dose_taken", AsyncMock()
+    ), patch.object(
+        main_module.DatabaseManager, "get_medicine_by_id", AsyncMock(return_value=medicine)
+    ), patch.object(
+        main_module, "tracks_inventory", AsyncMock(return_value=True)
+    ):
+        await bot._handle_dose_taken(query, MagicMock())
+
+    assert "אושרה" in query.edit_message_text.await_args.args[0]

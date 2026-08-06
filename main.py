@@ -1081,6 +1081,10 @@ class MedicineReminderBot:
 
         # Update inventory
         medicine = await DatabaseManager.get_medicine_by_id(medicine_id)
+        # Bound before the branch: a medicine already at zero skips the update,
+        # and the confirmation below still reads the count. The dose is logged
+        # by then, so failing here reports an error for a dose that was recorded.
+        new_count = medicine.inventory_count if medicine else 0
         if medicine and medicine.inventory_count > 0:
             new_count = medicine.inventory_count - 1
             await DatabaseManager.update_inventory(medicine_id, new_count)
