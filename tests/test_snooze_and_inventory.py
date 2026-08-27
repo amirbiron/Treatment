@@ -217,7 +217,7 @@ async def _send_reminder_with(track_inventory: bool) -> str:
     ), patch.object(
         scheduler_module.DatabaseManager,
         "get_user_settings",
-        AsyncMock(return_value=MagicMock(track_inventory=track_inventory)),
+        AsyncMock(return_value=MagicMock(track_inventory=track_inventory, silent_mode=False)),
     ):
         await sched._send_medicine_reminder(3, 1)
 
@@ -239,7 +239,7 @@ async def test_turning_it_off_silences_the_unsolicited_alert():
     ), patch.object(
         scheduler_module.DatabaseManager,
         "get_user_settings",
-        AsyncMock(return_value=MagicMock(track_inventory=False)),
+        AsyncMock(return_value=MagicMock(track_inventory=False, silent_mode=False)),
     ), patch.object(
         sched, "_send_low_stock_alert", AsyncMock(), create=True
     ) as alert:
@@ -262,7 +262,7 @@ async def test_the_alert_still_goes_out_for_everyone_else():
     ), patch.object(
         scheduler_module.DatabaseManager,
         "get_user_settings",
-        AsyncMock(return_value=MagicMock(track_inventory=True)),
+        AsyncMock(return_value=MagicMock(track_inventory=True, silent_mode=False)),
     ), patch.object(
         sched, "_send_low_stock_alert", AsyncMock(), create=True
     ) as alert:
@@ -455,7 +455,7 @@ async def _confirm_dose_with(handler, track_inventory: bool) -> str:
         database.DatabaseManager, "get_user_by_telegram_id", AsyncMock(return_value=user)
     ), patch.object(
         database.DatabaseManager, "get_user_settings",
-        AsyncMock(return_value=MagicMock(track_inventory=track_inventory)),
+        AsyncMock(return_value=MagicMock(track_inventory=track_inventory, silent_mode=False)),
     ), patch.object(
         database.DatabaseManager, "log_dose_taken", AsyncMock()
     ), patch.object(

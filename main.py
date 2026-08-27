@@ -1422,11 +1422,13 @@ class MedicineReminderBot:
                 # Show full reminders settings UI
                 user = await DatabaseManager.get_user_by_telegram_id(query.from_user.id)
                 settings = await DatabaseManager.get_user_settings(user.id)
+                from utils.quiet import mute_status_line
+
                 msg = (
                     f"{config.EMOJIS['reminder']} הגדרות תזכורות\n\n"
                     f"דחיית תזכורת: {settings.snooze_minutes} דקות\n"
                     f"מספר ניסיונות תזכורת: {settings.max_attempts}\n"
-                    f"מצב שקט: {'מופעל' if settings.silent_mode else 'כבוי'}\n"
+                    f"{mute_status_line(settings.silent_mode)}\n"
                 )
                 await query.edit_message_text(
                     msg,
@@ -2006,11 +2008,13 @@ class MedicineReminderBot:
                 )
                 return
             # Refresh UI
+            from utils.quiet import mute_status_line
+
             msg = (
                 f"{config.EMOJIS['reminder']} הגדרות תזכורות\n\n"
                 f"דחיית תזכורת: {settings.snooze_minutes} דקות\n"
                 f"מספר ניסיונות תזכורת: {settings.max_attempts}\n"
-                f"מצב שקט: {'מופעל' if settings.silent_mode else 'כבוי'}\n"
+                f"{mute_status_line(settings.silent_mode)}\n"
             )
             await query.edit_message_text(
                 msg,

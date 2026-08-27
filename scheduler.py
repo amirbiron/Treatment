@@ -22,6 +22,7 @@ from types import SimpleNamespace
 
 from database import DatabaseManager, MedicineSchedule, Medicine, User, Appointment
 from utils.inventory import shows_inventory_for_user
+from utils.quiet import reminders_muted_for_db_id, reminders_muted_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +219,13 @@ class MedicineScheduler:
                 logger.info(f"User {user_id} not found or inactive")
                 return
 
+            # Muted means not sent, rather than sent quietly or held back for
+            # later. This is the last check before composing, so nothing about a
+            # muted dose is counted, logged or forwarded to a caregiver.
+            if await reminders_muted_for_user(user):
+                logger.info(f"Reminders are muted for user {user_id}; skipping medicine {medicine_id}")
+                return
+
             # A user who does not count pills should not be told the count on
             # every single reminder - that is the noise the setting exists for.
             show_inventory = await shows_inventory_for_user(user)
@@ -338,6 +346,15 @@ class MedicineScheduler:
                 logger.info(f"User {user_id} not found or inactive")
                 return
 
+            if await reminders_muted_for_user(user):
+                logger.info(f"Reminders are muted for user {user_id}; skipping custom reminder {reminder_id}")
+                # A one-off still has to be retired. Its DateTrigger has already
+                # fired and will never fire again, so leaving it active would
+                # strand it in the user's list looking pending forever.
+                if reminder.repeat == "once":
+                    await DatabaseManager.set_custom_reminder_active(reminder_id, False)
+                return
+
             # HTML with the body escaped, not Markdown: an unescaped "*" or "_" in a
             # user's reminder makes Telegram reject the whole message, and a reminder
             # that fails to send is a reminder the user never gets.
@@ -384,6 +401,14 @@ class MedicineScheduler:
     async def _send_snoozed_reminder(self, user_id: int, medicine_id: int):
         """Send snoozed reminder to user"""
         try:
+            # Checked before the attempt count, not after. Letting a muted snooze
+            # fall through would spend an attempt on a message nobody receives,
+            # and the last one would wake a caregiver at 3am to report a dose the
+            # user was never asked about.
+            if await reminders_muted_for_db_id(user_id):
+                logger.info(f"Reminders are muted for user {user_id}; dropping snooze for medicine {medicine_id}")
+                return
+
             reminder_key = f"{user_id}_{medicine_id}"
             attempts = self.reminder_attempts.get(reminder_key, 0)
 
@@ -493,6 +518,11 @@ class MedicineScheduler:
                 # the feature, so it is the first thing the setting silences.
                 owner = SimpleNamespace(id=medicine.user_id)
                 if not await shows_inventory_for_user(owner):
+                    continue
+                # This check runs on a six-hour interval anchored to startup, so
+                # it lands at whatever hour the process happened to boot - which
+                # is exactly the kind of unsolicited 4am ping muting is for.
+                if await reminders_muted_for_user(owner):
                     continue
                 await self._send_low_stock_alert(medicine)
         except Exception as e:
