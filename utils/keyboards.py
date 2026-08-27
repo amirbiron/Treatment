@@ -325,10 +325,22 @@ def get_reminders_settings_keyboard(current_snooze: int, current_attempts: int, 
             InlineKeyboardButton("-1", callback_data="rattempts_-1"),
             InlineKeyboardButton("+1", callback_data="rattempts_+1"),
         ],
-        [InlineKeyboardButton(f"מצב שקט: {'מופעל' if silent else 'כבוי'}", callback_data="rsilent_toggle")],
+        [mute_toggle_button(silent)],
         [InlineKeyboardButton(f"{config.EMOJIS['back']} חזור", callback_data="reminders_menu")],
     ]
     return InlineKeyboardMarkup(keyboard)
+
+
+def mute_toggle_button(muted: bool) -> InlineKeyboardButton:
+    """The mute toggle, built in one place so every screen offers the same one.
+
+    It appears both in the reminders settings and on the reminders screen itself,
+    which is two taps from the main menu - the point of the button is to be
+    reachable at bedtime without hunting through menus.
+    """
+    from utils.quiet import mute_button_label
+
+    return InlineKeyboardButton(mute_button_label(muted), callback_data="rsilent_toggle")
 
 
 def get_inventory_main_keyboard() -> InlineKeyboardMarkup:

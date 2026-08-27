@@ -13,8 +13,15 @@ from config import config
 from database import DatabaseManager, DoseLog
 from scheduler import medicine_scheduler
 from utils.time import get_user_timezone_name, now_in_timezone, ensure_aware
-from utils.keyboards import get_reminder_keyboard, get_main_menu_keyboard, get_confirmation_keyboard, get_cancel_keyboard
+from utils.keyboards import (
+    get_reminder_keyboard,
+    get_main_menu_keyboard,
+    get_confirmation_keyboard,
+    get_cancel_keyboard,
+    mute_toggle_button,
+)
 from utils.inventory import shows_inventory_for_user, stock_line
+from utils.quiet import mute_status_line, reminders_muted_for_telegram_id
 
 logger = logging.getLogger(__name__)
 
@@ -350,6 +357,7 @@ class ReminderHandler:
         """Show next scheduled reminders"""
         try:
             user_id = update.effective_user.id
+            muted = await reminders_muted_for_telegram_id(user_id)
 
             # Jobs are keyed by the database user id, not the Telegram id. Passing
             # the Telegram id here matched nothing, so the list always came back
@@ -373,6 +381,7 @@ class ReminderHandler:
                     rows.append([InlineKeyboardButton("הוסף שעה לתרופה", callback_data="rem_pick_medicine_for_time")])
                 rows.append([InlineKeyboardButton("➕ תזכורת אישית", callback_data="crem_add")])
                 rows.append([InlineKeyboardButton("📋 התזכורות האישיות שלי", callback_data="crem_menu")])
+                rows.append([mute_toggle_button(muted)])
                 rows.append(
                     [InlineKeyboardButton(f"{config.EMOJIS['reminder']} הגדרות תזכורות", callback_data="settings_reminders")]
                 )
@@ -419,13 +428,23 @@ class ReminderHandler:
                     message += f"\n{config.EMOJIS['info']} ועוד {len(jobs) - shown} תזכורות..."
                 kb_rows.append([InlineKeyboardButton("➕ תזכורת אישית", callback_data="crem_add")])
                 kb_rows.append([InlineKeyboardButton("📋 התזכורות האישיות שלי", callback_data="crem_menu")])
+                kb_rows.append([mute_toggle_button(muted)])
                 kb_rows.append([InlineKeyboardButton(f"{config.EMOJIS['back']} חזור לתפריט", callback_data="main_menu")])
                 kb = InlineKeyboardMarkup(kb_rows)
-            await update.message.reply_text(message, parse_mode="Markdown", reply_markup=kb)
+
+            # Above the list, not below it: a muted bot will not send any of the
+            # times listed here, and reading that after the schedule invites the
+            # obvious misunderstanding.
+            if muted:
+                message = f"{mute_status_line(True)}\n\n{message.lstrip()}"
+
+            # Reached from the reply keyboard as a message, and from the "חזור"
+            # button as a callback - where update.message is None.
+            await update.effective_message.reply_text(message, parse_mode="Markdown", reply_markup=kb)
 
         except Exception as e:
             logger.error(f"Error showing next reminders: {e}")
-            await update.message.reply_text(f"{config.EMOJIS['error']} שגיאה בהצגת התזכורות")
+            await update.effective_message.reply_text(f"{config.EMOJIS['error']} שגיאה בהצגת התזכורות")
 
     async def show_missed_doses(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show missed doses from the last 7 days"""

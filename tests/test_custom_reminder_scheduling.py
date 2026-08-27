@@ -26,6 +26,22 @@ def sched():
     return MedicineScheduler()
 
 
+@pytest.fixture(autouse=True)
+def not_muted():
+    """Delivery now checks whether the user muted reminders.
+
+    The mute helper resolves DatabaseManager through its own import, so patching
+    the name in the scheduler's namespace does not reach it - without this it
+    would open a real database session. Muting itself is covered in
+    test_quiet_mode.py; these tests are about scheduling and retirement.
+    """
+    with patch(
+        "database.DatabaseManager.get_user_settings",
+        AsyncMock(return_value=MagicMock(silent_mode=False)),
+    ):
+        yield
+
+
 @pytest.fixture
 def no_db_user():
     """The scheduler looks the user up for their timezone; None falls back to the default."""

@@ -18,6 +18,22 @@ import pytest
 import pytest_asyncio
 
 notes_module = importlib.import_module("handlers.notes_handler")
+
+
+@pytest.fixture(autouse=True)
+def not_muted():
+    """Delivery checks the user's mute setting before composing anything.
+
+    The helper resolves DatabaseManager through its own import, so patching the
+    name in the scheduler's namespace does not reach it - without this, these
+    tests would open a real database session. Muting is covered in
+    test_quiet_mode.py; these tests are about ownership and escaping.
+    """
+    with patch(
+        "database.DatabaseManager.get_user_settings",
+        AsyncMock(return_value=MagicMock(silent_mode=False)),
+    ):
+        yield
 reminder_module = importlib.import_module("handlers.custom_reminder_handler")
 
 from handlers.custom_reminder_handler import CustomReminderHandler  # noqa: E402
